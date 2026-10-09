@@ -1,0 +1,32 @@
+* {
+    box-sizing: border-box;
+}
+
+:root {
+    --pulse-purple: #552583;
+    --pulse-orange: #f28e22;
+
+    --pulse-bg: #f8fafc;
+    --pulse-surface: #ffffff;
+
+    --pulse-border: #e5e7eb;
+
+    --pulse-text: #111827;
+    --pulse-text-secondary: #374151;
+    --pulse-text-muted: #6b7280;
+
+    --pulse-purple-soft: #f4eff8;
+}
+
+html,
+body,
+#root {
+    margin: 0;
+    min-height: 100%;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: var(--pulse-bg);
+    color: var(--pulse-text);
+}
