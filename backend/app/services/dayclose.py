@@ -12,6 +12,9 @@ from . import inventory, notify
 
 
 def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
+    """Unresolved items. ``due`` is False for activity that hasn't started yet today."""
+    now = now_local()
+    now_min = minute_of(now, d)
     items = []
     for b in db.scalars(select(Booking).where(Booking.venue_id == venue_id, Booking.date == d,
                                               Booking.status == "confirmed").order_by(Booking.start_min)):
@@ -19,19 +22,23 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
         tag = f"{b.source.title()} {hhmm(b.start_min)}–{hhmm(b.end_min)} · {who.name or who.phone}"
         if b.attendance == "pending":
             what = "court not assigned / arrival not recorded" if b.facility_id is None else "attendance not recorded"
-            items.append({"type": "booking_attendance", "ref_id": b.id, "message": f"{tag}: {what}"})
+            items.append({"type": "booking_attendance", "ref_id": b.id, "message": f"{tag}: {what}",
+                          "due": now_min >= b.start_min})
         if b.payment_status in ("to_collect", "overdue") and b.attendance != "no_show":
             state = "payment overdue — collect or cancel" if b.payment_status == "overdue" else "payment not recorded"
-            items.append({"type": "booking_payment", "ref_id": b.id, "message": f"{tag}: {state}"})
+            items.append({"type": "booking_payment", "ref_id": b.id, "message": f"{tag}: {state}",
+                          "due": now_min >= b.start_min})
     for g in db.scalars(select(CommunityGame).where(CommunityGame.venue_id == venue_id, CommunityGame.date == d,
                                                     CommunityGame.status == "scheduled")):
         for p in g.participants:
             c = db.get(Customer, p.customer_id)
             tag = f"{g.title} {hhmm(g.start_min)} · {c.name or c.phone}"
             if p.attendance == "added":
-                items.append({"type": "participant_attendance", "ref_id": p.id, "message": f"{tag}: attendance not recorded"})
+                items.append({"type": "participant_attendance", "ref_id": p.id, "game_id": g.id, "message": f"{tag}: attendance not recorded",
+                              "due": now_min >= g.start_min})
             elif p.attendance == "attended" and p.payment_status != "paid":
-                items.append({"type": "participant_payment", "ref_id": p.id, "message": f"{tag}: payment not recorded"})
+                items.append({"type": "participant_payment", "ref_id": p.id, "game_id": g.id, "message": f"{tag}: payment not recorded",
+                              "due": True})
     return items
 
 

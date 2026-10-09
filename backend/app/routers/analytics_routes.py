@@ -36,10 +36,13 @@ def portfolio(date: date | None = None, user: User = Depends(require_hq), db: Se
     is_today = d == today()
     cutoff = analytics.now_cutoff(d)
     total = analytics.daily_series(db, ids, d, d).get(d)
+    now_total = analytics.daily_series(db, ids, d, d, cutoff).get(d) if is_today else None
     per_venue = analytics.raw_days(db, ids, d, d)
+    per_venue_now = analytics.raw_days(db, ids, d, d, cutoff) if is_today else per_venue
     rows = []
     for v in venues:
-        m = analytics.finalize(analytics.combine([per_venue[(v.id, d)]] if (v.id, d) in per_venue else []))
+        src = per_venue_now if is_today else per_venue
+        m = analytics.finalize(analytics.combine([src[(v.id, d)]] if (v.id, d) in src else []))
         cmp_ = analytics.comparisons(db, [v.id], d, ["net_revenue", "occupancy", "total_activity"],
                                      cutoff if is_today else None)
         rows.append({"venue": {"id": v.id, "name": v.name, "code": v.code, "location": v.location},
@@ -55,6 +58,7 @@ def portfolio(date: date | None = None, user: User = Depends(require_hq), db: Se
         "date": d, "is_today": is_today, "comparison_mode": "intraday" if is_today else "full_day",
         "cutoff_label": hhmm(cutoff) if cutoff is not None else None,
         "metrics": _slim(total) if total else None,
+        "metrics_now": _slim(now_total) if is_today and now_total else None,
         "comparisons": analytics.comparisons(db, ids, d, DAY_METRICS, cutoff if is_today else None),
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89)),
         "repeat_lifetime": analytics.repeat_rate(db, d),

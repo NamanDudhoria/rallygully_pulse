@@ -8,3 +8,7 @@ node_modules/
 frontend/dist/
 .env
 ~$*
+backend/inbox/*
+!backend/inbox/.gitkeep
+backend/*.db-shm
+backend/*.db-wal

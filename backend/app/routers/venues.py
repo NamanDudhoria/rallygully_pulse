@@ -60,7 +60,7 @@ def intraday_curve(db: Session, venue_ids: list[int], d: date, hours: tuple[int,
     hist = [series[x] for x in (d - timedelta(days=7 * i) for i in range(1, 5))
             if x in series and series[x]["operational_units"] > 0]
     cur = series.get(d)
-    marks = list(range(hours[0] + 60, hours[1] + 1, 60))
+    marks = [hours[0]] + list(range(hours[0] + 60, hours[1] + 1, 60))
     if marks and marks[-1] != hours[1]:
         marks.append(hours[1])
 
@@ -101,6 +101,8 @@ def venue_day(venue_id: int, date: date | None = None, user: User = Depends(curr
         "now_min": minute_of(now, d) if is_today else None,
         "hours": {"open_min": hours[0], "close_min": hours[1]} if hours else None,
         "metrics": full,
+        # Today: everything up to now, so headline numbers match their same-time-of-day baselines.
+        "metrics_now": analytics.daily_series(db, [venue_id], d, d, cutoff).get(d) if is_today and hours else None,
         "comparison_mode": "intraday" if is_today else "full_day",
         "comparisons": analytics.comparisons(db, [venue_id], d, DAY_METRICS, cutoff if is_today else None),
         "intraday": intraday_curve(db, [venue_id], d, hours),

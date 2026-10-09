@@ -1,22 +1,14 @@
 """Acceptance criteria (PRD §74) exercised through the HTTP API on an isolated database."""
-import os
-import tempfile
 from datetime import date, datetime, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 
-_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-os.environ["PULSE_DATABASE_URL"] = f"sqlite:///{_db.name}"
-os.environ["PULSE_RUN_SCHEDULER"] = "0"
-os.environ["PULSE_DISTRICT_INBOX_DIR"] = tempfile.mkdtemp()
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from app import timeutil  # noqa: E402
-from app.auth import hash_password  # noqa: E402
-from app.db import Base, SessionLocal, engine  # noqa: E402
-from app.main import app  # noqa: E402
-from app.models import Facility, PricingRule, User, Venue, VmAssignment, WeeklyHours  # noqa: E402
+from app import timeutil
+from app.auth import hash_password
+from app.db import Base, SessionLocal, engine
+from app.main import app
+from app.models import Facility, PricingRule, User, Venue, VmAssignment, WeeklyHours
 
 DAY = date(2026, 10, 7)  # a Wednesday
 

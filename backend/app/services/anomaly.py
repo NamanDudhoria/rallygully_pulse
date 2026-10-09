@@ -18,6 +18,7 @@ from . import analytics
 from .analytics import METRICS
 
 Z_THRESHOLD = 3.5
+LIVE_CHECKS = ("net_revenue", "occupancy", "total_activity")
 
 CHECKS = {
     # metric: (label, format, min_abs_change)
@@ -70,6 +71,8 @@ def detect(db: Session, venue_id: int, venue_name: str, d: date, cutoff_min: int
     if not cur or cur["operational_units"] == 0:
         return {"venue_id": venue_id, "venue": venue_name, "date": d.isoformat(), "findings": [], "insufficient": []}
     for metric, (label, fmt, min_abs) in CHECKS.items():
+        if cutoff_min is not None and metric not in LIVE_CHECKS:
+            continue  # ratios on a partial day are too noisy to call anomalous
         f = METRICS[metric]
         x = f(cur)
         if x is None:

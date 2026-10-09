@@ -369,14 +369,21 @@ def run(reset: bool) -> None:
                         if source == "direct":
                             take(v.id, f.id, d, slot, end, source, b.id, active=False,
                                  released=begin + timedelta(minutes=30))
-                    elif d == today and not over and R.random() < .35:
-                        # live: arrived & on court, maybe not yet paid
-                        b.facility_id = b.original_facility_id = f.id
-                        b.assigned_at = begin - timedelta(minutes=R.randint(0, 10))
-                        b.attendance = "attended"
-                        take(v.id, f.id, d, slot, end, source, b.id)
                     elif d == today and not over:
-                        if source == "direct":
+                        # Live: most arrivals are already recorded; a few are still pending.
+                        if begin + timedelta(minutes=10) <= now and R.random() < .85:
+                            b.facility_id = b.original_facility_id = f.id
+                            b.assigned_at = begin - timedelta(minutes=R.randint(0, 10))
+                            b.attendance = "attended"
+                            take(v.id, f.id, d, slot, end, source, b.id)
+                            if not prepaid and R.random() < .6:
+                                method = R.choices(["cash", "upi", "card"], [5, 6, 1])[0]
+                                b.payment_status, b.payment_method, b.collected_amount = "paid", method, value
+                                payments.append(Payment(source_type="booking", source_id=b.id, venue_id=v.id,
+                                                        activity_date=d, amount=value, method=method,
+                                                        actor_id=vm_ids[v.id],
+                                                        collected_at=min(now, begin + timedelta(minutes=5))))
+                        elif source == "direct":
                             b.facility_id = b.original_facility_id = f.id
                             take(v.id, f.id, d, slot, end, source, b.id)
                         else:
