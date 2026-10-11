@@ -96,9 +96,7 @@ def venue_day(venue_id: int, date: date | None = None, user: User = Depends(curr
     db.commit()
     hours = inventory.hours_for(db, venue_id, d)
     now = now_local()
-    cutoff = analytics.now_cutoff(d)
-    if hours and cutoff is not None:
-        cutoff = max(min(cutoff, hours[1]), hours[0])
+    cutoff = analytics.now_cutoff(d)  # unclamped: same key as the portfolio, so the warmed cache is shared
     full = analytics.daily_series(db, [venue_id], d, d).get(d)
     trend = analytics.daily_series(db, [venue_id], d - timedelta(days=29), d)
     acts = _activities(db, venue_id, d)

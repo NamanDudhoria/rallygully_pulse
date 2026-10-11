@@ -10,8 +10,9 @@ const DEMO = [
   ['hq@rallygully.com', 'HQ', 'Operations, config, roster'],
   ['community@rallygully.com', 'Community Ops', 'Games + analytics'],
   ['academy@rallygully.com', 'Academy', 'Academy + analytics'],
-  ['vm.eok@rallygully.com', 'Venue Manager', 'Rostered at EOK today'],
-  ['vm.eok.b@rallygully.com', 'Venue Manager', 'Weekend shifts only'],
+  ['gaurav@rallygully.com', 'Gaurav · VM', 'Delhi venues'],
+  ['govind@rallygully.com', 'Govind · VM', 'Gurgaon venues'],
+  ['mohit@rallygully.com', 'Mohit · VM', 'Noida & Pune venues'],
 ]
 
 export default function Login() {

@@ -31,32 +31,52 @@ FIRST = ["Aarav", "Vivaan", "Aditya", "Vihaan", "Arjun", "Sai", "Reyansh", "Ayaa
 LAST = ["Sharma", "Verma", "Gupta", "Mehta", "Kapoor", "Malhotra", "Singh", "Chopra", "Bansal", "Agarwal", "Jain",
         "Khanna", "Arora", "Bhatia", "Sethi", "Nair", "Iyer", "Reddy", "Rao", "Das", "Bose", "Saxena", "Mittal"]
 
-VENUES = [
-    {"code": "EOK", "name": "RallyGully East of Kailash", "location": "East of Kailash, New Delhi",
-     "hours": {0: (17, 23), 1: (17, 23), 2: (17, 23), 3: (17, 23), 4: (17, 23), 5: (8, 23), 6: (8, 22)},
-     "facilities": [("Court 1", "Court", "Pickleball"), ("Court 2", "Court", "Pickleball"), ("Court 3", "Court", "Padel")],
-     "base": 0.62, "growth": 0.10},
-    {"code": "SKT", "name": "RallyGully Saket", "location": "Saket, New Delhi",
-     "hours": {d: (6, 22) for d in range(5)} | {5: (6, 23), 6: (6, 23)},
-     "facilities": [("Court A", "Court", "Badminton"), ("Court B", "Court", "Badminton"), ("Court C", "Court", "Badminton"),
-                    ("Court D", "Court", "Badminton"), ("Court E", "Court", "Pickleball")],
-     "base": 0.48, "growth": 0.18},
-    {"code": "GGN", "name": "RallyGully Gurugram 54", "location": "Sector 54, Gurugram",
-     "hours": {d: (6, 23) for d in range(7)},
-     "facilities": [("Turf 1", "Turf", "Football 6v6"), ("Turf 2", "Turf", "Football 6v6"), ("Box", "Turf", "Box Cricket")],
-     "base": 0.42, "growth": 0.05},
+# Venues from "List of Venues for Academies.xlsx" (code, name, school, city, pickleball, padel, turf).
+# The sheet has no hours, prices or demand; those below are labelled placeholders for the demo.
+SHEET = [
+    ("DW10", "Sector 10 Dwarka", "Venkateshwar International School", "Delhi", 4, 0, 0),
+    ("GG83", "Sector 83 Gurgaon", None, "Gurgaon", 4, 0, 1),
+    ("EOK", "East of Kailash", "Tagore International School", "Delhi", 3, 0, 0),
+    ("DW19", "Sector 19 Dwarka", "OPG World Global School", "Delhi", 3, 0, 0),
+    ("LCR", "LCR Pune", None, "Pune", 4, 0, 1),
+    ("DPSG", "DPSG Palam Vihar", "DPSG Palam Vihar", "Gurgaon", 4, 0, 0),
+    ("PSP", "Panchsheel Park", "The Pinnacle School", "Delhi", 5, 0, 0),
+    ("BNR", "Baner Pune", None, "Pune", 5, 2, 1),
+    ("NOI49", "Noida Sector 49", "The SD Vidya School", "Noida", 7, 1, 1),
+    ("CCS", "Capital Cyberscape", None, "Gurgaon", 4, 1, 0),
+    ("S83", "Sec 83 Turf & Padel", None, "Gurgaon", 0, 2, 1),
 ]
+# Placeholder hours: school venues open after school on weekdays; standalone venues open all day.
+SCHOOL_HOURS = {d: (16, 23) for d in range(5)} | {5: (7, 23), 6: (7, 23)}
+OPEN_HOURS = {d: (6, 23) for d in range(7)}
+# VM clusters (each VM covers their cluster's venues).
+CLUSTERS = {"Gaurav": ["DW10", "DW19", "EOK", "PSP"],
+            "Govind": ["GG83", "DPSG", "CCS", "S83"],
+            "Mohit": ["NOI49", "LCR", "BNR"]}
+
+
+def _venues() -> list[dict]:
+    out = []
+    for i, (code, name, school, city, pb, padel, turf) in enumerate(SHEET):
+        facs = ([(f"Pickleball {n}", "Court", "Pickleball") for n in range(1, pb + 1)]
+                + [(f"Padel {n}", "Court", "Padel") for n in range(1, padel + 1)]
+                + [(f"Turf {n}" if turf > 1 else "Turf", "Turf", "Football") for n in range(1, turf + 1)])
+        out.append({"code": code, "name": f"RallyGully {name}", "school": school,
+                    "location": f"{school}, {city}" if school else city,
+                    "hours": SCHOOL_HOURS if school else OPEN_HOURS, "facilities": facs,
+                    "base": 0.40 + (i * 7 % 11) / 40, "growth": 0.04 + (i * 3 % 5) / 25})
+    return out
+
+
+VENUES = _venues()
 
 # (sport, weekdays, start_h, end_h, 60-min price, 30-min price)
 PRICES = [
     ("Pickleball", "01234", 6, 17, 600, 350), ("Pickleball", "01234", 17, 24, 800, 450),
     ("Pickleball", "56", 6, 24, 900, 500),
     ("Padel", "01234", 6, 24, 1600, 900), ("Padel", "56", 6, 24, 1800, 1000),
-    ("Badminton", "01234", 6, 17, 400, 220), ("Badminton", "01234", 17, 24, 500, 280),
-    ("Badminton", "56", 6, 24, 550, 300),
-    ("Football 6v6", "01234", 6, 18, 1500, 800), ("Football 6v6", "01234", 18, 24, 2200, 1200),
-    ("Football 6v6", "56", 6, 24, 2400, 1300),
-    ("Box Cricket", "0123456", 6, 24, 1400, 750),
+    ("Football", "01234", 6, 18, 1500, 800), ("Football", "01234", 18, 24, 2200, 1200),
+    ("Football", "56", 6, 24, 2400, 1300),
 ]
 
 
@@ -123,24 +143,18 @@ def run(reset: bool) -> None:
         db.add(User(name=name, email=email, password_hash=pw, role=role))
     # An invited teammate who hasn't set a password yet (shows the invite flow).
     db.add(User(name="Neha Gupta", email="neha@rallygully.com", password_hash=None, role="community"))
-    # Two VMs per venue plus a floater who covers Saket and Gurugram.
-    teams = {"EOK": [("Rohit Malhotra", "vm.eok"), ("Kavya Sharma", "vm.eok.b")],
-             "SKT": [("Priya Nair", "vm.skt"), ("Dev Arora", "vm.skt.b")],
-             "GGN": [("Aman Bhatia", "vm.ggn"), ("Ishaan Jain", "vm.ggn.b")]}
+    # VMs: one per cluster, on the venue team for every venue in their cluster.
     by_code = {spec["code"]: v for v, spec in venues}
-    vm_team: dict[int, list[int]] = {}
-    for code, members in teams.items():
-        for name, handle in members:
-            u = User(name=name, email=f"{handle}@rallygully.com", password_hash=pw, role="vm")
-            u.venues = [VmAssignment(venue_id=by_code[code].id)]
-            db.add(u)
-            db.flush()
-            vm_team.setdefault(by_code[code].id, []).append(u.id)
-    floater = User(name="Arjun Rao", email="vm.float@rallygully.com", password_hash=pw, role="vm")
-    floater.venues = [VmAssignment(venue_id=by_code["SKT"].id), VmAssignment(venue_id=by_code["GGN"].id)]
-    db.add(floater)
-    db.flush()
-    vm_ids = {vid: ids[0] for vid, ids in vm_team.items()}  # primary VM per venue
+    vm_ids: dict[int, int] = {}
+    vm_users = {}
+    for name, codes in CLUSTERS.items():
+        u = User(name=name, email=f"{name.lower()}@rallygully.com", password_hash=pw, role="vm")
+        u.venues = [VmAssignment(venue_id=by_code[c].id) for c in codes]
+        db.add(u)
+        db.flush()
+        vm_users[name] = u
+        for c in codes:
+            vm_ids[by_code[c].id] = u.id
 
     # ── customers (heavy-tailed repeat behaviour) ──
     pool = []
@@ -168,12 +182,15 @@ def run(reset: bool) -> None:
     # ── recurring academy series (materialized occurrences) ──
     academy_specs = []
     for v, spec in venues:
-        if spec["code"] == "SKT":
-            academy_specs.append((v, "Shuttle Stars Academy", [facs[v.id][2].id, facs[v.id][3].id], "01234", 6 * 60, 8 * 60, 1200))
-        if spec["code"] == "GGN":
-            academy_specs.append((v, "Kickstart Football Academy", [facs[v.id][1].id], "56", 7 * 60, 9 * 60, 3000))
-        if spec["code"] == "EOK":
-            academy_specs.append((v, "Pickle Pros Juniors", [facs[v.id][0].id], "5", 8 * 60, 10 * 60, 1400))
+        pb = [f.id for f in facs[v.id] if f.sport == "Pickleball"]
+        if spec["school"] and len(pb) >= 2:
+            # After-school academy at every school venue.
+            academy_specs.append((v, f"{spec['school']} Pickleball Academy", pb[:2], "024", 16 * 60, 18 * 60, 2400))
+        elif pb:
+            academy_specs.append((v, "Weekend Pickle Pros", pb[:1], "56", 8 * 60, 10 * 60, 1400))
+        turf = [f.id for f in facs[v.id] if f.sport == "Football"]
+        if turf:
+            academy_specs.append((v, "Kickstart Football Academy", turf[:1], "56", 7 * 60, 9 * 60, 3000))
     series_rows = []
     for v, name, fids, wds, s, e, val in academy_specs:
         sr = AcademySeries(venue_id=v.id, name=name, facility_ids=fids, recurring=True, weekdays=wds,
@@ -235,17 +252,19 @@ def run(reset: bool) -> None:
             trend = 1 + spec["growth"] * offset / HISTORY_DAYS
             day_noise = R.gauss(1, .08)
 
-            # Anomaly demo: EOK pickleball demand collapsed yesterday (Court 2 mostly empty).
+            # Anomaly demo: EOK pickleball demand collapsed yesterday (one court mostly empty).
             eok_dip = spec["code"] == "EOK" and d == today - timedelta(days=1)
 
             # Community games
             game_slots = []
-            if spec["code"] == "EOK" and d.weekday() in (1, 3):
-                game_slots.append(("Pickleball Social — Intermediate", "Pickleball", [0, 1], 19 * 60, 21 * 60, 16, 400))
-            if spec["code"] == "SKT" and d.weekday() == 5:
-                game_slots.append(("Saturday Smash", "Badminton", [0, 1], 7 * 60, 9 * 60, 12, 300))
-            if spec["code"] == "GGN" and d.weekday() == 2:
-                game_slots.append(("Wednesday 6v6 Night", "Football 6v6", [0], 20 * 60, 22 * 60, 14, 350))
+            sports_idx = {sp: [i for i, f in enumerate(facs[v.id]) if f.sport == sp] for sp in ("Pickleball", "Padel", "Football")}
+            if len(sports_idx["Pickleball"]) >= 3 and d.weekday() in (1, 3):
+                game_slots.append(("Pickleball Social — Intermediate", "Pickleball", sports_idx["Pickleball"][-2:],
+                                   19 * 60, 21 * 60, 16, 400))
+            if sports_idx["Padel"] and d.weekday() == 4:
+                game_slots.append(("Friday Padel Mixer", "Padel", sports_idx["Padel"][:1], 20 * 60, 22 * 60, 8, 600))
+            if sports_idx["Football"] and d.weekday() == 2:
+                game_slots.append(("Wednesday Football Night", "Football", sports_idx["Football"][:1], 20 * 60, 22 * 60, 14, 350))
             for title, sport, idx, s, e, cap, fee in game_slots:
                 fids = [facs[v.id][i].id for i in idx]
                 if not all(free(f, d, s, e) for f in fids):
@@ -284,8 +303,8 @@ def run(reset: bool) -> None:
                                                 activity_date=d, amount=fee, method=p.payment_method,
                                                 collected_at=at_minute(d, s) + timedelta(minutes=R.randint(0, 40))))
 
-            # Corporate events (occasional, weekends at GGN / EOK)
-            if not is_future and R.random() < (.08 if spec["code"] == "GGN" else .03) and weekend:
+            # Corporate events (occasional, weekends; likelier at turf venues)
+            if not is_future and R.random() < (.08 if any(f.sport == "Football" for f in facs[v.id]) else .03) and weekend:
                 s, e = 16 * 60, 19 * 60
                 fids = [facs[v.id][0].id, facs[v.id][1].id]
                 if all(free(f, d, s, e) for f in fids):
@@ -320,7 +339,7 @@ def run(reset: bool) -> None:
                 while slot < c_min:
                     p = spec["base"] * demand_curve(slot // 60, weekend) * trend * day_noise / .62
                     if eok_dip and f.sport == "Pickleball":
-                        p *= .2 if f.name == "Court 2" else .55
+                        p *= .2 if f.name == "Pickleball 2" else .55
                     if is_future:
                         p *= .45 * max(0, 1 - (d - today).days / 8)
                     duration = 30 if R.random() < .12 or slot + 60 > c_min else 60
@@ -419,7 +438,7 @@ def run(reset: bool) -> None:
                         take(v.id, f.id, d, slot, end, source, b.id)
                         if not prepaid:
                             method = R.choices(["cash", "upi", "card"], [5, 6, 1])[0]
-                            if spec["code"] == "SKT" and d == today - timedelta(days=1):
+                            if spec["code"] == "DW10" and d == today - timedelta(days=1):
                                 method = "cash"  # anomaly demo: cash-heavy day
                             b.payment_status, b.payment_method, b.collected_amount = "paid", method, value
                             payments.append(Payment(source_type="booking", source_id=b.id, venue_id=v.id, activity_date=d,
@@ -449,22 +468,14 @@ def run(reset: bool) -> None:
                 db.add(DayClose(venue_id=v.id, date=d, status="closed", closed_by=vm_ids[v.id],
                                 closed_at=at_minute(d, 23 * 60 + R.randint(0, 25))))
 
-    # Roster: primary VM on weekdays, second VM on weekends, floater on Mondays at GGN; plus a
-    # second VM on busy Saturday evenings at EOK. Gurugram is deliberately unrostered tomorrow so
-    # the evening gap alert has something to report. Today: the primary VM is on at every venue.
+    # Roster: each cluster VM is on at all their venues every day. Sec 83 Turf & Padel is deliberately
+    # unrostered tomorrow so the evening "no VM rostered" alert has something to report.
     for offset in range(HISTORY_DAYS + 8):
         d = start + timedelta(days=offset)
         for v, spec in venues:
-            if d == today + timedelta(days=1) and spec["code"] == "GGN":
+            if d == today + timedelta(days=1) and spec["code"] == "S83":
                 continue
-            primary, second = vm_team[v.id]
-            on = [primary] if d.weekday() < 5 or d == today else [second]
-            if spec["code"] == "GGN" and d.weekday() == 0 and d != today:
-                on = [floater.id]
-            if spec["code"] == "EOK" and d.weekday() == 5:
-                on = [primary, second]
-            for uid in on:
-                db.add(VmRoster(venue_id=v.id, user_id=uid, date=d))
+            db.add(VmRoster(venue_id=v.id, user_id=vm_ids[v.id], date=d))
 
     for b in bookings[-40:]:
         db.add(Notification(channel="whatsapp", recipient=db.get(Customer, b.customer_id).phone, template="booking_created",
@@ -477,8 +488,8 @@ def run(reset: bool) -> None:
     _prune_unused(db)
     print(f"Seeded {len(venues)} venues, {len(bookings)} bookings, {len(allocs)} allocations, "
           f"{len(payments)} payments over {HISTORY_DAYS} days.")
-    print("Logins (password pulse1234): admin@ (HQ Admin), hq@, community@, academy@, "
-          "vm.eok@ / vm.skt@ / vm.ggn@ (on today's roster), vm.eok.b@ etc. — all @rallygully.com")
+    print("Logins (password pulse1234, all @rallygully.com): admin (HQ Admin), hq, community, academy, "
+          "gaurav (Delhi VM), govind (Gurgaon VM), mohit (Noida & Pune VM)")
 
 
 def _prune_unused(db: Session) -> None:
