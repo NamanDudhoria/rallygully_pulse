@@ -36,5 +36,10 @@ SMTP_USER = os.getenv("PULSE_SMTP_USER")
 SMTP_PASSWORD = os.getenv("PULSE_SMTP_PASSWORD")
 OPS_EMAIL = os.getenv("PULSE_OPS_EMAIL", "ops@rallygully.com")
 
+# Public URL of the app, used in invite / reset links.
+APP_URL = os.getenv("PULSE_APP_URL", "http://localhost:8000")
+# Evening-before check for venues with no VM rostered for tomorrow (IST minute of day).
+ROSTER_ALERT_MIN = int(os.getenv("PULSE_ROSTER_ALERT_MIN", str(20 * 60)))
+
 RUN_SCHEDULER = os.getenv("PULSE_RUN_SCHEDULER", "1") == "1"
 CORS_ORIGINS = os.getenv("PULSE_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")

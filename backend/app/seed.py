@@ -16,7 +16,7 @@ from .auth import hash_password
 from .db import Base, SessionLocal, engine
 from .models import (AcademyOccurrence, AcademyReconciliation, AcademySeries, Allocation, Booking, CommunityGame,
                      CorporateEvent, Customer, DayClose, Facility, Notification, OperationalBlock, Participant,
-                     Payment, PricingRule, Refund, User, Venue, VmAssignment, WeeklyHours)
+                     Payment, PricingRule, Refund, User, Venue, VmAssignment, VmRoster, WeeklyHours)
 from .services.pricing import PriceBook
 from .timeutil import at_minute, minute_of, now_local
 
@@ -116,15 +116,31 @@ def run(reset: bool) -> None:
     db.flush()
 
     pw = hash_password("pulse1234")
-    db.add(User(name="HQ Operations", email="hq@rallygully.com", password_hash=pw, role="hq"))
-    vm_names = {"EOK": "Rohit Malhotra", "SKT": "Priya Nair", "GGN": "Aman Bhatia"}
-    for v, spec in venues:
-        u = User(name=vm_names[spec["code"]], email=f"vm.{spec['code'].lower()}@rallygully.com", password_hash=pw, role="vm")
-        u.venues = [VmAssignment(venue_id=v.id)]
-        db.add(u)
+    for name, email, role in [("Naman Dudhoria", "admin@rallygully.com", "hq_admin"),
+                              ("HQ Operations", "hq@rallygully.com", "hq"),
+                              ("Community Ops", "community@rallygully.com", "community"),
+                              ("Academy Team", "academy@rallygully.com", "academy")]:
+        db.add(User(name=name, email=email, password_hash=pw, role=role))
+    # An invited teammate who hasn't set a password yet (shows the invite flow).
+    db.add(User(name="Neha Gupta", email="neha@rallygully.com", password_hash=None, role="community"))
+    # Two VMs per venue plus a floater who covers Saket and Gurugram.
+    teams = {"EOK": [("Rohit Malhotra", "vm.eok"), ("Kavya Sharma", "vm.eok.b")],
+             "SKT": [("Priya Nair", "vm.skt"), ("Dev Arora", "vm.skt.b")],
+             "GGN": [("Aman Bhatia", "vm.ggn"), ("Ishaan Jain", "vm.ggn.b")]}
+    by_code = {spec["code"]: v for v, spec in venues}
+    vm_team: dict[int, list[int]] = {}
+    for code, members in teams.items():
+        for name, handle in members:
+            u = User(name=name, email=f"{handle}@rallygully.com", password_hash=pw, role="vm")
+            u.venues = [VmAssignment(venue_id=by_code[code].id)]
+            db.add(u)
+            db.flush()
+            vm_team.setdefault(by_code[code].id, []).append(u.id)
+    floater = User(name="Arjun Rao", email="vm.float@rallygully.com", password_hash=pw, role="vm")
+    floater.venues = [VmAssignment(venue_id=by_code["SKT"].id), VmAssignment(venue_id=by_code["GGN"].id)]
+    db.add(floater)
     db.flush()
-    vm_ids = {v.id: db.query(User).filter(User.email == f"vm.{spec['code'].lower()}@rallygully.com").one().id
-              for v, spec in venues}
+    vm_ids = {vid: ids[0] for vid, ids in vm_team.items()}  # primary VM per venue
 
     # ── customers (heavy-tailed repeat behaviour) ──
     pool = []
@@ -433,6 +449,23 @@ def run(reset: bool) -> None:
                 db.add(DayClose(venue_id=v.id, date=d, status="closed", closed_by=vm_ids[v.id],
                                 closed_at=at_minute(d, 23 * 60 + R.randint(0, 25))))
 
+    # Roster: primary VM on weekdays, second VM on weekends, floater on Mondays at GGN; plus a
+    # second VM on busy Saturday evenings at EOK. Gurugram is deliberately unrostered tomorrow so
+    # the evening gap alert has something to report. Today: the primary VM is on at every venue.
+    for offset in range(HISTORY_DAYS + 8):
+        d = start + timedelta(days=offset)
+        for v, spec in venues:
+            if d == today + timedelta(days=1) and spec["code"] == "GGN":
+                continue
+            primary, second = vm_team[v.id]
+            on = [primary] if d.weekday() < 5 or d == today else [second]
+            if spec["code"] == "GGN" and d.weekday() == 0 and d != today:
+                on = [floater.id]
+            if spec["code"] == "EOK" and d.weekday() == 5:
+                on = [primary, second]
+            for uid in on:
+                db.add(VmRoster(venue_id=v.id, user_id=uid, date=d))
+
     for b in bookings[-40:]:
         db.add(Notification(channel="whatsapp", recipient=db.get(Customer, b.customer_id).phone, template="booking_created",
                             body="Your RallyGully booking is confirmed. Join the community: " + LINK.format("community"),
@@ -444,7 +477,8 @@ def run(reset: bool) -> None:
     _prune_unused(db)
     print(f"Seeded {len(venues)} venues, {len(bookings)} bookings, {len(allocs)} allocations, "
           f"{len(payments)} payments over {HISTORY_DAYS} days.")
-    print("Logins (password pulse1234): hq@rallygully.com, vm.eok@rallygully.com, vm.skt@rallygully.com, vm.ggn@rallygully.com")
+    print("Logins (password pulse1234): admin@ (HQ Admin), hq@, community@, academy@, "
+          "vm.eok@ / vm.skt@ / vm.ggn@ (on today's roster), vm.eok.b@ etc. — all @rallygully.com")
 
 
 def _prune_unused(db: Session) -> None:

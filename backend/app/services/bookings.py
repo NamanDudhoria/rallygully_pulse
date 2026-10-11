@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import audit, config
 from ..audit import DomainError
+from ..permissions import is_hq
 from ..models import Allocation, AllocationKind, Booking, Facility, Payment, Refund, User, Venue
 from ..timeutil import at_minute, hhmm, minute_of, now_local, today
 from . import customers, inventory, notify
@@ -41,7 +42,7 @@ def _snapshot(b: Booking) -> dict:
 
 
 def _is_hq(actor: User | None) -> bool:
-    return actor is None or actor.role == "hq"
+    return is_hq(actor)
 
 
 def _require_not_cancelled(b: Booking) -> None:

@@ -18,7 +18,8 @@ function useReasons() {
 
 /** District/Direct booking: court assignment, attendance, payment, cancellation, refunds. */
 export function BookingDrawer({ id, onClose, onChanged }) {
-  const { isHQ } = useAuth()
+  const { isHQ, can } = useAuth()
+  const operate = can('venue.operate')
   const { data: b, reload } = useApi(`/api/bookings/${id}`)
   const reasons = useReasons()
   const [run, busy] = useAction()
@@ -29,7 +30,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
   const [windowEnd, setWindowEnd] = useState('')
   const [amount, setAmount] = useState('')
   const [refund, setRefund] = useState({ amount: '', reason: '' })
-  const free = useApi(b && b.status === 'confirmed'
+  const free = useApi(b && b.status === 'confirmed' && operate
     ? `/api/venues/${b.venue_id}/free?date=${b.date}&start=${hhmm(b.start_min)}&end=${hhmm(b.end_min)}` : null).data
 
   const act = async (fn, msg) => {
@@ -39,7 +40,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
   }
   if (!b) return <Drawer open onClose={onClose} title="Booking"><p className="subtle">Loading…</p></Drawer>
 
-  const live = b.status === 'confirmed'
+  const live = b.status === 'confirmed' && operate // view-only roles see details, not actions
   const unpaid = live && ['to_collect', 'overdue'].includes(b.payment_status) && b.attendance !== 'no_show'
   const sameSport = (free || []).filter((f) => !b.sport || b.source === 'district' && !b.facility_id || f.sport === b.sport)
 
@@ -47,7 +48,8 @@ export function BookingDrawer({ id, onClose, onChanged }) {
     <Drawer open onClose={onClose} width={500}
       title={<span className="row" style={{ gap: 10 }}><KindLabel kind={b.source} />{b.customer.name || phoneFmt(b.customer.phone)}</span>}
       subtitle={`${range12(b.start_min, b.end_min)} · ${b.date}${b.external_ref ? ` · ${b.external_ref}` : ''}`}>
-      <div className="row">{attendBadge(b)}{live && b.attendance !== 'no_show' && payBadge(b.payment_status)}</div>
+      <div className="row">{attendBadge(b)}{b.status === 'confirmed' && b.attendance !== 'no_show' && payBadge(b.payment_status)}</div>
+      {!operate && <div className="callout info">View-only: your role can see this booking but not change it.</div>}
 
       <dl className="kv">
         <dt>Customer</dt><dd>{b.customer.name || <span className="subtle">Name not captured</span>} · {phoneFmt(b.customer.phone)}</dd>
@@ -358,7 +360,9 @@ export function BlockDrawer({ venue, date, facilityId, start, blockId, onClose, 
 
 /** Community Game: on-ground participants, levels, attendance, payment. */
 export function GameDrawer({ id, onClose, onChanged }) {
-  const { isHQ } = useAuth()
+  const { can } = useAuth()
+  const manage = can('community.manage')
+  const operate = manage || can('venue.operate')
   const { data: g, reload } = useApi(`/api/community-games/${id}`)
   const reasons = useReasons()
   const [run, busy] = useAction()
@@ -399,7 +403,7 @@ export function GameDrawer({ id, onClose, onChanged }) {
         <Badge tone="brand">{money(stats.collected)} collected</Badge>
       </div>
 
-      {open && (
+      {open && operate && (
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()
           const r = await act(() => post(`/api/community-games/${g.id}/participants`, add), 'Participant added · WhatsApp link sent')
@@ -426,7 +430,7 @@ export function GameDrawer({ id, onClose, onChanged }) {
       <section>
         <div className="spread" style={{ marginBottom: 8 }}>
           <div className="section-title" style={{ margin: 0 }}>Participants</div>
-          <Seg value={method} onChange={setMethod} options={METHODS} label="Payment method for Paid" />
+          {operate && <Seg value={method} onChange={setMethod} options={METHODS} label="Payment method for Paid" />}
         </div>
         {g.participants.length === 0 ? <p className="subtle">No one recorded yet.</p> : (
           <div className="list">
@@ -436,6 +440,12 @@ export function GameDrawer({ id, onClose, onChanged }) {
                   <div className="title">{p.name || phoneFmt(p.phone)}</div>
                   <div className="meta">{phoneFmt(p.phone)} · {p.level}</div>
                 </div>
+                {!operate ? (
+                  <>
+                    {p.attendance === 'attended' ? <Badge tone="good">In</Badge> : p.attendance === 'no_show' ? <Badge tone="bad">No-show</Badge> : <Badge>Added</Badge>}
+                    {payBadge(p.payment_status)}
+                  </>
+                ) : (<>
                 <Seg value={p.attendance} label={`Attendance for ${p.name}`}
                   onChange={(v) => act(() => patch(`/api/participants/${p.id}`, { attendance: v }))}
                   options={[{ value: 'attended', label: 'In' }, { value: 'no_show', label: 'No-show' }]} />
@@ -452,13 +462,14 @@ export function GameDrawer({ id, onClose, onChanged }) {
                 {p.payment_status !== 'paid' && (
                   <button className="btn btn-sm btn-ghost btn-icon" aria-label={`Remove ${p.name}`} onClick={() => act(() => del(`/api/participants/${p.id}`), 'Removed')}><Trash2 /></button>
                 )}
+                </>)}
               </div>
             ))}
           </div>
         )}
       </section>
 
-      {isHQ && g.state === 'upcoming' && (
+      {manage && g.state === 'upcoming' && (
         <section>
           <div className="section-title">Cancel game (before start)</div>
           <div className="form">
@@ -479,7 +490,8 @@ export function GameDrawer({ id, onClose, onChanged }) {
 
 /** Read-only details for HQ-managed allocations (Academy, Corporate). */
 export function AllocationInfoDrawer({ cell, onClose }) {
-  const { isHQ } = useAuth()
+  const { can } = useAuth()
+  const isHQ = can(cell.kind === 'academy' ? 'academy.manage' : 'events.manage')
   return (
     <Drawer open onClose={onClose} title={<KindLabel kind={cell.kind}>{cell.title}</KindLabel>} subtitle={`${cell.time}`}>
       <dl className="kv">

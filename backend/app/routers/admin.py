@@ -7,10 +7,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import audit, serialize
-from ..auth import current_user, hash_password, require_hq
+from ..auth import current_user
+from ..permissions import require
 from ..db import get_db
 from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Facility, IngestionRun, Notification,
-                      Participant, PricingRule, SpecialDate, User, Venue, VmAssignment, WeeklyHours)
+                      Participant, PricingRule, SpecialDate, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
 from ..services import district
 from ..timeutil import hhmm
@@ -69,7 +70,7 @@ def _check_hours(o: int, c: int):
 
 
 @router.post("/venues")
-def create_venue(body: VenueIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     v = Venue(code=body.code.strip().upper(), name=body.name.strip(), location=body.location, status=body.status)
     db.add(v)
     db.flush()
@@ -82,7 +83,7 @@ def create_venue(body: VenueIn, user: User = Depends(require_hq), db: Session = 
 
 
 @router.put("/venues/{venue_id}")
-def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     v = get_or_404(db, Venue, venue_id)
     before = serialize.venue(v)
     v.code, v.name, v.location, v.status = body.code.strip().upper(), body.name.strip(), body.location, body.status
@@ -92,7 +93,7 @@ def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require_hq),
 
 
 @router.put("/venues/{venue_id}/hours")
-def set_hours(venue_id: int, body: list[HoursIn], user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def set_hours(venue_id: int, body: list[HoursIn], user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     v = get_or_404(db, Venue, venue_id)
     for h in body:
         o, c = minutes(h.open), minutes(h.close)
@@ -110,14 +111,14 @@ def set_hours(venue_id: int, body: list[HoursIn], user: User = Depends(require_h
 
 
 @router.get("/venues/{venue_id}/special-dates")
-def list_special(venue_id: int, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def list_special(venue_id: int, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     rows = db.scalars(select(SpecialDate).where(SpecialDate.venue_id == venue_id).order_by(SpecialDate.date.desc()))
     return [{"id": s.id, "date": s.date, "open_min": s.open_min, "close_min": s.close_min, "closed": s.closed,
              "note": s.note} for s in rows]
 
 
 @router.post("/venues/{venue_id}/special-dates")
-def add_special(venue_id: int, body: SpecialIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def add_special(venue_id: int, body: SpecialIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     get_or_404(db, Venue, venue_id)
     o, c = minutes(body.open), minutes(body.close)
     if not body.closed:
@@ -133,7 +134,7 @@ def add_special(venue_id: int, body: SpecialIn, user: User = Depends(require_hq)
 
 
 @router.delete("/special-dates/{sid}")
-def del_special(sid: int, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def del_special(sid: int, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     s = get_or_404(db, SpecialDate, sid)
     audit.record(db, user, "venue.special_date_delete", "venue", s.venue_id, {"date": s.date}, None, s.venue_id)
     db.delete(s)
@@ -142,7 +143,7 @@ def del_special(sid: int, user: User = Depends(require_hq), db: Session = Depend
 
 
 @router.post("/facilities")
-def create_facility(body: FacilityIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def create_facility(body: FacilityIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     get_or_404(db, Venue, body.venue_id)
     f = Facility(**body.model_dump())
     db.add(f)
@@ -153,7 +154,7 @@ def create_facility(body: FacilityIn, user: User = Depends(require_hq), db: Sess
 
 
 @router.put("/facilities/{fid}")
-def update_facility(fid: int, body: FacilityIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def update_facility(fid: int, body: FacilityIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     f = get_or_404(db, Facility, fid)
     before = serialize.facility(f)
     for k, v in body.model_dump().items():
@@ -165,7 +166,7 @@ def update_facility(fid: int, body: FacilityIn, user: User = Depends(require_hq)
 
 
 @router.get("/pricing")
-def list_pricing(venue_id: int | None = None, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def list_pricing(venue_id: int | None = None, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     q = select(PricingRule).order_by(PricingRule.venue_id, PricingRule.effective_from.desc(), PricingRule.start_min)
     if venue_id:
         q = q.where(PricingRule.venue_id == venue_id)
@@ -176,7 +177,7 @@ def list_pricing(venue_id: int | None = None, user: User = Depends(require_hq), 
 
 
 @router.post("/pricing")
-def add_pricing(body: PriceIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def add_pricing(body: PriceIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     """New rules never alter existing bookings; set effective_from to schedule a change."""
     if body.duration_min not in (30, 60):
         raise HTTPException(422, "Duration must be 30 or 60 minutes.")
@@ -193,53 +194,6 @@ def add_pricing(body: PriceIn, user: User = Depends(require_hq), db: Session = D
     return {"id": r.id}
 
 
-# ── Users & VM assignment ────────────────────────────────────────────────────
-class UserIn(BaseModel):
-    name: str
-    email: str
-    role: str
-    password: str | None = None
-    venue_ids: list[int] = []
-    active: bool = True
-
-
-@router.get("/users")
-def list_users(user: User = Depends(require_hq), db: Session = Depends(get_db)):
-    return [serialize.user(u) for u in db.scalars(select(User).order_by(User.role, User.name))]
-
-
-@router.post("/users")
-def create_user(body: UserIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
-    if body.role not in ("hq", "vm"):
-        raise HTTPException(422, "Role must be hq or vm")
-    if not body.password or len(body.password) < 8:
-        raise HTTPException(422, "Password must be at least 8 characters")
-    if db.scalar(select(User).where(func.lower(User.email) == body.email.lower())):
-        raise HTTPException(409, "Email already in use")
-    u = User(name=body.name, email=body.email.lower(), role=body.role, password_hash=hash_password(body.password))
-    u.venues = [VmAssignment(venue_id=v) for v in body.venue_ids] if body.role == "vm" else []
-    db.add(u)
-    db.flush()
-    audit.record(db, user, "user.create", "user", u.id, None, {"email": u.email, "role": u.role, "venues": body.venue_ids})
-    db.commit()
-    return serialize.user(u)
-
-
-@router.put("/users/{uid}")
-def update_user(uid: int, body: UserIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
-    u = get_or_404(db, User, uid)
-    before = serialize.user(u)
-    u.name, u.role, u.active = body.name, body.role, body.active
-    if body.password:
-        if len(body.password) < 8:
-            raise HTTPException(422, "Password must be at least 8 characters")
-        u.password_hash = hash_password(body.password)
-    u.venues = [VmAssignment(user_id=u.id, venue_id=v) for v in body.venue_ids] if body.role == "vm" else []
-    audit.record(db, user, "user.update", "user", u.id, before, serialize.user(u))
-    db.commit()
-    return serialize.user(u)
-
-
 # ── Customers ────────────────────────────────────────────────────────────────
 @router.get("/customers/lookup")
 def lookup(phone: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -252,7 +206,7 @@ def lookup(phone: str, user: User = Depends(current_user), db: Session = Depends
 
 
 @router.get("/customers")
-def list_customers(q: str | None = None, limit: int = 100, user: User = Depends(require_hq),
+def list_customers(q: str | None = None, limit: int = 100, user: User = Depends(require("customers.view")),
                    db: Session = Depends(get_db)):
     query = select(Customer)
     if q:
@@ -274,7 +228,7 @@ def list_customers(q: str | None = None, limit: int = 100, user: User = Depends(
 
 
 @router.get("/customers/{cid}")
-def customer_detail(cid: int, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def customer_detail(cid: int, user: User = Depends(require("customers.view")), db: Session = Depends(get_db)):
     c = get_or_404(db, Customer, cid)
     history = []
     for b in db.scalars(select(Booking).where(Booking.customer_id == cid).order_by(Booking.date.desc())):
@@ -299,7 +253,7 @@ def customer_detail(cid: int, user: User = Depends(require_hq), db: Session = De
 # ── Audit & system ───────────────────────────────────────────────────────────
 @router.get("/audit")
 def audit_log(entity: str | None = None, entity_id: int | None = None, venue_id: int | None = None,
-              action: str | None = None, limit: int = 200, user: User = Depends(require_hq),
+              action: str | None = None, limit: int = 200, user: User = Depends(require("audit.view")),
               db: Session = Depends(get_db)):
     q = select(AuditEvent).order_by(AuditEvent.id.desc())
     if entity:
@@ -316,7 +270,7 @@ def audit_log(entity: str | None = None, entity_id: int | None = None, venue_id:
 
 
 @router.get("/system/notifications")
-def notifications(channel: str | None = None, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def notifications(channel: str | None = None, user: User = Depends(require("system.view")), db: Session = Depends(get_db)):
     q = select(Notification).order_by(Notification.id.desc())
     if channel:
         q = q.where(Notification.channel == channel)
@@ -326,14 +280,14 @@ def notifications(channel: str | None = None, user: User = Depends(require_hq), 
 
 
 @router.get("/system/ingestion")
-def ingestion_runs(user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def ingestion_runs(user: User = Depends(require("system.view")), db: Session = Depends(get_db)):
     return [{"id": r.id, "source": r.source, "started_at": r.started_at, "finished_at": r.finished_at,
              "messages": r.messages, "created": r.created, "duplicates": r.duplicates, "errors": r.errors}
             for r in db.scalars(select(IngestionRun).order_by(IngestionRun.id.desc()).limit(50))]
 
 
 @router.post("/system/district/run")
-def run_district(user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def run_district(user: User = Depends(require("system.view")), db: Session = Depends(get_db)):
     r = district.run_ingestion(db)
     return {"id": r.id, "messages": r.messages, "created": r.created, "duplicates": r.duplicates, "errors": r.errors}
 
@@ -343,7 +297,7 @@ class RawEmail(BaseModel):
 
 
 @router.post("/system/district/simulate")
-def simulate_district(body: RawEmail, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def simulate_district(body: RawEmail, user: User = Depends(require("system.view")), db: Session = Depends(get_db)):
     """Feed one District email through the real parser + idempotent ingestion."""
     try:
         result, bid = district.ingest_raw(db, body.raw)
@@ -354,7 +308,7 @@ def simulate_district(body: RawEmail, user: User = Depends(require_hq), db: Sess
 
 
 @router.get("/system/day-closes")
-def day_closes(user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def day_closes(user: User = Depends(require("system.view")), db: Session = Depends(get_db)):
     return [{"id": d.id, "venue_id": d.venue_id, "date": d.date, "status": d.status, "closed_at": d.closed_at,
              "missing_items": d.missing_items, "escalated_at": d.escalated_at}
             for d in db.scalars(select(DayClose).order_by(DayClose.date.desc()).limit(200))]

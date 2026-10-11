@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit
+from ..permissions import is_hq
 from ..audit import DomainError
 from ..models import (AcademyOccurrence, AcademyReconciliation, AcademySeries, AllocationKind, CorporateEvent,
                       Facility, OperationalBlock, Payment, User)
@@ -165,7 +166,7 @@ def create_block(db: Session, actor: User, *, venue_id: int, facility_id: int, d
         raise DomainError("Choose a block reason.", 422)
     if reason == "other" and not (note or "").strip():
         raise DomainError("Add a note for 'Other'.", 422)
-    if actor.role != "hq" and d < today():
+    if not is_hq(actor) and d < today():
         raise DomainError("Venue Managers can only block today or later.")
     blk = OperationalBlock(venue_id=venue_id, facility_id=facility_id, date=d, start_min=start_min, end_min=end_min,
                            reason=reason, note=(note or "").strip() or None, created_by=actor.id)

@@ -19,7 +19,15 @@ export function AuthProvider({ children }) {
     return r.user
   }, [])
   const logout = useCallback(() => { setToken(null); setUser(null) }, [])
-  const value = useMemo(() => ({ user, login, logout, isHQ: user?.role === 'hq' }), [user, login, logout])
+  /** Adopt a session returned by set-password / change-password. */
+  const adopt = useCallback((r) => { setToken(r.token); setUser(r.user) }, [])
+  const refresh = useCallback(() => api('/api/auth/me').then(setUser).catch(() => {}), [])
+  const value = useMemo(() => {
+    const perms = new Set(user?.permissions || [])
+    const can = (...p) => p.some((x) => perms.has(x))
+    // isHQ = HQ-level authority over operational records (corrections, refunds, past dates).
+    return { user, login, logout, adopt, refresh, can, isHQ: perms.has('corrections') }
+  }, [user, login, logout, adopt, refresh])
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
 }
 

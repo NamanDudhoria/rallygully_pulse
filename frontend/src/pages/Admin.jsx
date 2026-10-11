@@ -79,11 +79,10 @@ export function ConfigPage() {
     <div className="stack rise">
       <div className="page-head"><div><h1>Configuration</h1><p>Venues, facilities, operating hours, special dates, pricing and people.</p></div></div>
       <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' }, { value: 'users', label: 'People & access' },
+        { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' },
       ]} />
       {tab === 'venues' && <VenuesConfig />}
       {tab === 'pricing' && <PricingConfig />}
-      {tab === 'users' && <UsersConfig />}
     </div>
   )
 }
@@ -261,57 +260,6 @@ function PricingConfig() {
           </form>
         </div>
       </div>
-    </div>
-  )
-}
-
-function UsersConfig() {
-  const { data, reload } = useApi('/api/users')
-  const venues = useApi('/api/venues').data || []
-  const [edit, setEdit] = useState(null)
-  const [run, busy] = useAction()
-  return (
-    <div className="card">
-      <div className="card-head"><h2>People</h2><button className="btn btn-sm" onClick={() => setEdit({ name: '', email: '', role: 'vm', password: '', venue_ids: [], active: true })}><Plus /> Add person</button></div>
-      <div className="card-body table-wrap">
-        <table className="table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Venues</th><th>Status</th></tr></thead>
-          <tbody>{(data || []).map((u) => (
-            <tr key={u.id} className="clickable" onClick={() => setEdit({ ...u, password: '' })}>
-              <td style={{ fontWeight: 500 }}>{u.name}</td><td>{u.email}</td>
-              <td>{u.role === 'hq' ? <Badge tone="brand">HQ</Badge> : <Badge>Venue Manager</Badge>}</td>
-              <td>{u.role === 'hq' ? 'All' : u.venue_ids.map((id) => venues.find((v) => v.id === id)?.code).join(', ')}</td>
-              <td>{u.active ? <Badge tone="good">Active</Badge> : <Badge>Disabled</Badge>}</td>
-            </tr>))}
-          </tbody>
-        </table>
-      </div>
-      {edit && (
-        <Drawer open onClose={() => setEdit(null)} title={edit.id ? 'Edit person' : 'Add person'}>
-          {(close) => (
-            <form className="form" onSubmit={async (e) => {
-              e.preventDefault()
-              const r = await run(() => (edit.id ? put(`/api/users/${edit.id}`, edit) : post('/api/users', edit)), 'Saved')
-              if (r) { reload(); close() }
-            }}>
-              <Field label="Name"><input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></Field>
-              <Field label="Email"><input className="input" type="email" value={edit.email} disabled={!!edit.id} onChange={(e) => setEdit({ ...edit, email: e.target.value })} required /></Field>
-              <Field label="Role"><select className="select" value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}><option value="vm">Venue Manager</option><option value="hq">HQ (full access)</option></select></Field>
-              {edit.role === 'vm' && (
-                <fieldset className="field" style={{ border: 0, padding: 0 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Assigned venues</span>
-                  {venues.map((v) => (
-                    <label key={v.id} className="check"><input type="checkbox" checked={edit.venue_ids.includes(v.id)} onChange={(e) => setEdit({ ...edit, venue_ids: e.target.checked ? [...edit.venue_ids, v.id] : edit.venue_ids.filter((x) => x !== v.id) })} />{v.name}</label>
-                  ))}
-                </fieldset>
-              )}
-              <Field label={edit.id ? 'New password (optional)' : 'Password'} help="At least 8 characters"><input className="input" type="password" value={edit.password} onChange={(e) => setEdit({ ...edit, password: e.target.value })} required={!edit.id} /></Field>
-              {edit.id && <label className="check"><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} /> Active</label>}
-              <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn btn-primary" disabled={busy}>Save</button></div>
-            </form>
-          )}
-        </Drawer>
-      )}
     </div>
   )
 }

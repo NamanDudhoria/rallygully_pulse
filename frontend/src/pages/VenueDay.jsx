@@ -2,12 +2,12 @@ import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, CalendarRange, CheckCircle2, ClipboardCheck, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
-  MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX,
+  MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
 import { useApi, useLocalState } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
-import { KIND, KINDS, METHOD, hours, money, moneyShort, num, pct, range12, time12, todayISO } from '../lib/format'
+import { KIND, KINDS, METHOD, hours, money, moneyShort, num, pct, range12, shortDate, time12, todayISO } from '../lib/format'
 import { Badge, Delta, Empty, ErrorState, Kpi, KindLabel, PageSkeleton, Seg, Tabs } from '../components/ui'
 import { ChannelMix, LineChart } from '../components/charts'
 import DateNav from '../components/DateNav'
@@ -27,9 +27,11 @@ export default function VenueDay() {
   const [drawer, setDrawer] = useState(null)
   const refresh = () => { day.reload(); grid.reload() }
 
+  if (day.error && day.error.status === 403) return <NoAccess message={day.error.message} />
   if (day.error && !day.data) return <ErrorState error={day.error} onRetry={day.reload} />
   if (!day.data) return <PageSkeleton />
   const d = day.data
+  const canOperate = d.can_operate
   const acts = d.activities
   const attention = needsAttention(d)
   const openItem = (kind, ref) => {
@@ -46,6 +48,10 @@ export default function VenueDay() {
           <p className="row" style={{ gap: 10 }}>
             <span>{d.hours ? `Open ${range12(d.hours.open_min, d.hours.close_min)}` : 'Closed on this date'}</span>
             {closeBadge(d.day_close.status)}
+            {d.day_close.rostered?.length > 0
+              ? <Badge icon={UserCheck}>On duty: {d.day_close.rostered.join(', ')}</Badge>
+              : d.hours && <Badge tone="warn" icon={UserX}>No VM rostered</Badge>}
+            {!canOperate && <Badge tone="info" icon={Eye}>View only</Badge>}
           </p>
         </div>
         <div className="row">
@@ -63,7 +69,7 @@ export default function VenueDay() {
 
       {tab === 'summary' && <Summary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />}
       {tab === 'grid' && (
-        <GridTab d={d} grid={grid.data} onFree={(f, m) => setDrawer({ type: 'direct', facilityId: f.id, start: m })}
+        <GridTab d={d} grid={grid.data} canOperate={canOperate} onFree={(f, m) => setDrawer({ type: 'direct', facilityId: f.id, start: m })}
           onBlock={() => setDrawer({ type: 'block' })}
           onOpen={(c) => {
             if (c.kind === 'block') setDrawer({ type: 'block', blockId: c.ref_id })
@@ -75,7 +81,7 @@ export default function VenueDay() {
       )}
       {tab === 'activity' && <ActivityTab d={d} onOpen={openItem} attention={attention} />}
       {tab === 'community' && <CommunityTab d={d} onOpen={(g) => setDrawer({ type: 'game', id: g.id })} />}
-      {tab === 'close' && <CloseTab d={d} date={date} onOpen={openItem} onClosed={refresh} />}
+      {tab === 'close' && <CloseTab d={d} date={date} canOperate={canOperate} onOpen={openItem} onClosed={refresh} />}
 
       {drawer?.type === 'booking' && <BookingDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
       {drawer?.type === 'game' && <GameDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
@@ -291,19 +297,20 @@ function ComparisonTable({ c }) {
   )
 }
 
-function GridTab({ d, grid, onFree, onOpen, onBlock, onAssign }) {
+function GridTab({ d, grid, canOperate, onFree, onOpen, onBlock, onAssign }) {
   const { isHQ } = useAuth()
   if (!grid) return <PageSkeleton />
   const past = d.date < todayISO()
+  const readOnly = !canOperate || (past && !isHQ)
   return (
     <div className="stack">
       <div className="spread">
         <GridLegend />
-        <div className="row">
+        {canOperate && <div className="row">
           <button className="btn" onClick={onBlock}><Ban /> Block facility</button>
           {d.hours && <button className="btn btn-primary" disabled={past && !isHQ}
             onClick={() => onFree(grid.facilities[0], d.now_min != null ? Math.max(d.hours.open_min, Math.ceil(d.now_min / 30) * 30) : d.hours.open_min)}><Plus /> Direct booking</button>}
-        </div>
+        </div>}
       </div>
       {grid.unassigned_district.length > 0 && (
         <div className="card card-pad">
@@ -320,8 +327,8 @@ function GridTab({ d, grid, onFree, onOpen, onBlock, onAssign }) {
           </div>
         </div>
       )}
-      <AvailabilityGrid grid={grid} onFree={onFree} onOpen={onOpen} readOnly={past && !isHQ} />
-      <p className="subtle" style={{ fontSize: 12.5 }}>Tap any free slot to create a Direct booking. Availability is derived from operating hours and live allocations.</p>
+      <AvailabilityGrid grid={grid} onFree={onFree} onOpen={onOpen} readOnly={readOnly} />
+      <p className="subtle" style={{ fontSize: 12.5 }}>{readOnly ? 'View only. ' : 'Tap any free slot to create a Direct booking. '}Availability is derived from operating hours and live allocations.</p>
     </div>
   )
 }
@@ -397,7 +404,7 @@ function CommunityTab({ d, onOpen }) {
   )
 }
 
-function CloseTab({ d, date, onOpen, onClosed }) {
+function CloseTab({ d, date, canOperate, onOpen, onClosed }) {
   const [run, busy] = useAction()
   const st = d.day_close
   const done = st.status === 'closed' || st.status === 'closed_late'
@@ -424,7 +431,7 @@ function CloseTab({ d, date, onOpen, onClosed }) {
               </>
             ) : <div className="callout good"><CheckCircle2 />All bookings, payments and Community attendance are resolved.</div>
           )}
-          {!done && st.operating && (
+          {!done && st.operating && canOperate && (
             <div>
               <button className="btn btn-primary" disabled={!st.can_close || busy}
                 onClick={async () => { if (await run(() => post(`/api/venues/${d.venue.id}/close?date=${date}`), 'Day closed')) onClosed() }}>
@@ -450,3 +457,30 @@ function CloseTab({ d, date, onOpen, onClosed }) {
   )
 }
 
+
+/** Shown when a VM opens a venue/date they aren't rostered for (or any role without access). */
+function NoAccess({ message }) {
+  const { user } = useAuth()
+  const today = todayISO()
+  const upcoming = (user?.roster || []).filter((r) => r.date >= today)
+  return (
+    <div className="card card-pad stack rise" style={{ maxWidth: 560 }}>
+      <div className="row"><CalendarX2 size={20} color="var(--warn)" aria-hidden /><h2>No access for this day</h2></div>
+      <p className="muted">{message}</p>
+      {upcoming.length > 0 && (
+        <div>
+          <div className="section-title">Your roster</div>
+          <div className="list">
+            {upcoming.map((r) => (
+              <Link key={`${r.venue_id}-${r.date}`} className="list-item" style={{ textDecoration: 'none' }}
+                to={`/venues/${r.venue_id}${r.date === today ? '' : `?date=${r.date}`}`}>
+                <span className="grow"><span className="title">{r.venue.replace('RallyGully ', '')}</span></span>
+                <span className="subtle">{r.date === today ? 'Today' : shortDate(r.date)}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

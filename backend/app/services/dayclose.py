@@ -8,7 +8,7 @@ from .. import audit, config
 from ..audit import DomainError
 from ..models import Booking, CommunityGame, Customer, DayClose, Participant, User, Venue
 from ..timeutil import hhmm, minute_of, now_local
-from . import inventory, notify
+from . import inventory, notify, roster
 
 
 def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
@@ -56,6 +56,7 @@ def status(db: Session, venue_id: int, d: date) -> dict:
         "missed_items": dc.missing_items if dc and dc.status in ("missed", "closed_late") else None,
         "missing": items, "can_close": not items and hours is not None and (not dc or dc.status == "missed"),
         "deadline": hhmm(config.DAY_CLOSE_DEADLINE_MIN),
+        "rostered": roster.names_for(db, venue_id, d),
     }
 
 
@@ -106,8 +107,10 @@ def escalate_missed(db: Session) -> int:
             db.add(dc)
             db.flush()
             body = "\n".join(f"• {i['message']}" for i in items)
+            on_duty = ", ".join(roster.names_for(db, v.id, d)) or "nobody was rostered"
             notify.email(db, config.OPS_EMAIL, f"[Pulse] Missed day close — {v.name}, {d.strftime('%a %d %b %Y')}",
-                         f"{v.name} was not closed by the {hhmm(config.DAY_CLOSE_DEADLINE_MIN)} deadline.\n\n"
+                         f"{v.name} was not closed by the {hhmm(config.DAY_CLOSE_DEADLINE_MIN)} deadline.\n"
+                         f"Rostered VM(s): {on_duty}\n\n"
                          f"Outstanding items ({len(items)}):\n{body}\n", "day_close", dc.id)
             audit.record(db, None, "day.missed", "day_close", dc.id, None, {"date": d, "items": len(items)}, v.id)
             n += 1

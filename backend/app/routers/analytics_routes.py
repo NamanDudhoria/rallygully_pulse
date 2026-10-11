@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import current_user, require_hq, venue_ids_for
+from ..permissions import require
 from ..db import get_db
 from ..models import Booking, DayClose, Facility, User
 from ..services import analytics, anomaly, bookings, dayclose, inventory
@@ -27,7 +27,7 @@ def _slim(m: dict) -> dict:
 
 
 @router.get("/portfolio")
-def portfolio(date: date | None = None, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def portfolio(date: date | None = None, user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
     d = day_or_today(date)
     bookings.refresh_overdue(db)
     db.commit()
@@ -100,9 +100,9 @@ def _exceptions(db: Session, ids: list[int], d: date) -> list[dict]:
 
 @router.get("/drill")
 def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: str | None = None,
-          user: User = Depends(current_user), db: Session = Depends(get_db)):
+          user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
     """One level of the drill-down with the matching previous period for comparison."""
-    allowed = venue_ids_for(user)
+    allowed = None
     if date_to < date_from or (date_to - date_from).days > 366:
         raise HTTPException(422, "Choose a range of up to one year.")
     span = (date_to - date_from).days + 1
@@ -166,7 +166,7 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
 
 
 @router.get("/insights")
-def insights(date: date | None = None, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def insights(date: date | None = None, user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
     d = day_or_today(date)
     venues = analytics.venues_list(db, None)
     return {"date": d, "insights": anomaly.portfolio(db, venues, d, analytics.now_cutoff(d)),

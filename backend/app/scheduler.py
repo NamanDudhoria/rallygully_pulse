@@ -1,11 +1,12 @@
-"""Background jobs: District ingestion (every 5 min), payment overdue, missed day-close escalation."""
+"""Background jobs: District ingestion (every 5 min), payment overdue, missed day-close escalation,
+and the evening-before alert for venues with no VM rostered tomorrow."""
 import asyncio
 import logging
 import time
 
 from . import config
 from .db import SessionLocal
-from .services import bookings, dayclose, district
+from .services import bookings, dayclose, district, roster
 
 log = logging.getLogger("pulse.scheduler")
 
@@ -20,6 +21,7 @@ def _tick(run_district: bool) -> None:
                          run.messages, run.created, run.duplicates, len(run.errors or []))
         bookings.refresh_overdue(db)
         dayclose.escalate_missed(db)
+        roster.alert_gaps(db)
         db.commit()
     except Exception:  # noqa: BLE001 — never let a job crash the loop; operational records stay intact
         db.rollback()
