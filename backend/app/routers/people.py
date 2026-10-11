@@ -155,6 +155,8 @@ def get_roster(date_from: date, date_to: date, user: User = Depends(require("ros
         "entries": [{"id": r.id, "venue_id": r.venue_id, "user_id": r.user_id, "name": u.name, "date": r.date}
                     for r, u in entries],
         "tomorrow_gaps": [v.name for v in roster.gaps(db, today() + timedelta(days=1))],
+        "vms": [{"id": u.id, "name": u.name, "email": u.email} for u in db.scalars(
+            select(User).where(User.role == "vm", User.active.is_(True)).order_by(User.name))],
     }
 
 
