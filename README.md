@@ -8,8 +8,15 @@ state; every revenue-generating allocation has a financial record; every metric 
 ## Run it
 
 ```bash
-./run.sh                 # → http://localhost:8000
+./run.sh                 # Mac / Linux → http://localhost:8000
 ```
+
+```powershell
+.\run.ps1                # Windows PowerShell (uses the active Python, e.g. a conda env)
+.\run.ps1 -Reset         # rebuild demo data around today
+```
+
+Needs Python 3.10+ and Node 20.19+ (or 22.12+).
 
 Demo accounts (password `pulse1234`, all `@rallygully.com`): `admin` (HQ Admin), `hq`, `community`, `academy`,
 `vm.eok` / `vm.skt` / `vm.ggn` (rostered today), `vm.eok.b` (weekend shifts only). The seed creates 3 venues with
