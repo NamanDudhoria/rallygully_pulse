@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, scheduler
 from .audit import DomainError
 from .db import Base, engine
-from .routers import admin, analytics_routes, auth_routes, operations, venues
+from .routers import admin, analytics_routes, auth_routes, operations, people, venues
 
 
 @contextlib.asynccontextmanager
@@ -33,7 +33,8 @@ async def domain_error(_req: Request, exc: DomainError):
     return JSONResponse({"detail": exc.message}, status_code=exc.status)
 
 
-for r in (auth_routes.router, venues.router, operations.router, analytics_routes.router, admin.router):
+for r in (auth_routes.router, venues.router, operations.router, analytics_routes.router, admin.router,
+          people.router):
     app.include_router(r)
 
 

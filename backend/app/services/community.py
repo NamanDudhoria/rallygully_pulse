@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit
+from ..permissions import is_hq
 from ..audit import DomainError
 from ..models import AllocationKind, CommunityGame, Customer, Facility, Participant, Payment, User
 from ..timeutil import minute_of, now_local, today
@@ -102,7 +103,7 @@ def add_participant(db: Session, actor: User, g: CommunityGame, phone: str, name
         raise DomainError("Game is cancelled.")
     if level not in LEVELS:
         raise DomainError("Choose a level: beginner, intermediate or advanced.", 422)
-    if actor.role != "hq" and g.date != today():
+    if not is_hq(actor) and g.date != today():
         raise DomainError("Participants are added on the game day.")
     existing = customers.find_by_phone(db, phone)
     if not existing and not (name or "").strip():

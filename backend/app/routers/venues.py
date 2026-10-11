@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import serialize
-from ..auth import current_user, ensure_venue_access, venue_ids_for
+from ..auth import current_user
+from ..permissions import can, ensure_venue, roster_pairs, roster_scoped
 from ..db import get_db
 from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, CorporateEvent, Customer, Facility,
                       OperationalBlock, User, Venue)
@@ -23,16 +24,22 @@ DAY_METRICS = ["net_revenue", "collected", "occupancy", "utilization", "total_ac
 
 @router.get("")
 def list_venues(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    allowed = venue_ids_for(user)
+    """VMs see venues they're rostered at within the past 30 / next 14 days; other roles see all."""
     q = select(Venue).order_by(Venue.id)
-    if allowed is not None:
-        q = q.where(Venue.id.in_(allowed))
+    if roster_scoped(user):
+        today = now_local().date()
+        ids = {v for v, _ in roster_pairs(db, user, today - timedelta(days=30), today + timedelta(days=14))}
+        q = q.where(Venue.id.in_(ids))
+    elif not any(can(user, p) for p in ("venue.view", "venue.operate", "config.manage",
+                                        "community.manage", "academy.manage", "events.manage")):
+        return []
     return [serialize.venue(v, full=True) for v in db.scalars(q)]
 
 
-def _venue(db: Session, user: User, venue_id: int) -> Venue:
-    ensure_venue_access(user, venue_id)
-    return get_or_404(db, Venue, venue_id)
+def _venue(db: Session, user: User, venue_id: int, d: date, write: bool = False) -> Venue:
+    v = get_or_404(db, Venue, venue_id)
+    ensure_venue(db, user, venue_id, d, write=write)
+    return v
 
 
 def _activities(db: Session, venue_id: int, d: date) -> dict:
@@ -83,8 +90,8 @@ def intraday_curve(db: Session, venue_ids: list[int], d: date, hours: tuple[int,
 @router.get("/{venue_id}/day")
 def venue_day(venue_id: int, date: date | None = None, user: User = Depends(current_user),
               db: Session = Depends(get_db)):
-    v = _venue(db, user, venue_id)
     d = day_or_today(date)
+    v = _venue(db, user, venue_id, d)
     bookings.refresh_overdue(db, venue_id)
     db.commit()
     hours = inventory.hours_for(db, venue_id, d)
@@ -112,13 +119,14 @@ def venue_day(venue_id: int, date: date | None = None, user: User = Depends(curr
         "history_days": analytics.history_days(db),
         "activities": acts,
         "day_close": dayclose.status(db, venue_id, d),
+        "can_operate": can(user, "venue.operate"),
     }
 
 
 @router.get("/{venue_id}/grid")
 def grid(venue_id: int, date: date | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    v = _venue(db, user, venue_id)
     d = day_or_today(date)
+    v = _venue(db, user, venue_id, d)
     hours = inventory.hours_for(db, venue_id, d)
     facilities = inventory.active_facilities(db, venue_id)
     cells = []
@@ -163,7 +171,7 @@ def _cell(db: Session, a: Allocation) -> dict:
 @router.get("/{venue_id}/quote")
 def get_quote(venue_id: int, facility_id: int, date: date, start: str, duration: int = 60,
               user: User = Depends(current_user), db: Session = Depends(get_db)):
-    _venue(db, user, venue_id)
+    _venue(db, user, venue_id, date)
     f = get_or_404(db, Facility, facility_id)
     s = minutes(start)
     free = not any(a for a in inventory.venue_allocations(db, venue_id, date)
@@ -174,21 +182,22 @@ def get_quote(venue_id: int, facility_id: int, date: date, start: str, duration:
 @router.get("/{venue_id}/free")
 def free(venue_id: int, date: date, start: str, end: str, sport: str | None = None,
          user: User = Depends(current_user), db: Session = Depends(get_db)):
-    _venue(db, user, venue_id)
+    _venue(db, user, venue_id, date)
     return [serialize.facility(f) for f in inventory.free_facilities(db, venue_id, date, minutes(start), minutes(end), sport)]
 
 
 @router.get("/{venue_id}/close")
 def close_status(venue_id: int, date: date | None = None, user: User = Depends(current_user),
                  db: Session = Depends(get_db)):
-    _venue(db, user, venue_id)
-    return dayclose.status(db, venue_id, day_or_today(date))
+    d = day_or_today(date)
+    _venue(db, user, venue_id, d)
+    return dayclose.status(db, venue_id, d)
 
 
 @router.post("/{venue_id}/close")
 def close(venue_id: int, date: date | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    _venue(db, user, venue_id)
     d = day_or_today(date)
+    _venue(db, user, venue_id, d, write=True)
     dayclose.close_day(db, user, venue_id, d)
     db.commit()
     return dayclose.status(db, venue_id, d)

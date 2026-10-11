@@ -8,7 +8,8 @@ from app import timeutil
 from app.auth import hash_password
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Facility, PricingRule, User, Venue, VmAssignment, WeeklyHours
+from app.models import Facility, PricingRule, User, Venue, VmAssignment, VmRoster, WeeklyHours
+from app.auth import reset_throttle
 
 DAY = date(2026, 10, 7)  # a Wednesday
 
@@ -41,9 +42,12 @@ def client():
     vm = User(name="VM", email="vm@x.com", password_hash=pw, role="vm")
     vm.venues = [VmAssignment(venue_id=v.id)]
     db.add(vm)
+    db.flush()
+    db.add(VmRoster(venue_id=v.id, user_id=vm.id, date=DAY))
     db.commit()
     db.close()
     timeutil.set_clock(at(16))
+    reset_throttle()
     c = TestClient(app)
     yield c
     timeutil.set_clock(None)

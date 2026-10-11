@@ -11,9 +11,31 @@ state; every revenue-generating allocation has a financial record; every metric 
 ./run.sh                 # → http://localhost:8000
 ```
 
-Demo accounts (password `pulse1234`): `hq@rallygully.com` (HQ, full portfolio), `vm.eok@…`, `vm.skt@…`, `vm.ggn@…`
-(Venue Managers, venue-scoped). The seed creates 3 venues with ~100 days of history, so the 7/30/90-day comparisons
-and anomaly detection have real baselines; "today" is live relative to the current IST time.
+Demo accounts (password `pulse1234`, all `@rallygully.com`): `admin` (HQ Admin), `hq`, `community`, `academy`,
+`vm.eok` / `vm.skt` / `vm.ggn` (rostered today), `vm.eok.b` (weekend shifts only). The seed creates 3 venues with
+~100 days of history, so the 7/30/90-day comparisons and anomaly detection have real baselines; "today" is live
+relative to the current IST time. Schema changes ship without migrations in V1 — after pulling, rebuild the demo
+database with `python -m app.seed --reset`.
+
+## People, roles and access
+
+People are created only by an **HQ Admin** (People & access), keyed by work email. Each gets a single-use invite link
+to set their own password (72 h); "Forgot password?" sends a 1-hour reset link. Links are never written to the
+notification log. Without SMTP configured, the admin is shown the link to share directly. Changing a password,
+disabling a person or changing their role signs them out everywhere; logins are throttled after 5 failures.
+
+| Role | Can do |
+|---|---|
+| HQ Admin | Everything, including people and roles |
+| HQ | Everything except people management |
+| Community Operations | Community Games (create/edit/cancel), customers, full analytics, read-only venue views |
+| Academy | Academy bookings and reconciliation, full analytics, read-only venue views |
+| Venue Manager | Venue operations — **only at venues and on dates they're on the roster** |
+
+Permissions are defined once in `backend/app/permissions.py` and enforced on every API request; the UI only mirrors
+them. **VM roster** (HQ, normally set the day before): each VM belongs to one or more venue teams, and the daily roster
+decides who can open which venue that day. Several VMs can share a venue-day. From 8 PM IST, Operations is emailed
+about any operating venue with nobody rostered for tomorrow; HQ can add someone on the day and access is immediate.
 
 **Development** (hot reload):
 
@@ -48,6 +70,15 @@ Key ideas:
   |z| ≥ 3.5), fall back to the trailing 28 days, and report "insufficient history" rather than guess. Each insight
   states current value, normal range, deviation, correlated movements and the most-deviating facility.
 
+## Venue configuration
+
+HQ (HQ Admin and HQ) create and edit venues (code, name, location, active/inactive), facilities (name, type, sport,
+order, active/inactive), weekly hours, special-date overrides and prices under **Configuration**. Edits are refused,
+with the affected bookings listed, when they would strand upcoming activity: deactivating a venue or facility,
+changing a facility's sport, shrinking hours, or closing a date. Renames are always safe. Prices are versioned —
+"Change price" schedules a new price from a date; prices already in use can't be deleted, so past bookings and
+historical analytics keep the price they were sold at.
+
 ## Integrations
 
 All are real code paths with a safe default when credentials are absent (messages are logged as `simulated` and
@@ -59,6 +90,8 @@ visible under **Integrations**):
 | `PULSE_WHATSAPP_TOKEN`, `PULSE_WHATSAPP_PHONE_ID`, `PULSE_COMMUNITY_LINK` | WhatsApp Cloud API (booking + community link messages) |
 | `PULSE_SMTP_HOST`, `PULSE_SMTP_USER`, `PULSE_SMTP_PASSWORD`, `PULSE_OPS_EMAIL` | Missed day-close escalation email |
 | `PULSE_SECRET_KEY` | Token signing — **set this in any shared deployment** |
+| `PULSE_APP_URL` | Public URL used in invite / reset links |
+| `PULSE_ROSTER_ALERT_MIN` | Minute of day (IST) for the "no VM rostered tomorrow" alert; default 1200 (8 PM) |
 
 ## PRD decisions and open points
 

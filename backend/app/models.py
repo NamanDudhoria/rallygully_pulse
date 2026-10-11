@@ -26,14 +26,54 @@ class AllocationKind:
 
 
 class User(Base):
+    """A person, identified by work email. Created only by HQ (no self-signup)."""
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str] = mapped_column(String(200), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(300))
-    role: Mapped[str] = mapped_column(String(10))  # hq | vm
+    password_hash: Mapped[str | None] = mapped_column(String(300), nullable=True)  # None until invite accepted
+    role: Mapped[str] = mapped_column(String(12))  # see permissions.ROLES
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Bumped on password change / deactivation: every previously issued session stops working.
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # VM venue team: the venues a VM may be rostered at.
     venues: Mapped[list["VmAssignment"]] = relationship(cascade="all, delete-orphan")
+
+
+class AuthToken(Base):
+    """Single-use invite / password-reset token. Only a SHA-256 hash is stored."""
+    __tablename__ = "auth_tokens"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    purpose: Mapped[str] = mapped_column(String(10))  # invite | reset
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+
+class VmRoster(Base):
+    """Who runs which venue on which date. Set by HQ, normally the day before; gates VM access."""
+    __tablename__ = "vm_roster"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    date: Mapped[date] = mapped_column(Date)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (UniqueConstraint("venue_id", "user_id", "date"), Index("ix_roster_date", "date"))
+
+
+class RosterAlert(Base):
+    """Records that Operations was warned about an unrostered venue-day (sent once)."""
+    __tablename__ = "roster_alerts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    date: Mapped[date] = mapped_column(Date)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (UniqueConstraint("venue_id", "date"),)
 
 
 class VmAssignment(Base):

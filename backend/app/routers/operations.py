@@ -3,11 +3,12 @@ from datetime import date
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
 
 from .. import serialize
-from ..auth import current_user, ensure_venue_access, require_hq, venue_ids_for
+from ..auth import current_user
+from ..permissions import can, ensure_venue, require, roster_pairs, roster_scoped
 from ..db import get_db
 from ..models import (AcademyOccurrence, AcademySeries, Booking, CommunityGame, CorporateEvent, OperationalBlock,
                       Participant, User)
@@ -17,13 +18,14 @@ from .common import get_or_404, minutes
 router = APIRouter(prefix="/api", tags=["operations"])
 
 
-def _scoped(q, model, user: User, venue_id: int | None):
-    allowed = venue_ids_for(user)
+def _scoped(db: Session, q, model, user: User, venue_id: int | None):
+    """Filter a list query to what the user may see. VMs only see venue-days they're rostered for."""
     if venue_id is not None:
-        ensure_venue_access(user, venue_id)
         q = q.where(model.venue_id == venue_id)
-    elif allowed is not None:
-        q = q.where(model.venue_id.in_(allowed))
+    if roster_scoped(user):
+        from datetime import date as _d
+        pairs = roster_pairs(db, user, _d.min, _d.max)
+        q = q.where(or_(*[and_(model.venue_id == v, model.date == d) for v, d in pairs])) if pairs else q.where(false())
     return q
 
 
@@ -44,9 +46,9 @@ class DirectIn(BaseModel):
 @router.get("/bookings")
 def list_bookings(venue_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
                   source: str | None = None, status: str | None = None, payment_status: str | None = None,
-                  q: str | None = None, limit: int = 200, user: User = Depends(current_user),
+                  q: str | None = None, limit: int = 200, user: User = Depends(require("bookings.view", "venue.operate")),
                   db: Session = Depends(get_db)):
-    query = _scoped(select(Booking), Booking, user, venue_id)
+    query = _scoped(db, select(Booking), Booking, user, venue_id)
     if date_from:
         query = query.where(Booking.date >= date_from)
     if date_to:
@@ -67,7 +69,7 @@ def list_bookings(venue_id: int | None = None, date_from: date | None = None, da
 
 @router.post("/bookings/direct")
 def create_direct(body: DirectIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    ensure_venue_access(user, body.venue_id)
+    ensure_venue(db, user, body.venue_id, body.date, write=True)
     b = bookings.create_direct(db, user, venue_id=body.venue_id, facility_id=body.facility_id, d=body.date,
                                start_min=minutes(body.start), duration=body.duration, phone=body.phone,
                                name=body.name, amount=body.amount, pay_now=body.pay_now, method=body.method)
@@ -75,15 +77,15 @@ def create_direct(body: DirectIn, user: User = Depends(current_user), db: Sessio
     return serialize.booking(db, b, detail=True)
 
 
-def _booking(db: Session, user: User, booking_id: int) -> Booking:
+def _booking(db: Session, user: User, booking_id: int, write: bool = True) -> Booking:
     b = get_or_404(db, Booking, booking_id)
-    ensure_venue_access(user, b.venue_id)
+    ensure_venue(db, user, b.venue_id, b.date, write=write)
     return b
 
 
 @router.get("/bookings/{booking_id}")
 def get_booking(booking_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return serialize.booking(db, _booking(db, user, booking_id), detail=True)
+    return serialize.booking(db, _booking(db, user, booking_id, write=False), detail=True)
 
 
 class FacilityIn(BaseModel):
@@ -169,7 +171,7 @@ def amount(booking_id: int, body: AmountIn, user: User = Depends(current_user), 
 
 
 @router.post("/bookings/{booking_id}/refund")
-def refund(booking_id: int, body: RefundIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def refund(booking_id: int, body: RefundIn, user: User = Depends(require("corrections")), db: Session = Depends(get_db)):
     b = _booking(db, user, booking_id)
     bookings.refund(db, user, b, body.amount, body.reason)
     db.commit()
@@ -215,8 +217,9 @@ class ParticipantPatch(BaseModel):
 
 @router.get("/community-games")
 def list_games(venue_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
-               user: User = Depends(current_user), db: Session = Depends(get_db)):
-    q = _scoped(select(CommunityGame), CommunityGame, user, venue_id)
+               user: User = Depends(require("community.manage", "venue.view", "venue.operate")),
+               db: Session = Depends(get_db)):
+    q = _scoped(db, select(CommunityGame), CommunityGame, user, venue_id)
     if date_from:
         q = q.where(CommunityGame.date >= date_from)
     if date_to:
@@ -225,7 +228,7 @@ def list_games(venue_id: int | None = None, date_from: date | None = None, date_
 
 
 @router.post("/community-games")
-def create_game(body: GameIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def create_game(body: GameIn, user: User = Depends(require("community.manage")), db: Session = Depends(get_db)):
     g = community.create_game(db, user, venue_id=body.venue_id, title=body.title, sport=body.sport, d=body.date,
                               start_min=minutes(body.start), end_min=minutes(body.end), facility_ids=body.facility_ids,
                               capacity=body.capacity, per_person=body.per_person, link=body.community_link)
@@ -233,9 +236,11 @@ def create_game(body: GameIn, user: User = Depends(require_hq), db: Session = De
     return serialize.game(db, g, detail=True)
 
 
-def _game(db, user, gid) -> CommunityGame:
+def _game(db, user, gid, write: bool = False) -> CommunityGame:
+    """Community Operations manage games anywhere; others need venue access for the game's date."""
     g = get_or_404(db, CommunityGame, gid)
-    ensure_venue_access(user, g.venue_id)
+    if not can(user, "community.manage"):
+        ensure_venue(db, user, g.venue_id, g.date, write=write)
     return g
 
 
@@ -245,14 +250,14 @@ def get_game(gid: int, user: User = Depends(current_user), db: Session = Depends
 
 
 @router.post("/community-games/{gid}/facilities")
-def game_facilities(gid: int, body: FacilitiesIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def game_facilities(gid: int, body: FacilitiesIn, user: User = Depends(require("community.manage")), db: Session = Depends(get_db)):
     g = community.change_facilities(db, user, _game(db, user, gid), body.facility_ids)
     db.commit()
     return serialize.game(db, g, detail=True)
 
 
 @router.post("/community-games/{gid}/cancel")
-def game_cancel(gid: int, body: CancelIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def game_cancel(gid: int, body: CancelIn, user: User = Depends(require("community.manage")), db: Session = Depends(get_db)):
     g = community.cancel_game(db, user, _game(db, user, gid), body.reason, body.note)
     db.commit()
     return serialize.game(db, g, detail=True)
@@ -260,7 +265,7 @@ def game_cancel(gid: int, body: CancelIn, user: User = Depends(require_hq), db: 
 
 @router.post("/community-games/{gid}/participants")
 def add_participant(gid: int, body: ParticipantIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    g = _game(db, user, gid)
+    g = _game(db, user, gid, write=True)
     community.add_participant(db, user, g, body.phone, body.name, body.level)
     db.commit()
     db.refresh(g)
@@ -269,7 +274,7 @@ def add_participant(gid: int, body: ParticipantIn, user: User = Depends(current_
 
 def _participant(db, user, pid) -> Participant:
     p = get_or_404(db, Participant, pid)
-    ensure_venue_access(user, p.game.venue_id)
+    _game(db, user, p.game_id, write=True)
     return p
 
 
@@ -321,13 +326,13 @@ class EndSeriesIn(BaseModel):
 
 
 @router.get("/academy")
-def list_academy(venue_id: int | None = None, user: User = Depends(require_hq), db: Session = Depends(get_db)):
-    q = _scoped(select(AcademySeries), AcademySeries, user, venue_id)
+def list_academy(venue_id: int | None = None, user: User = Depends(require("academy.manage")), db: Session = Depends(get_db)):
+    q = select(AcademySeries).where(AcademySeries.venue_id == venue_id) if venue_id else select(AcademySeries)
     return [serialize.series(db, s) for s in db.scalars(q.order_by(AcademySeries.start_date.desc()))]
 
 
 @router.post("/academy")
-def create_academy(body: AcademyIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def create_academy(body: AcademyIn, user: User = Depends(require("academy.manage")), db: Session = Depends(get_db)):
     s, skipped = activities.create_academy(
         db, user, venue_id=body.venue_id, name=body.name, facility_ids=body.facility_ids, recurring=body.recurring,
         weekdays=body.weekdays, start_date=body.start_date, end_date=body.end_date, start_min=minutes(body.start),
@@ -337,12 +342,12 @@ def create_academy(body: AcademyIn, user: User = Depends(require_hq), db: Sessio
 
 
 @router.get("/academy/{sid}")
-def get_academy(sid: int, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def get_academy(sid: int, user: User = Depends(require("academy.manage")), db: Session = Depends(get_db)):
     return serialize.series(db, get_or_404(db, AcademySeries, sid), detail=True)
 
 
 @router.post("/academy/{sid}/end")
-def end_academy(sid: int, body: EndSeriesIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def end_academy(sid: int, body: EndSeriesIn, user: User = Depends(require("academy.manage")), db: Session = Depends(get_db)):
     s = get_or_404(db, AcademySeries, sid)
     activities.end_series(db, user, s, body.from_date)
     db.commit()
@@ -350,7 +355,7 @@ def end_academy(sid: int, body: EndSeriesIn, user: User = Depends(require_hq), d
 
 
 @router.post("/academy/{sid}/reconcile")
-def reconcile(sid: int, body: ReconcileIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def reconcile(sid: int, body: ReconcileIn, user: User = Depends(require("academy.manage")), db: Session = Depends(get_db)):
     s = get_or_404(db, AcademySeries, sid)
     activities.reconcile_month(db, user, s, body.month, body.amount, body.method)
     db.commit()
@@ -358,7 +363,7 @@ def reconcile(sid: int, body: ReconcileIn, user: User = Depends(require_hq), db:
 
 
 @router.post("/academy/occurrences/{oid}/cancel")
-def cancel_occurrence(oid: int, body: NoteIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def cancel_occurrence(oid: int, body: NoteIn, user: User = Depends(require("academy.manage")), db: Session = Depends(get_db)):
     o = get_or_404(db, AcademyOccurrence, oid)
     activities.cancel_occurrence(db, user, o, body.note)
     db.commit()
@@ -381,13 +386,13 @@ class EventIn(BaseModel):
 
 
 @router.get("/events")
-def list_events(venue_id: int | None = None, user: User = Depends(require_hq), db: Session = Depends(get_db)):
-    q = _scoped(select(CorporateEvent), CorporateEvent, user, venue_id)
+def list_events(venue_id: int | None = None, user: User = Depends(require("events.manage")), db: Session = Depends(get_db)):
+    q = select(CorporateEvent).where(CorporateEvent.venue_id == venue_id) if venue_id else select(CorporateEvent)
     return [serialize.event(db, e) for e in db.scalars(q.order_by(CorporateEvent.date.desc()).limit(300))]
 
 
 @router.post("/events")
-def create_event(body: EventIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def create_event(body: EventIn, user: User = Depends(require("events.manage")), db: Session = Depends(get_db)):
     e = activities.create_event(db, user, venue_id=body.venue_id, company=body.company, contact_name=body.contact_name,
                                 contact_phone=body.contact_phone, facility_ids=body.facility_ids, d=body.date,
                                 start_min=minutes(body.start), end_min=minutes(body.end), amount=body.amount,
@@ -397,14 +402,14 @@ def create_event(body: EventIn, user: User = Depends(require_hq), db: Session = 
 
 
 @router.post("/events/{eid}/pay")
-def event_pay(eid: int, body: PayIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def event_pay(eid: int, body: PayIn, user: User = Depends(require("events.manage")), db: Session = Depends(get_db)):
     e = activities.event_mark_paid(db, user, get_or_404(db, CorporateEvent, eid), body.method)
     db.commit()
     return serialize.event(db, e)
 
 
 @router.post("/events/{eid}/cancel")
-def event_cancel(eid: int, body: CancelIn, user: User = Depends(require_hq), db: Session = Depends(get_db)):
+def event_cancel(eid: int, body: CancelIn, user: User = Depends(require("events.manage")), db: Session = Depends(get_db)):
     e = activities.cancel_event(db, user, get_or_404(db, CorporateEvent, eid), body.note or body.reason)
     db.commit()
     return serialize.event(db, e)
@@ -422,9 +427,10 @@ class BlockIn(BaseModel):
 
 
 @router.get("/blocks")
-def list_blocks(venue_id: int | None = None, date_from: date | None = None, user: User = Depends(current_user),
+def list_blocks(venue_id: int | None = None, date_from: date | None = None,
+                user: User = Depends(require("venue.view", "venue.operate")),
                 db: Session = Depends(get_db)):
-    q = _scoped(select(OperationalBlock), OperationalBlock, user, venue_id)
+    q = _scoped(db, select(OperationalBlock), OperationalBlock, user, venue_id)
     if date_from:
         q = q.where(OperationalBlock.date >= date_from)
     return [serialize.block(db, b) for b in db.scalars(q.order_by(OperationalBlock.date.desc()).limit(300))]
@@ -432,7 +438,7 @@ def list_blocks(venue_id: int | None = None, date_from: date | None = None, user
 
 @router.post("/blocks")
 def create_block(body: BlockIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    ensure_venue_access(user, body.venue_id)
+    ensure_venue(db, user, body.venue_id, body.date, write=True)
     b = activities.create_block(db, user, venue_id=body.venue_id, facility_id=body.facility_id, d=body.date,
                                 start_min=minutes(body.start), end_min=minutes(body.end), reason=body.reason,
                                 note=body.note)
@@ -443,7 +449,7 @@ def create_block(body: BlockIn, user: User = Depends(current_user), db: Session 
 @router.post("/blocks/{bid}/release")
 def release_block(bid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     b = get_or_404(db, OperationalBlock, bid)
-    ensure_venue_access(user, b.venue_id)
+    ensure_venue(db, user, b.venue_id, b.date, write=True)
     activities.release_block(db, user, b)
     db.commit()
     return serialize.block(db, b)

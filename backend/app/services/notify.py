@@ -40,7 +40,9 @@ def whatsapp(db: Session, phone: str, template: str, body: str, ref_type: str, r
     return n
 
 
-def email(db: Session, to: str, subject: str, body: str, ref_type: str | None = None, ref_id: int | None = None) -> Notification:
+def email(db: Session, to: str, subject: str, body: str, ref_type: str | None = None, ref_id: int | None = None,
+          template: str = "day_close_escalation", log_body: str | None = None) -> Notification:
+    """Send (or simulate) an email. ``log_body`` replaces the stored copy, e.g. to keep secrets out of logs."""
     status, error = "simulated", None
     if config.SMTP_HOST:
         try:
@@ -55,8 +57,8 @@ def email(db: Session, to: str, subject: str, body: str, ref_type: str | None = 
             status = "sent"
         except Exception as exc:  # noqa: BLE001
             status, error = "failed", str(exc)[:500]
-    n = Notification(channel="email", recipient=to, template="day_close_escalation",
-                     body=f"{subject}\n\n{body}", status=status, error=error, ref_type=ref_type, ref_id=ref_id)
+    n = Notification(channel="email", recipient=to, template=template,
+                     body=f"{subject}\n\n{log_body if log_body is not None else body}", status=status, error=error, ref_type=ref_type, ref_id=ref_id)
     db.add(n)
     return n
 

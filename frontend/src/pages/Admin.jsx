@@ -1,7 +1,7 @@
 /** HQ: Customers, Configuration, Audit trail, Integrations. */
 import { Fragment, useState } from 'react'
-import { Mail, MessageCircle, Play, Plus, Repeat, Search, Send } from 'lucide-react'
-import { post, put } from '../lib/api'
+import { AlertTriangle, Mail, MessageCircle, Pencil, Play, Plus, Repeat, Search, Send, Trash2 } from 'lucide-react'
+import { del, post, put } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction } from '../lib/useCtx'
 import { dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
@@ -77,13 +77,12 @@ export function ConfigPage() {
   const [tab, setTab] = useState('venues')
   return (
     <div className="stack rise">
-      <div className="page-head"><div><h1>Configuration</h1><p>Venues, facilities, operating hours, special dates, pricing and people.</p></div></div>
+      <div className="page-head"><div><h1>Configuration</h1><p>Venues, facilities, operating hours, special dates and pricing. Edits that would strand upcoming bookings are refused.</p></div></div>
       <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' }, { value: 'users', label: 'People & access' },
+        { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' },
       ]} />
       {tab === 'venues' && <VenuesConfig />}
       {tab === 'pricing' && <PricingConfig />}
-      {tab === 'users' && <UsersConfig />}
     </div>
   )
 }
@@ -93,29 +92,54 @@ function VenuesConfig() {
   const [sel, setSel] = useState(null)
   const [run, busy] = useAction()
   const [newFac, setNewFac] = useState({ name: '', facility_type: 'Court', sport: '' })
-  const [newVenue, setNewVenue] = useState(null)
+  const [venueForm, setVenueForm] = useState(null) // {} for new, venue for edit
+  const [facForm, setFacForm] = useState(null)
   if (!venues) return <Skeleton h={300} />
+  if (!venues.length) {
+    return (
+      <div className="card"><Empty title="No venues yet">
+        <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={() => setVenueForm({ code: '', name: '', location: '', status: 'active' })}><Plus /> Add first venue</button>
+      </Empty>{venueForm && <VenueDrawer form={venueForm} onClose={() => setVenueForm(null)} onSaved={(nv) => { reload(); setSel(nv.id) }} />}</div>
+    )
+  }
   const v = venues.find((x) => x.id === sel) || venues[0]
   return (
     <div className="grid g-main">
       <div className="stack">
         <div className="row">
-          {venues.map((x) => <button key={x.id} className="btn" aria-pressed={x.id === v.id} style={x.id === v.id ? { borderColor: 'var(--brand)', background: 'var(--brand-soft)' } : undefined} onClick={() => setSel(x.id)}>{x.name.replace('RallyGully ', '')}</button>)}
-          <button className="btn btn-ghost" onClick={() => setNewVenue({ code: '', name: '', location: '' })}><Plus /> Venue</button>
+          {venues.map((x) => (
+            <button key={x.id} className="btn" aria-pressed={x.id === v.id} onClick={() => setSel(x.id)}
+              style={x.id === v.id ? { borderColor: 'var(--brand)', background: 'var(--brand-soft)' } : undefined}>
+              {x.name.replace('RallyGully ', '')}{x.status !== 'active' && <span className="subtle"> · inactive</span>}
+            </button>))}
+          <button className="btn btn-ghost" onClick={() => setVenueForm({ code: '', name: '', location: '', status: 'active' })}><Plus /> Venue</button>
+        </div>
+        <div className="card card-pad">
+          <div className="spread">
+            <div>
+              <h2>{v.name} <span className="mono subtle" style={{ fontWeight: 400 }}>{v.code}</span></h2>
+              <p className="muted" style={{ marginTop: 4 }}>{v.location || 'No location set'}</p>
+            </div>
+            <div className="row">
+              {v.status === 'active' ? <Badge tone="good">Active</Badge> : <Badge>Inactive</Badge>}
+              <button className="btn btn-sm" onClick={() => setVenueForm(v)}><Pencil /> Edit details</button>
+            </div>
+          </div>
         </div>
         <div className="card">
-          <div className="card-head"><h2>Facilities · {v.code}</h2><span className="hint">sport is derived from the facility</span></div>
+          <div className="card-head"><h2>Facilities</h2><span className="hint">sport is derived from the facility</span></div>
           <div className="card-body">
-            <table className="table">
-              <thead><tr><th>Name</th><th>Type</th><th>Sport</th><th>Status</th><th /></tr></thead>
-              <tbody>{v.facilities.map((f) => (
-                <tr key={f.id}><td style={{ fontWeight: 500 }}>{f.name}</td><td>{f.facility_type}</td><td>{f.sport}</td>
-                  <td>{f.status === 'active' ? <Badge tone="good">Active</Badge> : <Badge>Inactive</Badge>}</td>
-                  <td className="num"><button className="btn btn-sm" disabled={busy} onClick={async () => {
-                    if (await run(() => put(`/api/facilities/${f.id}`, { ...f, status: f.status === 'active' ? 'inactive' : 'active' }), 'Facility updated')) reload()
-                  }}>{f.status === 'active' ? 'Deactivate' : 'Activate'}</button></td></tr>))}
-              </tbody>
-            </table>
+            {!v.facilities.length && <p className="subtle" style={{ marginBottom: 8 }}>No facilities yet — add the courts/turfs this venue sells.</p>}
+            {v.facilities.length > 0 && (
+              <table className="table">
+                <thead><tr><th>Name</th><th>Type</th><th>Sport</th><th>Status</th><th /></tr></thead>
+                <tbody>{v.facilities.map((f) => (
+                  <tr key={f.id}><td style={{ fontWeight: 500 }}>{f.name}</td><td>{f.facility_type}</td><td>{f.sport}</td>
+                    <td>{f.status === 'active' ? <Badge tone="good">Active</Badge> : <Badge>Inactive</Badge>}</td>
+                    <td className="num"><button className="btn btn-sm" onClick={() => setFacForm(f)}><Pencil /> Edit</button></td></tr>))}
+                </tbody>
+              </table>
+            )}
             <form className="row" style={{ marginTop: 12 }} onSubmit={async (e) => {
               e.preventDefault()
               if (await run(() => post('/api/facilities', { ...newFac, venue_id: v.id, sort_order: v.facilities.length }), 'Facility added')) { setNewFac({ name: '', facility_type: 'Court', sport: '' }); reload() }
@@ -123,7 +147,7 @@ function VenuesConfig() {
               <input className="input" style={{ width: 130 }} placeholder="Name" value={newFac.name} onChange={(e) => setNewFac({ ...newFac, name: e.target.value })} required aria-label="Facility name" />
               <input className="input" style={{ width: 110 }} placeholder="Type" value={newFac.facility_type} onChange={(e) => setNewFac({ ...newFac, facility_type: e.target.value })} required aria-label="Facility type" />
               <input className="input" style={{ width: 140 }} placeholder="Sport" value={newFac.sport} onChange={(e) => setNewFac({ ...newFac, sport: e.target.value })} required aria-label="Sport" list="sports" />
-              <datalist id="sports">{['Pickleball', 'Padel', 'Badminton', 'Football 6v6', 'Box Cricket'].map((s) => <option key={s} value={s} />)}</datalist>
+              <datalist id="sports">{SPORTS.map((x) => <option key={x} value={x} />)}</datalist>
               <button className="btn" disabled={busy}><Plus /> Add facility</button>
             </form>
           </div>
@@ -131,19 +155,82 @@ function VenuesConfig() {
         <HoursEditor venue={v} onSaved={reload} />
       </div>
       <SpecialDates venue={v} />
-      {newVenue && (
-        <Drawer open onClose={() => setNewVenue(null)} title="New venue">
-          {(close) => (
-            <form className="form" onSubmit={async (e) => { e.preventDefault(); if (await run(() => post('/api/venues', newVenue), 'Venue created')) { reload(); close() } }}>
-              <Field label="Code" help="Short code used in District emails, e.g. EOK"><input className="input" value={newVenue.code} onChange={(e) => setNewVenue({ ...newVenue, code: e.target.value })} required /></Field>
-              <Field label="Name"><input className="input" value={newVenue.name} onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })} required /></Field>
-              <Field label="Location"><input className="input" value={newVenue.location} onChange={(e) => setNewVenue({ ...newVenue, location: e.target.value })} /></Field>
-              <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn btn-primary" disabled={busy}>Create</button></div>
-            </form>
-          )}
-        </Drawer>
-      )}
+      {venueForm && <VenueDrawer form={venueForm} onClose={() => setVenueForm(null)} onSaved={(nv) => { reload(); setSel(nv.id) }} />}
+      {facForm && <FacilityDrawer facility={facForm} onClose={() => setFacForm(null)} onSaved={reload} />}
     </div>
+  )
+}
+
+const SPORTS = ['Pickleball', 'Padel', 'Badminton', 'Football 6v6', 'Box Cricket']
+
+function VenueDrawer({ form, onClose, onSaved }) {
+  const [run, busy] = useAction()
+  const [f, setF] = useState({ code: form.code, name: form.name, location: form.location || '', status: form.status || 'active' })
+  const isNew = !form.id
+  return (
+    <Drawer open onClose={onClose} title={isNew ? 'New venue' : `Edit ${form.name}`}
+      subtitle={isNew ? 'Starts with 5–11 PM daily hours; add facilities and prices next' : 'Changes are audited'}>
+      {(close) => (
+        <form className="form" onSubmit={async (e) => {
+          e.preventDefault()
+          const r = await run(() => (isNew ? post('/api/venues', f) : put(`/api/venues/${form.id}`, f)), isNew ? 'Venue created' : 'Venue updated')
+          if (r) { onSaved(r); close() }
+        }}>
+          <Field label="Code" help={isNew ? 'Short code, e.g. EOK. District emails are matched by this code or the venue name.' : 'District emails are matched by code or name — update District if you change it.'}>
+            <input className="input mono" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} required maxLength={20} />
+          </Field>
+          <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
+          <Field label="Location"><input className="input" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} placeholder="Area, city" /></Field>
+          {!isNew && (
+            <Field label="Status" help="A venue can be made inactive only when it has no upcoming bookings or allocations.">
+              <select className="select" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+                <option value="active">Active</option><option value="inactive">Inactive</option>
+              </select>
+            </Field>
+          )}
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn" onClick={close}>Cancel</button>
+            <button className="btn btn-primary" disabled={busy}>{isNew ? 'Create venue' : 'Save'}</button>
+          </div>
+        </form>
+      )}
+    </Drawer>
+  )
+}
+
+function FacilityDrawer({ facility, onClose, onSaved }) {
+  const [run, busy] = useAction()
+  const [f, setF] = useState({ ...facility })
+  const risky = f.status !== facility.status || f.sport !== facility.sport
+  return (
+    <Drawer open onClose={onClose} title={`Edit ${facility.name}`} subtitle={`${facility.facility_type} · ${facility.sport}`}>
+      {(close) => (
+        <form className="form" onSubmit={async (e) => {
+          e.preventDefault()
+          if (await run(() => put(`/api/facilities/${facility.id}`, { ...f, sort_order: Number(f.sort_order) || 0 }), 'Facility updated')) { onSaved(); close() }
+        }}>
+          <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
+          <div className="form-row">
+            <Field label="Type"><input className="input" value={f.facility_type} onChange={(e) => setF({ ...f, facility_type: e.target.value })} required /></Field>
+            <Field label="Sport"><input className="input" list="sports-edit" value={f.sport} onChange={(e) => setF({ ...f, sport: e.target.value })} required /></Field>
+            <datalist id="sports-edit">{SPORTS.map((x) => <option key={x} value={x} />)}</datalist>
+          </div>
+          <div className="form-row">
+            <Field label="Display order"><input className="input" type="number" value={f.sort_order} onChange={(e) => setF({ ...f, sort_order: e.target.value })} /></Field>
+            <Field label="Status">
+              <select className="select" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+                <option value="active">Active</option><option value="inactive">Inactive</option>
+              </select>
+            </Field>
+          </div>
+          {risky && <div className="callout warn"><AlertTriangle />Changing the sport or deactivating is only allowed when this facility has no upcoming bookings or allocations. Past records keep their history.</div>}
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn" onClick={close}>Cancel</button>
+            <button className="btn btn-primary" disabled={busy}>Save</button>
+          </div>
+        </form>
+      )}
+    </Drawer>
   )
 }
 
@@ -197,7 +284,11 @@ function SpecialDates({ venue }) {
         {data?.length ? (
           <div className="list">{data.map((s) => (
             <div key={s.id} className="list-item"><div className="grow"><div className="title">{shortDate(s.date)} {s.note && <span className="subtle">· {s.note}</span>}</div>
-              <div className="meta">{s.closed ? 'Closed' : `${time12(s.open_min)} – ${time12(s.close_min)}`}</div></div></div>))}
+              <div className="meta">{s.closed ? 'Closed' : `${time12(s.open_min)} – ${time12(s.close_min)}`}</div></div>
+              {s.date >= todayISO() && (
+                <button className="btn btn-sm btn-ghost btn-icon" disabled={busy} aria-label={`Remove override for ${s.date}`}
+                  onClick={async () => { if (await run(() => del(`/api/special-dates/${s.id}`), 'Override removed — weekly hours apply')) reload() }}><Trash2 /></button>
+              )}</div>))}
           </div>
         ) : <p className="subtle">No overrides.</p>}
       </div>
@@ -212,6 +303,8 @@ function PricingConfig() {
   const { data, reload } = useApi(v ? `/api/pricing?venue_id=${v.id}` : null)
   const [run, busy] = useAction()
   const [f, setF] = useState({ sport: '', facility_id: '', weekdays: '0123456', start: '17:00', end: '23:00', duration_min: 60, amount: '', effective_from: todayISO() })
+  const [showOld, setShowOld] = useState(false)
+  const [change, setChange] = useState(null)
   if (!v) return <Skeleton h={300} />
   const sports = [...new Set(v.facilities.map((x) => x.sport))]
   return (
@@ -225,17 +318,24 @@ function PricingConfig() {
         </div>
         <div className="card-body table-wrap">
           <table className="table">
-            <thead><tr><th>Applies to</th><th>Days</th><th>Time</th><th>Duration</th><th className="num">Price</th><th>Effective from</th></tr></thead>
-            <tbody>{(data || []).map((r) => (
-              <tr key={r.id}>
+            <thead><tr><th>Applies to</th><th>Days</th><th>Time</th><th>Duration</th><th className="num">Price</th><th>From</th><th>Status</th><th /></tr></thead>
+            <tbody>{(data || []).filter((r) => showOld || r.status !== 'superseded').map((r) => (
+              <tr key={r.id} style={r.status === 'superseded' ? { opacity: 0.6 } : undefined}>
                 <td>{r.facility_id ? v.facilities.find((x) => x.id === r.facility_id)?.name : r.sport || 'All facilities'}</td>
                 <td>{r.weekdays === '0123456' ? 'Every day' : r.weekdays.split('').map((d) => WD[d]).join(', ')}</td>
                 <td className="mono">{r.start}–{r.end}</td><td>{r.duration_min} min</td>
                 <td className="num" style={{ fontWeight: 600 }}>{money(r.amount)}</td>
-                <td>{r.effective_from > todayISO() ? <Badge tone="info">from {shortDate(r.effective_from)}</Badge> : shortDate(r.effective_from)}</td>
+                <td className="nowrap">{shortDate(r.effective_from)}</td>
+                <td>{r.status === 'current' ? <Badge tone="good">Current</Badge> : r.status === 'scheduled' ? <Badge tone="info">Scheduled</Badge> : <Badge>Superseded</Badge>}</td>
+                <td className="num nowrap">
+                  {r.status !== 'superseded' && <button className="btn btn-sm" onClick={() => setChange({ rule: r, amount: r.amount, effective_from: todayISO() })}>Change price</button>}
+                  {r.status === 'scheduled' && <button className="btn btn-sm btn-ghost btn-icon" aria-label="Delete scheduled price" disabled={busy}
+                    onClick={async () => { if (await run(() => del(`/api/pricing/${r.id}`), 'Scheduled price removed')) reload() }}><Trash2 /></button>}
+                </td>
               </tr>))}
             </tbody>
           </table>
+          <label className="check" style={{ marginTop: 8 }}><input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} /> Show superseded prices</label>
         </div>
       </div>
       <div className="card" style={{ alignSelf: 'start' }}>
@@ -261,53 +361,25 @@ function PricingConfig() {
           </form>
         </div>
       </div>
-    </div>
-  )
-}
-
-function UsersConfig() {
-  const { data, reload } = useApi('/api/users')
-  const venues = useApi('/api/venues').data || []
-  const [edit, setEdit] = useState(null)
-  const [run, busy] = useAction()
-  return (
-    <div className="card">
-      <div className="card-head"><h2>People</h2><button className="btn btn-sm" onClick={() => setEdit({ name: '', email: '', role: 'vm', password: '', venue_ids: [], active: true })}><Plus /> Add person</button></div>
-      <div className="card-body table-wrap">
-        <table className="table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Venues</th><th>Status</th></tr></thead>
-          <tbody>{(data || []).map((u) => (
-            <tr key={u.id} className="clickable" onClick={() => setEdit({ ...u, password: '' })}>
-              <td style={{ fontWeight: 500 }}>{u.name}</td><td>{u.email}</td>
-              <td>{u.role === 'hq' ? <Badge tone="brand">HQ</Badge> : <Badge>Venue Manager</Badge>}</td>
-              <td>{u.role === 'hq' ? 'All' : u.venue_ids.map((id) => venues.find((v) => v.id === id)?.code).join(', ')}</td>
-              <td>{u.active ? <Badge tone="good">Active</Badge> : <Badge>Disabled</Badge>}</td>
-            </tr>))}
-          </tbody>
-        </table>
-      </div>
-      {edit && (
-        <Drawer open onClose={() => setEdit(null)} title={edit.id ? 'Edit person' : 'Add person'}>
+      {change && (
+        <Drawer open onClose={() => setChange(null)} title="Change price"
+          subtitle={`${change.rule.facility_id ? v.facilities.find((x) => x.id === change.rule.facility_id)?.name : change.rule.sport || 'All facilities'} · ${change.rule.start}–${change.rule.end} · ${change.rule.duration_min} min`}>
           {(close) => (
             <form className="form" onSubmit={async (e) => {
               e.preventDefault()
-              const r = await run(() => (edit.id ? put(`/api/users/${edit.id}`, edit) : post('/api/users', edit)), 'Saved')
-              if (r) { reload(); close() }
+              if (await run(() => post(`/api/pricing/${change.rule.id}/change`, { amount: Number(change.amount), effective_from: change.effective_from }),
+                'New price scheduled — existing bookings keep their price')) { reload(); close() }
             }}>
-              <Field label="Name"><input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></Field>
-              <Field label="Email"><input className="input" type="email" value={edit.email} disabled={!!edit.id} onChange={(e) => setEdit({ ...edit, email: e.target.value })} required /></Field>
-              <Field label="Role"><select className="select" value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}><option value="vm">Venue Manager</option><option value="hq">HQ (full access)</option></select></Field>
-              {edit.role === 'vm' && (
-                <fieldset className="field" style={{ border: 0, padding: 0 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Assigned venues</span>
-                  {venues.map((v) => (
-                    <label key={v.id} className="check"><input type="checkbox" checked={edit.venue_ids.includes(v.id)} onChange={(e) => setEdit({ ...edit, venue_ids: e.target.checked ? [...edit.venue_ids, v.id] : edit.venue_ids.filter((x) => x !== v.id) })} />{v.name}</label>
-                  ))}
-                </fieldset>
-              )}
-              <Field label={edit.id ? 'New password (optional)' : 'Password'} help="At least 8 characters"><input className="input" type="password" value={edit.password} onChange={(e) => setEdit({ ...edit, password: e.target.value })} required={!edit.id} /></Field>
-              {edit.id && <label className="check"><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} /> Active</label>}
-              <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn btn-primary" disabled={busy}>Save</button></div>
+              <Field label="New price (₹)" help={`Currently ${money(change.rule.amount)}`}>
+                <input className="input" type="number" min={0} value={change.amount} onChange={(e) => setChange({ ...change, amount: e.target.value })} required />
+              </Field>
+              <Field label="Effective from" help="Applies to bookings created from this date. Bookings already made keep their price (PRD §11.1).">
+                <input className="input" type="date" min={todayISO()} value={change.effective_from} onChange={(e) => setChange({ ...change, effective_from: e.target.value })} required />
+              </Field>
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <button type="button" className="btn" onClick={close}>Cancel</button>
+                <button className="btn btn-primary" disabled={busy}>Schedule price</button>
+              </div>
             </form>
           )}
         </Drawer>

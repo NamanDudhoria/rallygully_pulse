@@ -25,8 +25,11 @@ def venue(v: Venue, full: bool = False) -> dict:
 
 
 def user(u: User) -> dict:
-    return {"id": u.id, "name": u.name, "email": u.email, "role": u.role, "active": u.active,
-            "venue_ids": [a.venue_id for a in u.venues]}
+    from .permissions import ROLES
+    status = "disabled" if not u.active else "invited" if not u.password_hash else "active"
+    return {"id": u.id, "name": u.name, "email": u.email, "role": u.role, "role_label": ROLES.get(u.role, u.role),
+            "active": u.active, "status": status, "venue_ids": [a.venue_id for a in u.venues],
+            "last_login_at": u.last_login_at, "created_at": u.created_at}
 
 
 def customer(c: Customer) -> dict:
