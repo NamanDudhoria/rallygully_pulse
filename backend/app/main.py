@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import os
+import threading
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, scheduler
 from .audit import DomainError
 from .db import Base, engine
+from .services import analytics
 from .routers import admin, analytics_routes, auth_routes, operations, people, venues
 
 
@@ -17,7 +19,13 @@ from .routers import admin, analytics_routes, auth_routes, operations, people, v
 async def lifespan(_app: FastAPI):
     Base.metadata.create_all(engine)
     task = asyncio.create_task(scheduler.loop()) if config.RUN_SCHEDULER else None
+    stop = threading.Event()
+    if config.RUN_SCHEDULER:
+        threading.Thread(target=analytics.warm_forever, args=(stop,), daemon=True, name="pulse-warm").start()
+        analytics._warm_wake.set()  # warm once at startup
     yield
+    stop.set()
+    analytics._warm_wake.set()
     if task:
         task.cancel()
 

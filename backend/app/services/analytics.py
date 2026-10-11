@@ -36,10 +36,18 @@ _cache: dict = {}
 _cache_lock = threading.Lock()
 
 
+# Only these tables feed analytics; sign-ins, audit rows, notifications, roster etc. must not
+# throw away the cache (a login updates last_login_at, which used to invalidate everything).
+_ANALYTICS_TABLES = {"allocations", "bookings", "refunds", "community_games", "participants", "academy_series",
+                     "academy_occurrences", "academy_reconciliations", "corporate_events", "operational_blocks",
+                     "payments", "facilities", "venues", "weekly_hours", "special_dates", "pricing_rules"}
+
+
 @event.listens_for(Session, "after_flush")
 def _bump_version(session, _ctx):
     global _version
-    if session.new or session.dirty or session.deleted:
+    if any(getattr(o, "__tablename__", None) in _ANALYTICS_TABLES
+           for o in (*session.new, *session.dirty, *session.deleted)):
         _version += 1
 
 
@@ -87,6 +95,11 @@ def compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_mi
     return _memo(key, lambda: _compute(db, venue_ids, start, end, cutoff_min, with_facilities))
 
 
+def _plain(model):
+    """SELECT all columns as lightweight rows (attribute access by column name, no ORM identity overhead)."""
+    return select(*model.__table__.columns)
+
+
 def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_min: int | None,
              with_facilities: bool) -> dict:
     """Returns {"days": {(venue_id, date): metrics}, "facilities": {(facility_id, date): metrics}}.
@@ -97,7 +110,7 @@ def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_m
     fac_out: dict = {}
     if not venue_ids:
         return {"days": out, "facilities": fac_out}
-    facilities = list(db.scalars(select(Facility).where(Facility.venue_id.in_(venue_ids), Facility.status == "active")))
+    facilities = list(db.execute(_plain(Facility).where(Facility.venue_id.in_(venue_ids), Facility.status == "active")))
     fac_by_id = {f.id: f for f in facilities}
     hours = hours_map(db, venue_ids, start, end)
     book = PriceBook.load(db, venue_ids)
@@ -133,28 +146,28 @@ def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_m
         return cutoff_min is None or p_at <= at_minute(d, cutoff_min)
 
     # Source records
-    bookings = list(db.scalars(select(Booking).where(Booking.venue_id.in_(venue_ids), Booking.date >= start,
+    bookings = list(db.execute(_plain(Booking).where(Booking.venue_id.in_(venue_ids), Booking.date >= start,
                                                      Booking.date <= end)))
     booking_by_id = {b.id: b for b in bookings}
-    allocs = list(db.scalars(select(Allocation).where(Allocation.venue_id.in_(venue_ids), Allocation.date >= start,
+    allocs = list(db.execute(_plain(Allocation).where(Allocation.venue_id.in_(venue_ids), Allocation.date >= start,
                                                       Allocation.date <= end, Allocation.active.is_(True))))
-    games = {g.id: g for g in db.scalars(select(CommunityGame).where(CommunityGame.venue_id.in_(venue_ids),
+    games = {g.id: g for g in db.execute(_plain(CommunityGame).where(CommunityGame.venue_id.in_(venue_ids),
                                                                       CommunityGame.date >= start, CommunityGame.date <= end))}
-    parts = list(db.scalars(select(Participant).where(Participant.game_id.in_(list(games) or [0]))))
+    parts = list(db.execute(_plain(Participant).where(Participant.game_id.in_(list(games) or [0]))))
     part_by_id = {p.id: p for p in parts}
-    occs = {o.id: o for o in db.scalars(select(AcademyOccurrence).where(AcademyOccurrence.venue_id.in_(venue_ids),
+    occs = {o.id: o for o in db.execute(_plain(AcademyOccurrence).where(AcademyOccurrence.venue_id.in_(venue_ids),
                                                                          AcademyOccurrence.date >= start,
                                                                          AcademyOccurrence.date <= end))}
-    events = {e.id: e for e in db.scalars(select(CorporateEvent).where(CorporateEvent.venue_id.in_(venue_ids),
+    events = {e.id: e for e in db.execute(_plain(CorporateEvent).where(CorporateEvent.venue_id.in_(venue_ids),
                                                                        CorporateEvent.date >= start, CorporateEvent.date <= end))}
-    blocks = list(db.scalars(select(OperationalBlock).where(OperationalBlock.venue_id.in_(venue_ids),
+    blocks = list(db.execute(_plain(OperationalBlock).where(OperationalBlock.venue_id.in_(venue_ids),
                                                             OperationalBlock.date >= start, OperationalBlock.date <= end)))
-    payments = list(db.scalars(select(Payment).where(Payment.venue_id.in_(venue_ids), Payment.activity_date >= start,
+    payments = list(db.execute(_plain(Payment).where(Payment.venue_id.in_(venue_ids), Payment.activity_date >= start,
                                                      Payment.activity_date <= end, Payment.void.is_(False))))
-    refunds = list(db.scalars(select(Refund).where(Refund.booking_id.in_(list(booking_by_id) or [0]),
+    refunds = list(db.execute(_plain(Refund).where(Refund.booking_id.in_(list(booking_by_id) or [0]),
                                                    Refund.status == "processed")))
     series_ids = {o.series_id for o in occs.values()}
-    recs = {(r.series_id, r.month): r for r in db.scalars(select(AcademyReconciliation).where(
+    recs = {(r.series_id, r.month): r for r in db.execute(_plain(AcademyReconciliation).where(
         AcademyReconciliation.series_id.in_(list(series_ids) or [0])))}
 
     # 1. Inventory: operational units and unit values per facility/slot.
@@ -587,15 +600,56 @@ def venues_list(db: Session, venue_ids: list[int] | None) -> list[Venue]:
     return list(db.scalars(q))
 
 
+CUTOFF_STEP = 5  # minutes; intraday comparisons move in 5-minute steps so results stay cacheable
+
+
 def now_cutoff(d: date) -> int | None:
     """Minute-of-day cutoff when ``d`` is today (incomplete day), else None."""
     now = now_local()
-    return minute_of(now, d) if d == now.date() else None
+    return minute_of(now, d) // CUTOFF_STEP * CUTOFF_STEP if d == now.date() else None
 
 
-def series_ids_for_academy(db: Session) -> list[AcademySeries]:
-    return list(db.scalars(select(AcademySeries)))
+# ── Background warm-up ───────────────────────────────────────────────────────
+_warm_wake = threading.Event()
 
 
-def median(vals):
-    return statistics.median(vals) if vals else None
+@event.listens_for(Session, "after_commit")
+def _wake_warmer(_session):
+    _warm_wake.set()
+
+
+def warm_forever(stop: threading.Event) -> None:
+    """Recompute today's dashboards right after data changes, and pre-compute the next 5-minute
+    intraday step shortly before it arrives, so pages hit a warm cache instead of waiting.
+
+    Pre-computing the next step early is exact: results only change through writes, and any write
+    bumps the data version and triggers a fresh warm-up.
+    """
+    import logging
+    from ..db import SessionLocal
+    from ..routers import analytics_routes
+    log = logging.getLogger("pulse.warm")
+    done: set = set()
+    while not stop.is_set():
+        _warm_wake.wait(timeout=20)
+        _warm_wake.clear()
+        if stop.is_set():
+            break
+        now = now_local()
+        d = now.date()
+        cur = now_cutoff(d)
+        nxt = cur + CUTOFF_STEP
+        db = SessionLocal()
+        try:
+            if (_version, cur) not in done:
+                analytics_routes.portfolio(None, None, db)  # everything the portfolio and venue pages use
+                done.add((_version, now_cutoff(d)))
+            if minute_of(now, d) + 1 >= nxt and (_version, nxt) not in done and nxt < 1440:
+                raw_days(db, _all_venue_ids(db), d, d, nxt)
+                done.add((_version, nxt))
+            if len(done) > 64:
+                done = {k for k in done if k[0] == _version}
+        except Exception:  # noqa: BLE001 — warming is best-effort
+            log.exception("warm-up failed")
+        finally:
+            db.close()

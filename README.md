@@ -8,14 +8,25 @@ state; every revenue-generating allocation has a financial record; every metric 
 ## Run it
 
 ```bash
-./run.sh                 # → http://localhost:8000
+./run.sh                 # Mac / Linux → http://localhost:8000
 ```
 
-Demo accounts (password `pulse1234`, all `@rallygully.com`): `admin` (HQ Admin), `hq`, `community`, `academy`,
-`vm.eok` / `vm.skt` / `vm.ggn` (rostered today), `vm.eok.b` (weekend shifts only). The seed creates 3 venues with
-~100 days of history, so the 7/30/90-day comparisons and anomaly detection have real baselines; "today" is live
-relative to the current IST time. Schema changes ship without migrations in V1 — after pulling, rebuild the demo
-database with `python -m app.seed --reset`.
+```powershell
+.\run.ps1                # Windows PowerShell (uses the active Python, e.g. a conda env)
+.\run.ps1 -Reset         # rebuild demo data around today
+```
+
+Needs Python 3.10+ and Node 20.19+ (or 22.12+).
+
+Demo accounts (password `pulse1234`, all `@rallygully.com`): `admin` (HQ Admin), `hq`, `community`, `academy`, and
+Venue Managers `gaurav` (Delhi: Sector 10 & 19 Dwarka, East of Kailash, Panchsheel Park), `govind` (Gurgaon: Sector 83,
+DPSG Palam Vihar, Capital Cyberscape, Sec 83 Turf & Padel) and `mohit` (Noida Sector 49, LCR Pune, Baner Pune).
+
+The seed loads the 11 venues and court counts from *List of Venues for Academies.xlsx* (`SHEET` in
+`backend/app/seed.py`) with ~100 days of history, so the 7/30/90-day comparisons and anomaly detection have real
+baselines. Operating hours (school venues 4–11 PM on weekdays, 7 AM–11 PM weekends; standalone venues 6 AM–11 PM),
+prices and demand are **placeholders** — replace them under Configuration. "Today" is built around the day you seed,
+so re-run `python -m app.seed --reset` on demo day. Schema changes ship without migrations in V1.
 
 ## People, roles and access
 
