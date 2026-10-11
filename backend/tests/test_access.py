@@ -100,11 +100,17 @@ def test_vm_lists_only_rostered_venue_days(c):
     assert me["roster"][0]["venue_id"] == 1 and "venue.operate" in me["permissions"]
 
 
-def test_roster_only_from_venue_team(c):
-    admin = login(c, "hq_admin@x.com")
-    r = c.post("/api/roster", headers=admin, json={"venue_id": 2, "user_id": 5, "date": DAY.isoformat()})
-    assert r.status_code == 422 and "team" in r.json()["detail"]
-    r = c.post("/api/roster", headers=admin, json={"venue_id": 1, "user_id": 3, "date": DAY.isoformat()})
+def test_rostering_outside_team_joins_team(c):
+    hq = login(c, "hq@x.com")  # roster.manage without users.manage
+    r = c.post("/api/roster", headers=hq, json={"venue_id": 2, "user_id": 5, "date": DAY.isoformat()})
+    assert r.status_code == 200
+    db = SessionLocal()
+    assert db.get(VmAssignment, (5, 2)) is not None
+    db.close()
+    assert c.get(f"/api/venues/2/day?date={DAY}", headers=login(c, "vm@x.com")).status_code == 200
+    vms = c.get(f"/api/roster?date_from={DAY}&date_to={DAY}", headers=hq).json()["vms"]
+    assert {v["name"] for v in vms} == {"Rohit", "Kavya"}
+    r = c.post("/api/roster", headers=hq, json={"venue_id": 1, "user_id": 3, "date": DAY.isoformat()})
     assert r.status_code == 422  # community user isn't a VM
 
 

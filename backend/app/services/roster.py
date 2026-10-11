@@ -24,7 +24,9 @@ def add(db: Session, actor: User, venue_id: int, user_id: int, d: date) -> VmRos
     if u.role != "vm" or not u.active:
         raise DomainError(f"{u.name} isn't an active Venue Manager.", 422)
     if not db.get(VmAssignment, (user_id, venue_id)):
-        raise DomainError(f"{u.name} isn't on {v.name}'s team. Add the venue to their profile first.", 422)
+        # Rostering someone outside the venue team adds them to it (and records that).
+        db.add(VmAssignment(user_id=user_id, venue_id=venue_id))
+        audit.record(db, actor, "team.add", "user", u.id, None, {"venue_id": venue_id, "via": "roster"}, venue_id)
     existing = db.scalar(select(VmRoster).where(VmRoster.venue_id == venue_id, VmRoster.user_id == user_id,
                                                 VmRoster.date == d))
     if existing:

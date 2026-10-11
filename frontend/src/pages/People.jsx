@@ -1,6 +1,6 @@
 /** People & access (users.manage) and the daily VM roster (roster.manage). */
 import { useState } from 'react'
-import { AlertTriangle, CalendarRange, ChevronLeft, ChevronRight, Copy, Lock, Mail, Plus, Search, X } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Copy, Lock, Mail, Plus, Search, X } from 'lucide-react'
 import { del, post, put } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction, useAuth, useToast } from '../lib/useCtx'
@@ -222,7 +222,9 @@ export function RosterPage() {
                 {data.days.map((d) => {
                   const on = data.entries.filter((e) => e.venue_id === v.id && e.date === d)
                   const operating = v.operating[d]
-                  const free = v.team.filter((m) => !on.some((e) => e.user_id === m.id))
+                  const isOn = (m) => on.some((e) => e.user_id === m.id)
+                  const free = v.team.filter((m) => !isOn(m))
+                  const others = (data.vms || []).filter((m) => !isOn(m) && !v.team.some((t) => t.id === m.id))
                   return (
                     <td key={d} style={{ verticalAlign: 'top', background: !operating ? 'var(--surface-sunk)' : undefined }}>
                       {!operating ? <span className="subtle" style={{ fontSize: 12 }}>Closed</span> : (
@@ -236,12 +238,19 @@ export function RosterPage() {
                             </span>
                           ))}
                           {!on.length && <span className="badge bad" title="No VM can open this venue in Pulse on this day"><Lock /> No VM</span>}
-                          {free.length > 0 && (
+                          {free.length + others.length > 0 && (
                             <select className="select" value="" style={{ minHeight: 28, padding: '2px 6px', fontSize: 12.5 }}
                               aria-label={`Add VM to ${v.name} on ${d}`} disabled={busy}
-                              onChange={(e) => e.target.value && act(() => post('/api/roster', { venue_id: v.id, user_id: Number(e.target.value), date: d }), 'Rostered')}>
+                              onChange={(e) => {
+                                const id = Number(e.target.value)
+                                if (!id) return
+                                const joining = others.find((m) => m.id === id)
+                                act(() => post('/api/roster', { venue_id: v.id, user_id: id, date: d }),
+                                  joining ? `${joining.name} rostered and added to ${v.name.replace('RallyGully ', '')}'s team` : 'Rostered')
+                              }}>
                               <option value="">+ Add…</option>
-                              {free.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                              {free.length > 0 && <optgroup label="Venue team">{free.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
+                              {others.length > 0 && <optgroup label="Other VMs (joins team)">{others.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
                             </select>
                           )}
                         </div>
@@ -252,9 +261,7 @@ export function RosterPage() {
               </tr>))}
             </tbody>
           </table>
-          {data.venues.some((v) => !v.team.length) && (
-            <p className="subtle" style={{ fontSize: 12.5, marginTop: 10 }}><CalendarRange size={13} style={{ verticalAlign: -2 }} /> Venues without a team: add VMs to the venue under People &amp; access first.</p>
-          )}
+
         </div></div>
       )}
     </div>
