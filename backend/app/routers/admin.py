@@ -13,8 +13,8 @@ from ..db import get_db
 from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Facility, IngestionRun, Notification,
                       Participant, PricingRule, SpecialDate, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
-from ..services import district
-from ..timeutil import hhmm
+from ..services import district, venue_config
+from ..timeutil import hhmm, today
 from .common import get_or_404, minutes
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -26,6 +26,23 @@ class VenueIn(BaseModel):
     name: str
     location: str = ""
     status: str = "active"
+
+
+STATUSES = ("active", "inactive")
+
+
+def _venue_fields(db: Session, body: VenueIn, venue_id: int | None = None) -> tuple[str, str]:
+    code, name = body.code.strip().upper(), body.name.strip()
+    if not code or not name:
+        raise HTTPException(422, "Code and name are required.")
+    if not code.replace("-", "").isalnum() or len(code) > 20:
+        raise HTTPException(422, "Code: letters/numbers only, up to 20 characters (e.g. EOK).")
+    if body.status not in STATUSES:
+        raise HTTPException(422, "Status must be active or inactive.")
+    other = db.scalar(select(Venue).where(Venue.code == code, Venue.id != (venue_id or 0)))
+    if other:
+        raise HTTPException(409, f"Code {code} is already used by {other.name}.")
+    return code, name
 
 
 class FacilityIn(BaseModel):
@@ -71,7 +88,9 @@ def _check_hours(o: int, c: int):
 
 @router.post("/venues")
 def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
-    v = Venue(code=body.code.strip().upper(), name=body.name.strip(), location=body.location, status=body.status)
+    """New venues start with 5–11 PM daily hours and no facilities; configure both before going live."""
+    code, name = _venue_fields(db, body)
+    v = Venue(code=code, name=name, location=body.location.strip(), status=body.status)
     db.add(v)
     db.flush()
     for wd in range(7):
@@ -85,8 +104,11 @@ def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), 
 @router.put("/venues/{venue_id}")
 def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     v = get_or_404(db, Venue, venue_id)
+    code, name = _venue_fields(db, body, venue_id)
+    if v.status == "active" and body.status == "inactive":
+        venue_config.check_venue_deactivation(db, venue_id)
     before = serialize.venue(v)
-    v.code, v.name, v.location, v.status = body.code.strip().upper(), body.name.strip(), body.location, body.status
+    v.code, v.name, v.location, v.status = code, name, body.location.strip(), body.status
     audit.record(db, user, "venue.update", "venue", v.id, before, serialize.venue(v), v.id)
     db.commit()
     return serialize.venue(v, full=True)
@@ -99,6 +121,7 @@ def set_hours(venue_id: int, body: list[HoursIn], user: User = Depends(require("
         o, c = minutes(h.open), minutes(h.close)
         if not h.closed:
             _check_hours(o, c)
+        venue_config.check_weekly_hours(db, venue_id, h.weekday, None if h.closed else (o, c))
         row = db.get(WeeklyHours, (venue_id, h.weekday)) or WeeklyHours(venue_id=venue_id, weekday=h.weekday)
         before = {"open": row.open_min, "close": row.close_min, "closed": row.closed} if row.open_min is not None else None
         row.open_min, row.close_min, row.closed = o, c, h.closed
@@ -123,6 +146,8 @@ def add_special(venue_id: int, body: SpecialIn, user: User = Depends(require("co
     o, c = minutes(body.open), minutes(body.close)
     if not body.closed:
         _check_hours(o, c)
+    venue_config.check_date_hours(db, venue_id, body.date, None if body.closed else (o, c),
+                                  f"{'Closing' if body.closed else 'Changing hours on'} {body.date.strftime('%a %d %b')}")
     s = db.scalar(select(SpecialDate).where(SpecialDate.venue_id == venue_id, SpecialDate.date == body.date))
     s = s or SpecialDate(venue_id=venue_id, date=body.date)
     s.open_min, s.close_min, s.closed, s.note = o, c, body.closed, body.note
@@ -136,16 +161,32 @@ def add_special(venue_id: int, body: SpecialIn, user: User = Depends(require("co
 @router.delete("/special-dates/{sid}")
 def del_special(sid: int, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     s = get_or_404(db, SpecialDate, sid)
+    if s.date >= today():  # falls back to the weekly hours for that weekday
+        wh = db.get(WeeklyHours, (s.venue_id, s.date.weekday()))
+        weekly = None if not wh or wh.closed else (wh.open_min, wh.close_min)
+        venue_config.check_date_hours(db, s.venue_id, s.date, weekly, "Removing this override")
     audit.record(db, user, "venue.special_date_delete", "venue", s.venue_id, {"date": s.date}, None, s.venue_id)
     db.delete(s)
     db.commit()
     return {"ok": True}
 
 
+def _facility_fields(db: Session, body: FacilityIn, fid: int | None = None) -> None:
+    if not body.name.strip() or not body.sport.strip() or not body.facility_type.strip():
+        raise HTTPException(422, "Name, type and sport are required.")
+    if body.status not in STATUSES:
+        raise HTTPException(422, "Status must be active or inactive.")
+    if db.scalar(select(Facility).where(Facility.venue_id == body.venue_id, Facility.name == body.name.strip(),
+                                        Facility.id != (fid or 0))):
+        raise HTTPException(409, f"This venue already has a facility called {body.name.strip()}.")
+
+
 @router.post("/facilities")
 def create_facility(body: FacilityIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     get_or_404(db, Venue, body.venue_id)
-    f = Facility(**body.model_dump())
+    _facility_fields(db, body)
+    f = Facility(**{**body.model_dump(), "name": body.name.strip(), "sport": body.sport.strip(),
+                    "facility_type": body.facility_type.strip()})
     db.add(f)
     db.flush()
     audit.record(db, user, "facility.create", "facility", f.id, None, body.model_dump(), f.venue_id)
@@ -156,10 +197,12 @@ def create_facility(body: FacilityIn, user: User = Depends(require("config.manag
 @router.put("/facilities/{fid}")
 def update_facility(fid: int, body: FacilityIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     f = get_or_404(db, Facility, fid)
+    body.venue_id = f.venue_id  # facilities never move between venues
+    _facility_fields(db, body, fid)
+    venue_config.check_facility_change(db, f, body.status, body.sport.strip())
     before = serialize.facility(f)
-    for k, v in body.model_dump().items():
-        if k != "venue_id":
-            setattr(f, k, v)
+    f.name, f.facility_type, f.sport = body.name.strip(), body.facility_type.strip(), body.sport.strip()
+    f.status, f.sort_order = body.status, body.sort_order
     audit.record(db, user, "facility.update", "facility", f.id, before, serialize.facility(f), f.venue_id)
     db.commit()
     return serialize.facility(f)
@@ -170,10 +213,11 @@ def list_pricing(venue_id: int | None = None, user: User = Depends(require("conf
     q = select(PricingRule).order_by(PricingRule.venue_id, PricingRule.effective_from.desc(), PricingRule.start_min)
     if venue_id:
         q = q.where(PricingRule.venue_id == venue_id)
+    rules = list(db.scalars(q))
     return [{"id": r.id, "venue_id": r.venue_id, "facility_id": r.facility_id, "sport": r.sport,
              "weekdays": r.weekdays, "start": hhmm(r.start_min), "end": hhmm(r.end_min) if r.end_min < 1440 else "24:00",
              "duration_min": r.duration_min, "amount": r.amount, "effective_from": r.effective_from,
-             "created_at": r.created_at} for r in db.scalars(q)]
+             "status": venue_config.rule_status(r, rules), "created_at": r.created_at} for r in rules]
 
 
 @router.post("/pricing")
@@ -184,6 +228,11 @@ def add_pricing(body: PriceIn, user: User = Depends(require("config.manage")), d
     s, e = minutes(body.start), minutes(body.end)
     if e <= s:
         raise HTTPException(422, "End must be after start.")
+    venue = get_or_404(db, Venue, body.venue_id)
+    if body.facility_id and get_or_404(db, Facility, body.facility_id).venue_id != venue.id:
+        raise HTTPException(422, "That facility belongs to another venue.")
+    if not body.weekdays or set(body.weekdays) - set("0123456"):
+        raise HTTPException(422, "Pick at least one weekday.")
     r = PricingRule(venue_id=body.venue_id, facility_id=body.facility_id, sport=body.sport or None,
                     weekdays=body.weekdays, start_min=s, end_min=e, duration_min=body.duration_min,
                     amount=body.amount, effective_from=body.effective_from)
@@ -192,6 +241,34 @@ def add_pricing(body: PriceIn, user: User = Depends(require("config.manage")), d
     audit.record(db, user, "pricing.create", "pricing_rule", r.id, None, body.model_dump(), body.venue_id)
     db.commit()
     return {"id": r.id}
+
+
+class PriceChangeIn(BaseModel):
+    amount: float
+    effective_from: date
+
+
+@router.post("/pricing/{rid}/change")
+def change_pricing(rid: int, body: PriceChangeIn, user: User = Depends(require("config.manage")),
+                   db: Session = Depends(get_db)):
+    """Schedule a new price for the same slot from a date. Existing bookings keep their price (PRD §11.1)."""
+    r = get_or_404(db, PricingRule, rid)
+    new = venue_config.change_price(db, r, body.amount, body.effective_from)
+    audit.record(db, user, "pricing.change", "pricing_rule", new.id, {"rule_id": r.id, "amount": r.amount},
+                 {"amount": body.amount, "effective_from": body.effective_from}, r.venue_id)
+    db.commit()
+    return {"id": new.id}
+
+
+@router.delete("/pricing/{rid}")
+def delete_pricing(rid: int, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
+    """Only scheduled (not yet effective) prices can be removed."""
+    r = get_or_404(db, PricingRule, rid)
+    venue_config.delete_rule(db, r)
+    audit.record(db, user, "pricing.delete", "pricing_rule", rid, {"amount": r.amount, "effective_from": r.effective_from},
+                 None, r.venue_id)
+    db.commit()
+    return {"ok": True}
 
 
 # ── Customers ────────────────────────────────────────────────────────────────

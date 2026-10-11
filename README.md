@@ -70,6 +70,15 @@ Key ideas:
   |z| ≥ 3.5), fall back to the trailing 28 days, and report "insufficient history" rather than guess. Each insight
   states current value, normal range, deviation, correlated movements and the most-deviating facility.
 
+## Venue configuration
+
+HQ (HQ Admin and HQ) create and edit venues (code, name, location, active/inactive), facilities (name, type, sport,
+order, active/inactive), weekly hours, special-date overrides and prices under **Configuration**. Edits are refused,
+with the affected bookings listed, when they would strand upcoming activity: deactivating a venue or facility,
+changing a facility's sport, shrinking hours, or closing a date. Renames are always safe. Prices are versioned —
+"Change price" schedules a new price from a date; prices already in use can't be deleted, so past bookings and
+historical analytics keep the price they were sold at.
+
 ## Integrations
 
 All are real code paths with a safe default when credentials are absent (messages are logged as `simulated` and
