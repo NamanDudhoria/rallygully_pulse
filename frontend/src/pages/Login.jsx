@@ -38,17 +38,6 @@ export default function Login() {
 
   return (
     <div className="login">
-      <section className="login-art" aria-hidden>
-        <img src={logo} alt="" style={{ height: 30, filter: 'brightness(0) invert(1)', alignSelf: 'flex-start' }} />
-        <svg className="pulse-svg" viewBox="0 0 520 120" fill="none">
-          <path d="M0 60h150l20-40 30 80 26-60 18 20h276" stroke="#f28e22" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <div>
-          <h1>What actually happened at every venue — already known.</h1>
-          <p>Pulse is RallyGully&apos;s source of truth for venue inventory, on-ground activity, payments and performance.</p>
-        </div>
-        <span style={{ fontSize: 12, opacity: 0.6 }}>Internal tool · RallyGully HQ &amp; Venue Managers only</span>
-      </section>
       <section className="login-form">
         {mode !== 'login' ? (
           <form className="login-card" onSubmit={async (e) => {
@@ -57,10 +46,11 @@ export default function Login() {
             try { await post('/api/auth/forgot', { email }); setMode('sent') } catch (err) { setError(err.message) } finally { setBusy(false) }
           }}>
             <div>
-              <h1>Reset your password</h1>
+              <img src={logo} alt="RallyGully" style={{ height: 26, marginBottom: 16 }} />
+              <h1>Reset password</h1>
               <p className="muted" style={{ marginTop: 6 }}>
                 {mode === 'sent' ? 'If that email has a Pulse account, a reset link is on its way. It expires in 1 hour.'
-                  : "Enter your work email and we'll send a link to set a new password."}
+                  : 'We’ll email you a reset link.'}
               </p>
             </div>
             {error && <div className="callout bad" role="alert">{error}</div>}
@@ -77,8 +67,8 @@ export default function Login() {
         ) : (
         <form className="login-card" onSubmit={submit}>
           <div>
-            <h1>Sign in to Pulse</h1>
-            <p className="muted" style={{ marginTop: 6 }}>Use your RallyGully work email. Accounts are created by HQ.</p>
+            <img src={logo} alt="RallyGully" style={{ height: 26, marginBottom: 16 }} />
+            <h1>Sign in</h1>
           </div>
           {error && <div className="callout bad" role="alert">{error}</div>}
           <Field label="Email">

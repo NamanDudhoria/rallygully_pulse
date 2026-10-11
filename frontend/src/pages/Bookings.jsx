@@ -19,7 +19,7 @@ export default function Bookings() {
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div><h1>Bookings</h1><p>District and Direct consumer bookings</p></div>
+        <div><h1>Bookings</h1></div>
       </div>
       <div className="card card-pad">
         <div className="form-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>

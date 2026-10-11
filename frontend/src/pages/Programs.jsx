@@ -55,7 +55,7 @@ export function CommunityPage() {
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div><h1>Community Games</h1><p>Lodged by HQ from the Community Team&apos;s plan; VMs record actual players on ground.</p></div>
+        <div><h1>Community Games</h1></div>
         <button className="btn btn-primary" onClick={() => setCreating(true)} disabled={!venues.length}><Plus /> Lodge game</button>
       </div>
       <div className="card"><div className="card-body table-wrap">
@@ -133,7 +133,7 @@ export function AcademyPage() {
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div><h1>Academy</h1><p>Each occurrence is materialized as its own inventory allocation. Revenue reconciles at month-end.</p></div>
+        <div><h1>Academy</h1></div>
         <button className="btn btn-primary" onClick={() => setCreating(true)} disabled={!venues.length}><Plus /> New academy booking</button>
       </div>
       <div className="card"><div className="card-body table-wrap">
@@ -261,7 +261,7 @@ export function EventsPage() {
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div><h1>Corporate / Private events</h1><p>Revenue-generating allocations; count toward occupancy.</p></div>
+        <div><h1>Corporate / Private events</h1></div>
         <button className="btn btn-primary" onClick={() => setCreating(true)} disabled={!venues.length}><Plus /> New event</button>
       </div>
       <div className="card"><div className="card-body table-wrap">

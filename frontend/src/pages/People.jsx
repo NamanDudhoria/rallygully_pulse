@@ -30,7 +30,7 @@ export function PeoplePage() {
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div><h1>People &amp; access</h1><p>Everyone signs in with their work email. Only HQ Admins create people; each person sets their own password from an invite link.</p></div>
+        <div><h1>People &amp; access</h1></div>
         <button className="btn btn-primary" onClick={() => setEdit({ name: '', email: '', role: 'vm', venue_ids: [], active: true })}><Plus /> Add person</button>
       </div>
       <div className="spread">
@@ -71,7 +71,7 @@ export function PeoplePage() {
 function RoleMatrix({ roles }) {
   return (
     <div className="card">
-      <div className="card-head"><h2>What each role can access</h2><span className="hint">enforced on the server for every request</span></div>
+      <div className="card-head"><h2>What each role can access</h2><span className="hint" /></div>
       <div className="card-body table-wrap">
         <table className="table">
           <thead><tr><th>Access</th>{roles.roles.map((r) => <th key={r.value} style={{ textAlign: 'center' }}>{r.label}</th>)}</tr></thead>
@@ -191,7 +191,6 @@ export function RosterPage() {
       <div className="page-head">
         <div>
           <h1>VM roster</h1>
-          <p>Who runs each venue each day. A Venue Manager can only open a venue on days they&apos;re rostered — set tomorrow&apos;s roster the day before.</p>
         </div>
         <div className="row">
           <button className="btn btn-icon btn-sm" onClick={() => setStart(addDays(start, -7))} aria-label="Previous week"><ChevronLeft /></button>

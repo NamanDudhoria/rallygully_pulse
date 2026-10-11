@@ -17,7 +17,7 @@ export function CustomersPage() {
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div><h1>Customers</h1><p>One profile per phone number across District, Direct and Community Games.</p></div>
+        <div><h1>Customers</h1></div>
         <div style={{ position: 'relative', width: 280 }}>
           <Search size={15} style={{ position: 'absolute', left: 10, top: 11, color: 'var(--text-3)' }} aria-hidden />
           <input className="input" style={{ paddingLeft: 32 }} placeholder="Search phone or name" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" />
@@ -77,7 +77,7 @@ export function ConfigPage() {
   const [tab, setTab] = useState('venues')
   return (
     <div className="stack rise">
-      <div className="page-head"><div><h1>Configuration</h1><p>Venues, facilities, operating hours, special dates and pricing. Edits that would strand upcoming bookings are refused.</p></div></div>
+      <div className="page-head"><div><h1>Configuration</h1></div></div>
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' },
       ]} />
@@ -396,7 +396,7 @@ export function AuditPage() {
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div><h1>Audit trail</h1><p>Who changed what, before and after. HQ only.</p></div>
+        <div><h1>Audit trail</h1></div>
         <select className="select" style={{ width: 220 }} value={action} onChange={(e) => setAction(e.target.value)} aria-label="Filter by action">
           <option value="">All actions</option>
           {['booking.create', 'assign_court', 'reassign', 'payment', 'amount_change', 'cancel', 'refund', 'block', 'day.', 'community', 'academy', 'pricing'].map((a) => <option key={a} value={a}>{a}</option>)}
@@ -459,7 +459,7 @@ export function SystemPage() {
   const [run, busy] = useAction()
   return (
     <div className="stack rise">
-      <div className="page-head"><div><h1>Integrations</h1><p>District ingestion (every 5 min), WhatsApp messages and day-close escalations.</p></div></div>
+      <div className="page-head"><div><h1>Integrations</h1></div></div>
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'district', label: 'District ingestion', icon: Mail }, { value: 'whatsapp', label: 'WhatsApp', icon: MessageCircle }, { value: 'email', label: 'Escalations', icon: Send },
       ]} />
