@@ -246,7 +246,10 @@ class Participant(Base):
     __tablename__ = "participants"
     id: Mapped[int] = mapped_column(primary_key=True)
     game_id: Mapped[int] = mapped_column(ForeignKey("community_games.id"))
-    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
+    # Players listed by name only (e.g. from the WhatsApp sign-up post) have no customer until a phone is added.
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    guest_of: Mapped[int | None] = mapped_column(ForeignKey("participants.id"), nullable=True)  # "Jatan + 1"
     level: Mapped[str] = mapped_column(String(14))  # beginner | intermediate | advanced
     attendance: Mapped[str] = mapped_column(String(10), default="added")  # added | attended | no_show
     payment_status: Mapped[str] = mapped_column(String(10), default="unpaid")  # unpaid | paid
@@ -254,7 +257,7 @@ class Participant(Base):
     payment_method: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
     game: Mapped[CommunityGame] = relationship(back_populates="participants")
-    customer: Mapped[Customer] = relationship()
+    customer: Mapped[Customer | None] = relationship()
     __table_args__ = (UniqueConstraint("game_id", "customer_id"),)
 
 

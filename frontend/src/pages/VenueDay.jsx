@@ -11,6 +11,7 @@ import { KIND, KINDS, METHOD, hours, money, moneyShort, num, pct, range12, short
 import { Badge, Delta, Empty, ErrorState, Kpi, KindLabel, PageSkeleton, Seg, Tabs } from '../components/ui'
 import { ChannelMix, LineChart } from '../components/charts'
 import DateNav from '../components/DateNav'
+import TodayBand from '../components/TodayBand'
 import AvailabilityGrid, { GridLegend } from '../components/AvailabilityGrid'
 import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, DirectBookingDrawer, GameDrawer } from '../components/drawers'
 import { WINDOWS, attendBadge, closeBadge, payBadge } from '../components/badges'
@@ -140,6 +141,7 @@ function Summary({ d, attention, onOpen, goGrid }) {
   const c = d.comparisons
   return (
     <>
+      <TodayBand full={full} now={d.metrics_now} cmp={c} win={win} live={live} date={d.date} />
       <div className="spread">
         <Seg value={win} onChange={setWin} options={WINDOWS} label="Comparison baseline" />
         <span className="subtle" style={{ fontSize: 12.5 }}>

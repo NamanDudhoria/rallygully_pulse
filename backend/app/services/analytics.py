@@ -297,7 +297,8 @@ def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_m
             t["booking_value"] += g.per_person
             split_to_facilities("community", g.id, g.date, g.per_person, "booking_value")
         if p.attendance == "attended":
-            t["customers"].add(p.customer_id)
+            if p.customer_id is not None:
+                t["customers"].add(p.customer_id)
             if p.payment_status != "paid":
                 t["outstanding"] += g.per_person
         if p.attendance == "no_show":
@@ -412,7 +413,8 @@ def _attended_history(db: Session) -> dict[int, list[date]]:
             h[cid].append(d)
         for cid, d in db.execute(select(Participant.customer_id, CommunityGame.date).join(
                 CommunityGame, CommunityGame.id == Participant.game_id).where(
-                Participant.attendance == "attended", CommunityGame.status != "cancelled")):
+                Participant.attendance == "attended", CommunityGame.status != "cancelled",
+                Participant.customer_id.is_not(None))):
             h[cid].append(d)
         for v in h.values():
             v.sort()
@@ -448,7 +450,7 @@ def _active_customers(db: Session, since: date, upto: date, venue_ids: list[int]
                                            Booking.date >= since, Booking.date <= upto)
     q2 = select(Participant.customer_id).join(CommunityGame, CommunityGame.id == Participant.game_id).where(
         Participant.attendance == "attended", CommunityGame.status != "cancelled",
-        CommunityGame.date >= since, CommunityGame.date <= upto)
+        Participant.customer_id.is_not(None), CommunityGame.date >= since, CommunityGame.date <= upto)
     if venue_ids is not None:
         q1 = q1.where(Booking.venue_id.in_(venue_ids))
         q2 = q2.where(CommunityGame.venue_id.in_(venue_ids))

@@ -47,6 +47,12 @@ def ensure_schema() -> None:
 
     Base.metadata.create_all(engine)
     insp = inspect(engine)
+    if engine.dialect.name == "sqlite":
+        for table in Base.metadata.sorted_tables:
+            db_cols = {c["name"]: c for c in insp.get_columns(table.name)}
+            if any(col.nullable and col.name in db_cols and not db_cols[col.name]["nullable"] for col in table.columns):
+                _sqlite_rebuild(table, [c for c in table.columns if c.name in db_cols])
+        insp = inspect(engine)
     with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             have = {c["name"] for c in insp.get_columns(table.name)}
@@ -54,3 +60,19 @@ def ensure_schema() -> None:
                 if col.name not in have and col.nullable:
                     conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" '
                                       f'{col.type.compile(engine.dialect)}'))
+
+
+def _sqlite_rebuild(table, keep_cols) -> None:
+    """SQLite can't relax NOT NULL in place: copy the table into the current definition."""
+    from sqlalchemy import text
+
+    cols = ", ".join(f'"{c.name}"' for c in keep_cols)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        conn.execute(text(f'ALTER TABLE "{table.name}" RENAME TO "_old_{table.name}"'))
+        for idx in table.indexes:
+            conn.execute(text(f'DROP INDEX IF EXISTS "{idx.name}"'))
+        table.create(conn)
+        conn.execute(text(f'INSERT INTO "{table.name}" ({cols}) SELECT {cols} FROM "_old_{table.name}"'))
+        conn.execute(text(f'DROP TABLE "_old_{table.name}"'))
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")

@@ -47,14 +47,17 @@ Permissions are defined once in `backend/app/permissions.py` and enforced on eve
 them. **VM roster** (HQ, normally set the day before): each VM belongs to one or more venue teams, and the daily roster
 decides who can open which venue that day. Several VMs can share a venue-day. From 8 PM IST, Operations is emailed
 about any operating venue with nobody rostered for tomorrow; HQ can add someone on the day and access is immediate.
-Each roster entry is the full day by default or a **custom shift** (30-minute steps inside venue hours; click a name on
-the roster to set it). Shifts at different venues may overlap, since one VM often covers a cluster; access stays
+Each roster entry is the full day or a **custom shift**: any start and end time, no venue-hours or step rules (an end
+before the start runs past midnight). Adding a VM opens the shift editor straight away; click a name to change it. Shifts at different venues may overlap, since one VM often covers a cluster; access stays
 day-level so a VM on an early shift can still do the 11:30 PM day close. **By VM** view shows where each VM is
 positioned across the week; the VM filter applies to both views.
 
-**Community Games players**: the Community team adds every player before the game — one at a time, pasted from a
-sheet / WhatsApp (one per line: name, phone, optional level, any order; header row optional), or an uploaded
-`.xlsx` / `.csv`. The import previews every row (ready / needs fixing / skipped as duplicate, already in game, or over
+**Community Games players**: the Community team adds every player before the game — one at a time, by pasting the
+WhatsApp sign-up post as-is, rows from a sheet, or an uploaded `.xlsx` / `.csv`. In the post, sections like
+"7-8 PM | Intermediate" set the slot and level (the section matching the game's time is picked by default), numbered
+names are players, "Name + 1" adds a guest, and empty slots and the preamble are ignored. Phones are optional: a
+name-only player isn't linked to a customer (so doesn't count towards repeat rate) until someone adds their number —
+the Community team or the VM on ground. The import previews every row (ready / needs fixing / skipped as duplicate, already in game, or over
 capacity) before anything is added. Prepayments recorded by the Community team can only be reversed by them.
 
 **Development** (hot reload):

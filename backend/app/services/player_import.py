@@ -1,8 +1,15 @@
 """Parse player lists pasted from a sheet / WhatsApp, or uploaded as .xlsx / .csv.
 
-Accepts a header row (Name, Phone/Mobile/Number, Level) or none; without one each
-row's columns are recognised by content. Output rows keep their source line so the
-preview can point at what needs fixing.
+Two shapes are understood:
+
+* Tables (pasted from Excel / Sheets, or uploaded): a header row (Name, Phone, Level)
+  or none, in which case columns are recognised by content.
+* The Community team's WhatsApp sign-up post: a preamble, then sections such as
+  "7-8 PM | Intermediate" with numbered names ("1. Jatan", "2. Jatan + 1", "4." left
+  empty). Phones are optional; "+ 1" adds a guest. Section time and level carry over
+  to the names under them.
+
+Output rows keep their source line so the preview can point at what needs fixing.
 """
 import csv
 import io
@@ -139,6 +146,127 @@ def parse(rows: list[list[str]]) -> list[dict]:
             name = next((c for c in rest if not re.fullmatch(r"[\d\s+\-().]+", c)), None)
             if phone is None:
                 raw_phone = next((c for c in rest if re.search(r"\d{5,}", c)), "")
-        error = None if phone else ("Phone number missing" if not raw_phone else f"'{raw_phone}' isn't a valid mobile")
-        out.append({"line": line, "name": name, "phone": phone or raw_phone or None, "level": level, "error": error})
+        if not phone and not raw_phone and not name:
+            continue
+        error = None if phone or not raw_phone else f"'{raw_phone}' isn't a valid mobile"  # no phone: name only
+        out.append({"line": line, "name": name, "phone": phone or raw_phone or None, "level": level, "guests": 0,
+                    "section": None, "error": error})
     return out
+
+
+# ── WhatsApp sign-up posts ───────────────────────────────────────────────────
+_TIME = r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?"
+_SECTION_RE = re.compile(rf"^\W*{_TIME}\s*(?:-|–|—|to)\s*{_TIME}\b\s*(.*)$", re.I)
+_NUMBERED_RE = re.compile(r"^\s*(?:\d{1,3}\s*[.)\-:]|[-•*·▪●])\s*(.*)$")
+_GUESTS_RE = re.compile(r"^(.*?)\s*\+\s*(\d{1,2})\s*$")
+
+
+def _to_min(h: str, m: str | None, ampm: str | None) -> int:
+    hour = int(h) % 12 if ampm else int(h)
+    if ampm and ampm.lower() == "pm":
+        hour += 12
+    return hour * 60 + int(m or 0)
+
+
+def section_of(line: str) -> dict | None:
+    """"7-8 PM | Intermediate" → {label, start_min, end_min, level}."""
+    m = _SECTION_RE.match(line.strip())
+    if not m or _PHONE_RE.search(line):
+        return None
+    h1, m1, ap1, h2, m2, ap2, rest = m.groups()
+    if int(h1) > 23 or int(h2) > 23:
+        return None
+    ap1 = ap1 or ap2
+    start, end = _to_min(h1, m1, ap1), _to_min(h2, m2, ap2)
+    if ap2 and not m.group(3) and start > end:  # "11-1 PM" → 11 AM–1 PM
+        start -= 12 * 60
+    words = re.split(r"[|/,·\-–]+|\s+", rest or "")
+    level = next((level_of(w) for w in words if level_of(w) and len(w) > 1), None)
+    return {"label": line.strip().strip("*_ "), "start_min": start, "end_min": end, "level": level}
+
+
+def _entry(text: str) -> tuple[str | None, str | None, str | None, int, str | None]:
+    """Free text for one player → (name, phone, level, guests, error)."""
+    text = text.strip().strip("*_~")
+    cells = [c.strip() for c in re.split(r"\t|,|;", text) if c.strip()] if re.search(r"[\t,;]", text) else [text]
+    phone = raw_phone = level = None
+    rest = []
+    for c in cells:
+        m = _PHONE_RE.search(c) if phone is None else None
+        if m and _phone_or_none(m.group(1)):
+            phone, raw_phone = _phone_or_none(m.group(1)), m.group(1)
+            c = (c[:m.start()] + " " + c[m.end():]).strip(" -:|·")
+        if len(cells) > 1 and level is None and level_of(c):
+            level = level_of(c)
+            continue
+        if c:
+            rest.append(c)
+    name = " ".join(rest).strip(" -:|·")
+    words = name.split()
+    if level is None and len(words) > 1 and level_of(words[-1]) and len(words[-1]) > 1:
+        level, name = level_of(words[-1]), " ".join(words[:-1])
+    guests = 0
+    g = _GUESTS_RE.match(name)
+    if g:
+        name, guests = g.group(1).strip(), int(g.group(2))
+    error = None
+    if phone is None:
+        digits = re.search(r"\d[\d\s\-()]{3,}\d", name)
+        if digits:
+            raw_phone = digits.group(0)
+            name = (name[:digits.start()] + name[digits.end():]).strip(" -:|·")
+            error = f"'{raw_phone.strip()}' isn't a valid mobile"
+    return name or None, phone or (raw_phone.strip() if raw_phone else None), level, guests, error
+
+
+def parse_post(text: str) -> tuple[list[dict], list[dict]]:
+    """WhatsApp post or pasted list → (rows, sections)."""
+    rows: list[dict] = []
+    sections: list[dict] = []
+    current = None
+    started = False
+    header = None
+    for i, raw in enumerate((text or "").splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        sec = section_of(line)
+        if sec:
+            current = {**sec, "count": 0}
+            sections.append(current)
+            started = True
+            continue
+        num = _NUMBERED_RE.match(line)
+        if num:
+            content = num.group(1).strip()
+            if not content:
+                continue  # empty slot "4."
+            started = True
+        else:
+            content = line
+            if "\t" in line and header is None and not rows:
+                cells = [c.strip() for c in line.split("\t")]
+                header = _header_map(cells)
+                if header:
+                    started = True
+                    continue
+            if header:
+                cells = [c.strip() for c in line.split("\t")]
+                get = lambda f: cells[header[f]] if f in header and header[f] < len(cells) else ""  # noqa: E731
+                content = "\t".join(x for x in (get("name"), get("phone"), get("level")) if x)
+            elif not started and not _PHONE_RE.search(line):
+                continue  # preamble: "OpenPlay Today", "📍 venue", "Please list your names below:"
+            elif not _PHONE_RE.search(line) and (len(line.split()) > 5 or line.endswith(":")):
+                continue  # chatter between sections
+        started = True
+        name, phone, level, guests, error = _entry(content)
+        if not name and not phone:
+            continue
+        row = {"line": i, "name": name, "phone": phone, "level": level or (current or {}).get("level"),
+               "guests": guests, "section": current["label"] if current else None, "error": error}
+        if current:
+            current["count"] += 1 + guests
+        rows.append(row)
+    if len(rows) > MAX_ROWS:
+        raise DomainError(f"Up to {MAX_ROWS} players at a time.", 422)
+    return rows, sections

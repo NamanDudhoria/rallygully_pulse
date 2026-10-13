@@ -267,7 +267,8 @@ def test_roster_custom_shifts(c):
     assert r.status_code == 200
     e = next(x for x in c.get(f"{url}?date_from={DAY}&date_to={DAY}", headers=hq).json()["entries"] if x["id"] == r.json()["id"])
     assert (e["start_min"], e["end_min"], e["custom"]) == (18 * 60, 21 * 60, True)
-    assert c.patch(f"{url}/{e['id']}", headers=hq, json={"start": "18:15", "end": "21:00"}).status_code == 422
+    odd = c.patch(f"{url}/{e['id']}", headers=hq, json={"start": "05:10", "end": "01:25"}).json()  # no rules; past midnight
+    assert (odd["start_min"], odd["end_min"]) == (5 * 60 + 10, 25 * 60 + 25)
     assert c.patch(f"{url}/{e['id']}", headers=hq, json={"start": "18:00"}).status_code == 422
     full = c.patch(f"{url}/{e['id']}", headers=hq, json={}).json()  # back to the venue's full hours
     assert full["custom"] is False and full["start_min"] is not None

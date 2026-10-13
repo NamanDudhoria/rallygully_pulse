@@ -8,6 +8,7 @@ import { WINDOWS, WINDOW_LABEL, closeBadge } from '../components/badges'
 import { ChannelMix, LineChart } from '../components/charts'
 import DateNav from '../components/DateNav'
 import Insights from '../components/Insights'
+import TodayBand from '../components/TodayBand'
 
 export default function Portfolio() {
   const [params, setParams] = useSearchParams()
@@ -42,7 +43,11 @@ export default function Portfolio() {
         </div>
       </div>
 
-      <TodayBand data={data} win={win} date={date} />
+      <TodayBand full={data.metrics} now={data.metrics_now} cmp={data.comparisons} win={win} date={date}
+        live={data.comparison_mode === 'intraday'} extra={[{
+          label: 'Venues', value: `${data.venues.filter((r) => r.hours).length}/${data.venues.length} open`,
+          sub: `${data.venues.filter((r) => r.day_close === 'closed' || r.day_close === 'closed_late').length} day closes done`,
+        }]} />
 
       <div className="spread">
         <Seg value={win} onChange={setWin} options={WINDOWS} label="Comparison baseline" />
@@ -165,47 +170,6 @@ export default function Portfolio() {
         </div>
       </div>
     </div>
-  )
-}
-
-/** The day at a glance: revenue first, then the aggregates ops reads every few minutes. */
-function TodayBand({ data, win, date }) {
-  const full = data.metrics || {}
-  const live = data.comparison_mode === 'intraday'
-  const now = data.metrics_now || full
-  const a = full.activities || {}
-  const open = data.venues.filter((r) => r.hours).length
-  const closed = data.venues.filter((r) => r.day_close === 'closed' || r.day_close === 'closed_late').length
-  const cells = [
-    { label: 'Collected', value: money(full.collected), sub: full.refunds > 0 ? `${money(full.refunds)} refunded` : 'no refunds' },
-    { label: 'To collect', value: money(full.outstanding), sub: full.overdue ? `${full.overdue} overdue` : 'none overdue', tone: full.overdue ? 'bad' : undefined },
-    { label: live ? 'Bookings today' : 'Bookings', value: num((a.direct || 0) + (a.district || 0)), sub: `${a.direct || 0} direct · ${a.district || 0} District` },
-    { label: 'Community · Academy', value: `${a.community || 0} · ${a.academy || 0}`, sub: `${a.corporate || 0} corporate event${a.corporate === 1 ? '' : 's'}` },
-    { label: live ? 'Occupancy so far' : 'Occupancy', value: pct(now.occupancy, 1), sub: `${hours(now.occupied_units)} of ${hours(now.sellable_units)}` },
-    { label: 'Customers', value: num(full.unique_customers), sub: `${num(full.returning_customers)} returning` },
-    { label: 'Venues', value: `${open}/${data.venues.length} open`, sub: `${closed} day close${closed === 1 ? '' : 's'} done` },
-  ]
-  return (
-    <section className="card today-band" aria-label={live ? 'Today at a glance' : 'Day at a glance'}>
-      <div className="today-hero">
-        <div className="kpi-label"><IndianRupee size={14} aria-hidden />{live ? "Today's revenue" : `Revenue · ${date}`}</div>
-        <div className="today-value">{money(full.net_revenue)}</div>
-        <div className="kpi-foot">
-          <Delta win={data.comparisons.net_revenue?.windows?.[win]} />
-          <span>{WINDOW_LABEL[win]}{live ? ', same time of day' : ''}</span>
-        </div>
-        <div className="subtle" style={{ fontSize: 12 }}>{money(full.booking_value)} booked value · net of refunds, as collected</div>
-      </div>
-      <div className="today-cells">
-        {cells.map((c) => (
-          <div key={c.label} className="today-cell">
-            <div className="kpi-label">{c.label}</div>
-            <div className="today-cell-value" style={c.tone ? { color: `var(--${c.tone})` } : undefined}>{c.value}</div>
-            <div className="subtle" style={{ fontSize: 12 }}>{c.sub}</div>
-          </div>
-        ))}
-      </div>
-    </section>
   )
 }
 

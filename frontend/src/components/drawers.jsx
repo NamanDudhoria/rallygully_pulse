@@ -411,7 +411,8 @@ export function GameDrawer({ id, onClose, onChanged }) {
       {canAdd && !bulk && (
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()
-          const r = await act(() => post(`/api/community-games/${g.id}/participants`, add), 'Player added · WhatsApp link sent')
+          const r = await act(() => post(`/api/community-games/${g.id}/participants`, { ...add, phone: add.phone.trim() || null }),
+            add.phone.trim() ? 'Player added · WhatsApp link sent' : 'Player added')
           if (r) setAdd({ phone: '', name: '', level: add.level })
         }}>
           <div className="spread">
@@ -419,12 +420,12 @@ export function GameDrawer({ id, onClose, onChanged }) {
             <button type="button" className="btn btn-sm" onClick={() => setBulk(true)} disabled={full}><ClipboardPaste /> Paste list / upload Excel</button>
           </div>
           <div className="form-row">
-            <Field label="Phone" help={existing ? `Existing: ${existing.name || 'no name yet'}` : 'New players need a name'}>
-              <input className="input" inputMode="tel" value={add.phone} onChange={(e) => setAdd({ ...add, phone: e.target.value })} required />
-            </Field>
             <Field label="Name">
               <input className="input" value={existing?.name_locked ? existing.name : add.name} disabled={existing?.name_locked}
                 onChange={(e) => setAdd({ ...add, name: e.target.value })} required={!existing} />
+            </Field>
+            <Field label="Phone (optional)" help={existing ? `Existing: ${existing.name || 'no name yet'}` : 'Without it, the player is name-only'}>
+              <input className="input" inputMode="tel" value={add.phone} onChange={(e) => setAdd({ ...add, phone: e.target.value })} />
             </Field>
           </div>
           <div className="spread">
@@ -454,7 +455,10 @@ export function GameDrawer({ id, onClose, onChanged }) {
                 <div key={p.id} className="list-item" style={{ flexWrap: 'wrap' }}>
                   <div className="grow">
                     <div className="title">{p.name || phoneFmt(p.phone)}</div>
-                    <div className="meta">{phoneFmt(p.phone)} · {p.level}</div>
+                    <div className="meta">
+                      {p.phone ? phoneFmt(p.phone) : <span>no phone</span>} · {p.level}{p.guest_of_name && <> · guest of {p.guest_of_name}</>}
+                    </div>
+                    {!p.phone && operate && open && <AddPhone onSave={(phone) => act(() => patch(`/api/participants/${p.id}`, { phone }), 'Phone added')} />}
                   </div>
                   {!operate || !open ? (
                     <>
@@ -510,6 +514,19 @@ export function GameDrawer({ id, onClose, onChanged }) {
   )
 }
 
+function AddPhone({ onSave }) {
+  const [on, setOn] = useState(false)
+  const [v, setV] = useState('')
+  if (!on) return <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '0 4px', minHeight: 22 }} onClick={() => setOn(true)}>+ Add phone</button>
+  return (
+    <form className="row" style={{ gap: 6, marginTop: 4 }} onSubmit={async (e) => { e.preventDefault(); if (await onSave(v)) { setOn(false); setV('') } }}>
+      <input className="input" inputMode="tel" autoFocus value={v} onChange={(e) => setV(e.target.value)} placeholder="Mobile" style={{ width: 150, minHeight: 28, padding: '2px 8px' }} />
+      <button className="btn btn-sm btn-primary" disabled={digitsOf(v).length < 10}>Save</button>
+      <button type="button" className="btn btn-sm btn-ghost" onClick={() => setOn(false)}>Cancel</button>
+    </form>
+  )
+}
+
 const IMPORT_TONE = { ready: 'good', added: 'good', skip: undefined, error: 'bad' }
 const IMPORT_LABEL = { ready: 'Will add', added: 'Added', skip: 'Skipped', error: 'Fix' }
 
@@ -528,25 +545,34 @@ function ImportPlayers({ game, levels, onCancel, onAdded }) {
   const [file, setFile] = useState(null)
   const [level, setLevel] = useState('intermediate')
   const [preview, setPreview] = useState(null)
+  const [only, setOnly] = useState(null)
   const [run, busy] = useAction()
   const url = `/api/community-games/${game.id}/participants/import`
-  const payload = async (dryRun) => {
-    const base = { default_level: level, dry_run: dryRun }
+  const payload = async (dryRun, sections = only) => {
+    const base = { default_level: level, dry_run: dryRun, sections }
     if (file) return { ...base, filename: file.name, file_b64: await readFileB64(file) }
     return { ...base, text }
   }
-  const check = async () => {
-    const r = await run(async () => post(url, await payload(true)))
-    if (r) setPreview(r)
+  const check = async (sections = only) => {
+    const r = await run(async () => post(url, await payload(true, sections)))
+    if (r) {
+      setPreview(r)
+      if (r.sections?.length) setOnly(r.sections.filter((x) => x.selected).map((x) => x.label))
+    }
+  }
+  const toggleSection = (label) => {
+    const next = only.includes(label) ? only.filter((x) => x !== label) : [...only, label]
+    setOnly(next)
+    check(next)
   }
   const commit = async () => {
-    const r = await run(async () => post(url, await payload(false)), (x) => `${x.added} player${x.added === 1 ? '' : 's'} added · WhatsApp links sent`)
+    const r = await run(async () => post(url, await payload(false)), (x) => `${x.added} player${x.added === 1 ? '' : 's'} added`)
     if (r) {
       setPreview(r)
       if (r.added) onAdded(r)
     }
   }
-  const reset = () => setPreview(null)
+  const reset = () => { setPreview(null); setOnly(null) }
 
   return (
     <section className="form">
@@ -556,8 +582,9 @@ function ImportPlayers({ game, levels, onCancel, onAdded }) {
       </div>
       {!preview ? (
         <>
-          <Field label="Paste from Excel, Google Sheets or WhatsApp" help="One player per line — name, phone and (optionally) level, in any order. A header row is fine.">
-            <textarea className="input" rows={6} value={text} disabled={!!file} placeholder={'Meera Kapoor\t98666 66666\tAdvanced\nRavi, 9822222222\n+91 98111 11111 - Asha'}
+          <Field label="Paste the WhatsApp sign-up post, or rows from Excel / Sheets"
+            help="Sections like “7-8 PM | Intermediate” set time and level; “Name + 1” adds a guest; empty slots are ignored. Phones are optional.">
+            <textarea className="input" rows={8} value={text} disabled={!!file} placeholder={'7-8 PM | Intermediate\n1. Jatan\n2. Jatan + 1\n3. Lavitt\n4.\n\n8-9 PM | Beginner\n1. Ayush Sharma'}
               onChange={(e) => setText(e.target.value)} style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5 }} />
           </Field>
           <div className="row" style={{ gap: 8 }}>
@@ -568,10 +595,23 @@ function ImportPlayers({ game, levels, onCancel, onAdded }) {
             {file && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFile(null)}>Clear file</button>}
           </div>
           <Field label="Level for rows without one"><Seg value={level} onChange={setLevel} label="Default level" options={levels} /></Field>
-          <div><button type="button" className="btn btn-primary" disabled={busy || (!file && !text.trim())} onClick={check}>Preview</button></div>
+          <div><button type="button" className="btn btn-primary" disabled={busy || (!file && !text.trim())} onClick={() => check(null)}>Preview</button></div>
         </>
       ) : (
         <>
+          {preview.sections?.length > 0 && (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="subtle" style={{ fontSize: 12.5 }}>Slots in this post — this game is {range12(game.start_min, game.end_min)}</div>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                {preview.sections.map((x) => (
+                  <label key={x.label} className="check" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>
+                    <input type="checkbox" checked={!!only?.includes(x.label)} disabled={busy || preview.added > 0} onChange={() => toggleSection(x.label)} />
+                    {x.label} <span className="subtle">· {x.count}</span>{x.matches && <Badge tone="good">this game</Badge>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="row" style={{ gap: 6 }}>
             <Badge tone="good">{preview.ready} to add</Badge>
             {preview.problems > 0 && <Badge tone="bad">{preview.problems} need fixing</Badge>}
@@ -584,8 +624,11 @@ function ImportPlayers({ game, levels, onCancel, onAdded }) {
               <tbody>{preview.rows.map((r) => (
                 <tr key={r.line}>
                   <td className="mono subtle">{r.line}</td>
-                  <td>{r.name || <span className="subtle">—</span>}{r.existing && <span className="subtle" style={{ fontSize: 11.5 }}> · existing</span>}</td>
-                  <td className="mono nowrap">{r.phone ? phoneFmt(r.phone) : '—'}</td>
+                  <td>
+                    {r.name || <span className="subtle">—</span>}{r.guests > 0 && <b> +{r.guests}</b>}
+                    {r.existing && <span className="subtle" style={{ fontSize: 11.5 }}> · existing</span>}
+                  </td>
+                  <td className="mono nowrap">{r.phone ? (r.status === 'error' ? r.phone : phoneFmt(r.phone)) : <span className="subtle">—</span>}</td>
                   <td>{r.level}</td>
                   <td><Badge tone={IMPORT_TONE[r.status]}>{IMPORT_LABEL[r.status]}</Badge>{r.message && <div className="subtle" style={{ fontSize: 11.5 }}>{r.message}</div>}</td>
                 </tr>
@@ -594,7 +637,7 @@ function ImportPlayers({ game, levels, onCancel, onAdded }) {
           </div>
           <div className="row" style={{ gap: 8 }}>
             <button type="button" className="btn btn-primary" disabled={busy || !preview.ready || preview.added > 0} onClick={commit}>
-              Add {preview.ready} player{preview.ready === 1 ? '' : 's'} · send WhatsApp link
+              Add {preview.ready} player{preview.ready === 1 ? '' : 's'}
             </button>
             <button type="button" className="btn" disabled={busy} onClick={reset}>Edit list</button>
           </div>

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from .. import audit, config
 from ..audit import DomainError
 from ..models import RosterAlert, User, Venue, VmAssignment, VmRoster
-from ..timeutil import hhmm, minute_of, now_local
+from ..timeutil import minute_of, now_local
 from . import inventory, notify
 
 
@@ -23,17 +23,16 @@ def window(db: Session, r: VmRoster) -> tuple[int, int] | None:
     return inventory.hours_for(db, r.venue_id, r.date)
 
 
-def _check_shift(db: Session, venue_id: int, d: date, start_min: int | None, end_min: int | None) -> None:
-    """Overlapping shifts at different venues are allowed: one VM often covers a cluster at once."""
+def _check_shift(start_min: int | None, end_min: int | None) -> tuple[int | None, int | None]:
+    """Custom shifts are any times HQ types: no venue-hours or step rules. An end before the start
+    runs past midnight. Overlaps across venues are allowed — one VM often covers a cluster at once."""
     if (start_min is None) != (end_min is None):
         raise DomainError("Give both a shift start and end, or neither for the full day.", 422)
-    hours = inventory.hours_for(db, venue_id, d)
-    if start_min is not None:
-        if start_min % 30 or end_min % 30 or not start_min < end_min:
-            raise DomainError("Shifts run on 30-minute boundaries and must end after they start.", 422)
-        if hours and (start_min < hours[0] or end_min > hours[1]):
-            raise DomainError(f"Shift must sit inside the venue's hours that day "
-                              f"({hhmm(hours[0])}–{hhmm(hours[1])}).", 422)
+    if start_min is None:
+        return None, None
+    if start_min == end_min:
+        raise DomainError("Shift start and end can't be the same time.", 422)
+    return start_min, end_min if end_min > start_min else end_min + 1440
 
 
 def add(db: Session, actor: User, venue_id: int, user_id: int, d: date,
@@ -50,7 +49,7 @@ def add(db: Session, actor: User, venue_id: int, user_id: int, d: date,
         if start_min is not None or end_min is not None:
             return set_shift(db, actor, existing, start_min, end_min)
         return existing
-    _check_shift(db, venue_id, d, start_min, end_min)
+    start_min, end_min = _check_shift(start_min, end_min)
     if not db.get(VmAssignment, (user_id, venue_id)):
         # Rostering someone outside the venue team adds them to it (and records that).
         db.add(VmAssignment(user_id=user_id, venue_id=venue_id))
@@ -65,7 +64,7 @@ def add(db: Session, actor: User, venue_id: int, user_id: int, d: date,
 
 
 def set_shift(db: Session, actor: User, r: VmRoster, start_min: int | None, end_min: int | None) -> VmRoster:
-    _check_shift(db, r.venue_id, r.date, start_min, end_min)
+    start_min, end_min = _check_shift(start_min, end_min)
     before = {"start": r.start_min, "end": r.end_min}
     r.start_min, r.end_min = start_min, end_min
     audit.record(db, actor, "roster.shift", "roster", r.id, before, {"start": start_min, "end": end_min}, r.venue_id)
