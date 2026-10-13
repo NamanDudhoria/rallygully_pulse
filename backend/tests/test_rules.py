@@ -356,10 +356,10 @@ def test_import_free_text_csv_and_xlsx(client):
     import io
     from openpyxl import Workbook
     from app.services import player_import as pi
-    rows = pi.parse(pi.rows_from_text("Meera Kapoor 98666 66666 advanced\n+91 98111-11111 - Asha\nNo phone here"))
-    assert [(r["name"], r["phone"], r["level"]) for r in rows[:2]] == [
-        ("Meera Kapoor", "9866666666", "advanced"), ("Asha", "9811111111", None)]
-    assert rows[2]["error"] == "Phone number missing"
+    rows, _ = pi.parse_post("Meera Kapoor 98666 66666 advanced\n+91 98111-11111 - Asha\nNo phone here\nBad 12345")
+    assert [(r["name"], r["phone"], r["level"]) for r in rows[:3]] == [
+        ("Meera Kapoor", "9866666666", "advanced"), ("Asha", "9811111111", None), ("No phone here", None, None)]
+    assert rows[2]["error"] is None and "isn't a valid mobile" in rows[3]["error"]
     wb = Workbook()
     ws = wb.active
     ws.append(["Mobile", "Player Name"])
@@ -375,3 +375,49 @@ def test_import_free_text_csv_and_xlsx(client):
     r = client.post(f"/api/community-games/{g['id']}/participants/import", headers=hq,
                     json={"file_b64": csv, "filename": "list.csv"}).json()
     assert r["ready"] == 1 and r["rows"][0]["level"] == "beginner"
+
+
+POST = """OpenPlay Today💜🧡
+📍RallyGully, East of Kailash
+
+Please list your names below:
+
+7-8 PM | Intermediate
+1. Jatan
+2. Jatan + 1
+3. Lavitt
+4.
+
+8-9 PM | Beginner
+1. Ayush Sharma
+2. Dhruv Chakraborty
+3.
+4.
+"""
+
+
+def test_whatsapp_signup_post_imports_matching_section(client):
+    hq = login(client, "hq@x.com")
+    g = client.post("/api/community-games", headers=hq, json={
+        "venue_id": 1, "sport": "Pickleball", "date": DAY.isoformat(), "start": "19:00", "end": "20:00",
+        "facility_ids": [1], "capacity": 8, "per_person": 400, "community_link": "https://chat.whatsapp.com/x"}).json()
+    url = f"/api/community-games/{g['id']}/participants/import"
+    prev = client.post(url, headers=hq, json={"text": POST}).json()
+    assert [(s["label"], s["selected"]) for s in prev["sections"]] == [
+        ("7-8 PM | Intermediate", True), ("8-9 PM | Beginner", False)]
+    assert prev["ready"] == 3  # Jatan, Jatan's guest, Lavitt
+    done = client.post(url, headers=hq, json={"text": POST, "dry_run": False}).json()
+    ps = done["game"]["participants"]
+    assert [p["name"] for p in ps] == ["Jatan", "Jatan's guest", "Lavitt"]
+    assert all(p["level"] == "intermediate" and p["phone"] is None for p in ps)
+    assert ps[1]["guest_of_name"] == "Jatan"
+    # Both sections on request; the 7-8 names are already in, so only 8-9 is new
+    r = client.post(url, headers=hq, json={"text": POST, "sections": ["7-8 PM | Intermediate", "8-9 PM | Beginner"]}).json()
+    assert r["ready"] == 2
+    # VM on ground can attach a phone to a name-only player, and collect
+    vm = login(client, "vm@x.com")
+    r = client.patch(f"/api/participants/{ps[0]['id']}", headers=vm, json={"phone": "9811111111"})
+    assert r.status_code == 200, r.text
+    linked = next(p for p in r.json()["participants"] if p["id"] == ps[0]["id"])
+    assert linked["phone"] == "9811111111" and linked["name"] == "Jatan"
+    assert client.patch(f"/api/participants/{ps[2]['id']}", headers=vm, json={"paid": True, "method": "cash"}).status_code == 200

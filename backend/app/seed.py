@@ -303,6 +303,12 @@ def run(reset: bool) -> None:
                                 payments.append(Payment(source_type="participant", source_id=p.id, venue_id=v.id,
                                                         activity_date=d, amount=fee, method="upi",
                                                         collected_at=p.created_at, actor_id=community_id))
+                        if n < cap - 1:  # signed up on the WhatsApp post by name only, bringing a friend
+                            host = Participant(game_id=g.id, name=R.choice(FIRST), level="intermediate")
+                            db.add(host)
+                            db.flush()
+                            db.add(Participant(game_id=g.id, name=f"{host.name}'s guest", level="intermediate",
+                                               guest_of=host.id))
                     continue
                 n = max(4, min(cap, int(R.gauss(cap * .75 * trend, 2))))
                 for c in R.sample(pool[:500], n):
@@ -515,7 +521,7 @@ def run(reset: bool) -> None:
 def _prune_unused(db: Session) -> None:
     from sqlalchemy import text
     db.execute(text("DELETE FROM customers WHERE id NOT IN (SELECT customer_id FROM bookings) "
-                    "AND id NOT IN (SELECT customer_id FROM participants)"))
+                    "AND id NOT IN (SELECT customer_id FROM participants WHERE customer_id IS NOT NULL)"))
     db.commit()
 
 

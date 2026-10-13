@@ -205,7 +205,7 @@ class FacilitiesIn(BaseModel):
 
 
 class ParticipantIn(BaseModel):
-    phone: str
+    phone: str | None = None  # optional: name-only players can get a number later
     name: str | None = None
     level: str
 
@@ -216,6 +216,7 @@ class ImportIn(BaseModel):
     filename: str | None = None
     default_level: str = "intermediate"
     dry_run: bool = True
+    sections: list[str] | None = None  # WhatsApp post sections to import; default: those matching the game time
 
 
 class ParticipantPatch(BaseModel):
@@ -223,6 +224,7 @@ class ParticipantPatch(BaseModel):
     paid: bool | None = None
     method: str | None = None
     level: str | None = None
+    phone: str | None = None  # link a name-only player to their customer record
 
 
 @router.get("/community-games")
@@ -288,17 +290,18 @@ def import_participants(gid: int, body: ImportIn, user: User = Depends(require("
                         db: Session = Depends(get_db)):
     """Preview (dry_run) or add a pasted / uploaded player list."""
     g = _game(db, user, gid, write=True)
+    sections = []
     if body.file_b64:
         try:
             data = base64.b64decode(body.file_b64, validate=True)
         except (binascii.Error, ValueError):
             raise HTTPException(422, "Upload couldn't be read.") from None
-        rows = player_import.rows_from_file(body.filename or "", data)
+        parsed = player_import.parse(player_import.rows_from_file(body.filename or "", data))
     elif (body.text or "").strip():
-        rows = player_import.rows_from_text(body.text)
+        parsed, sections = player_import.parse_post(body.text)
     else:
         raise HTTPException(422, "Paste a list or choose a file.")
-    result = community.import_players(db, user, g, player_import.parse(rows), body.default_level, body.dry_run)
+    result = community.import_players(db, user, g, parsed, body.default_level, body.dry_run, sections, body.sections)
     if body.dry_run:
         db.rollback()
     else:
@@ -317,6 +320,8 @@ def _participant(db, user, pid) -> Participant:
 @router.patch("/participants/{pid}")
 def patch_participant(pid: int, body: ParticipantPatch, user: User = Depends(current_user), db: Session = Depends(get_db)):
     p = _participant(db, user, pid)
+    if body.phone:
+        community.set_phone(db, user, p, body.phone)
     community.update_participant(db, user, p, attendance=body.attendance, paid=body.paid, method=body.method,
                                  level=body.level)
     db.commit()

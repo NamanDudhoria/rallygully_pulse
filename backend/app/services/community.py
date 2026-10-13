@@ -109,78 +109,165 @@ def _require_manage(actor: User, what: str) -> None:
                           f"collect payment.", 403)
 
 
-def add_participant(db: Session, actor: User, g: CommunityGame, phone: str, name: str | None, level: str,
-                    notify_player: bool = True) -> Participant:
-    _require_manage(actor, "Adding players")
+def _player_name(db: Session, p: Participant) -> str:
+    c = db.get(Customer, p.customer_id) if p.customer_id else None
+    return (c and (c.name or c.phone)) or p.name or "Player"
+
+
+def _check_open(g: CommunityGame) -> None:
     if g.status == "cancelled":
         raise DomainError("Game is cancelled.")
     if game_state(g) == "completed":
         raise DomainError("This game has finished.")
+
+
+def add_participant(db: Session, actor: User, g: CommunityGame, phone: str | None, name: str | None, level: str,
+                    notify_player: bool = True, guest_of: int | None = None) -> Participant:
+    """Add a player by phone (linked to the customer record) or, failing that, by name only."""
+    _require_manage(actor, "Adding players")
+    _check_open(g)
     if level not in LEVELS:
         raise DomainError("Choose a level: beginner, intermediate or advanced.", 422)
-    existing = customers.find_by_phone(db, phone)
-    if not existing and not (name or "").strip():
-        raise DomainError("New participant — enter their name.", 422)
-    customer, _ = customers.get_or_create(db, phone, name)
-    if db.scalar(select(Participant).where(Participant.game_id == g.id, Participant.customer_id == customer.id)):
-        raise DomainError(f"{customer.name or customer.phone} is already in this game.")
     if len(g.participants) >= g.capacity:
         raise DomainError(f"Game is full ({g.capacity} players).")
-    p = Participant(game_id=g.id, customer_id=customer.id, level=level)
+    name = (name or "").strip() or None
+    customer = None
+    if (phone or "").strip():
+        existing = customers.find_by_phone(db, phone)
+        if not existing and not name:
+            raise DomainError("New participant — enter their name.", 422)
+        customer, _ = customers.get_or_create(db, phone, name)
+        if db.scalar(select(Participant).where(Participant.game_id == g.id, Participant.customer_id == customer.id)):
+            raise DomainError(f"{customer.name or customer.phone} is already in this game.")
+    elif not name:
+        raise DomainError("Enter a name, a phone number, or both.", 422)
+    p = Participant(game_id=g.id, customer_id=customer.id if customer else None, name=None if customer else name,
+                    level=level, guest_of=guest_of)
     db.add(p)
     db.flush()
+    db.refresh(g)
     audit.record(db, actor, "community.add_participant", "participant", p.id, None,
-                 {"game_id": g.id, "customer_id": customer.id, "level": level}, g.venue_id)
-    if notify_player:
+                 {"game_id": g.id, "customer_id": p.customer_id, "name": p.name, "level": level,
+                  "guest_of": guest_of}, g.venue_id)
+    if notify_player and customer:
         notify.whatsapp(db, customer.phone, "community_link", notify.community_message(level, g.community_link),
                         "participant", p.id)
     return p
 
 
+def set_phone(db: Session, actor: User, p: Participant, phone: str) -> Participant:
+    """Link a name-only player to a customer once their number is known (Community or the VM on ground)."""
+    if p.customer_id:
+        raise DomainError("This player already has a phone number.")
+    c = customers.find_by_phone(db, phone)
+    if c and db.scalar(select(Participant.id).where(Participant.game_id == p.game_id, Participant.customer_id == c.id)):
+        raise DomainError(f"{c.name or c.phone} is already in this game.")
+    c, _ = customers.get_or_create(db, phone, p.name)
+    before = {"customer_id": None, "name": p.name}
+    p.customer_id, p.name = c.id, None
+    audit.record(db, actor, "community.link_phone", "participant", p.id, before, {"customer_id": c.id},
+                 p.game.venue_id)
+    return p
+
+
+def _norm(name: str | None) -> str:
+    return " ".join((name or "").lower().split())
+
+
 def import_players(db: Session, actor: User, g: CommunityGame, parsed: list[dict], default_level: str,
-                   dry_run: bool) -> dict:
-    """Validate (and unless ``dry_run``, add) a parsed player list. Rows that can't be added are reported."""
+                   dry_run: bool, sections: list[dict] | None = None, only: list[str] | None = None) -> dict:
+    """Validate (and unless ``dry_run``, add) a parsed player list. Rows that can't be added are reported.
+
+    ``sections`` come from a WhatsApp post ("7-8 PM | Intermediate"); ``only`` limits the import to
+    those labels, defaulting to the sections whose time matches this game (or all, if none match).
+    """
     _require_manage(actor, "Adding players")
-    if g.status == "cancelled":
-        raise DomainError("Game is cancelled.")
+    _check_open(g)
     if default_level not in LEVELS:
         raise DomainError("Choose a default level.", 422)
-    in_game = {p.customer_id for p in g.participants}
+    sections = sections or []
+    for sec in sections:
+        sec["matches"] = sec["start_min"] < g.end_min and g.start_min < sec["end_min"]
+    if only is None:
+        matching = [x["label"] for x in sections if x["matches"]]
+        only = matching or [x["label"] for x in sections]
+    for sec in sections:
+        sec["selected"] = sec["label"] in only
+    in_game_ids = {p.customer_id for p in g.participants if p.customer_id}
+    in_game_names = {_norm(_player_name(db, p)) for p in g.participants}
+    by_id = {p.id: p for p in g.participants}
+    guests_in_game: dict[str, int] = {}
+    for p in g.participants:
+        if p.guest_of in by_id:
+            host = _norm(_player_name(db, by_id[p.guest_of]))
+            guests_in_game[host] = guests_in_game.get(host, 0) + 1
     room = g.capacity - len(g.participants)
-    seen: set[str] = set()
+    seen_phones: set[str] = set()
+    seen_names: dict[str, dict] = {}
     rows = []
     for r in parsed:
-        row = {**r, "level": r.get("level") or default_level, "status": "ready", "message": None}
+        if r.get("section") and r["section"] not in only:
+            continue
+        row = {**r, "guests": r.get("guests", 0), "level": r.get("level") or default_level,
+               "status": "ready", "message": None, "existing": False, "host_only": False}
+        key = _norm(r.get("name"))
         if r.get("error"):
             row["status"], row["message"] = "error", r["error"]
-        else:
+        elif r.get("phone"):
             c = customers.find_by_phone(db, r["phone"])
-            if r["phone"] in seen:
+            if r["phone"] in seen_phones:
                 row["status"], row["message"] = "skip", "Listed twice"
-            elif c and c.id in in_game:
+            elif c and c.id in in_game_ids:
                 row["status"], row["message"] = "skip", "Already in this game"
-            elif not c and not (r.get("name") or "").strip():
+            elif not c and not key:
                 row["status"], row["message"] = "error", "New player — name needed"
             else:
                 row["existing"] = bool(c)
                 if c and c.name_locked and c.name:
                     row["name"] = c.name
-                if room <= 0:
-                    row["status"], row["message"] = "skip", f"Game full ({g.capacity})"
-                else:
-                    room -= 1
-            seen.add(r["phone"])
+            seen_phones.add(r["phone"])
+        elif key in seen_names or key in in_game_names:
+            have = guests_in_game.get(key, 0)
+            row["guests"] = max(0, row["guests"] - have)
+            guests_in_game[key] = max(have - r.get("guests", 0), 0)
+            if row["guests"]:
+                row["host_only"] = True  # "Jatan + 1" after "Jatan": only the guest is new
+                row["message"] = f"Guest of {r['name']}"
+            else:
+                row["status"], row["message"] = "skip", "Listed twice" if key in seen_names else "Already in this game"
+        else:
+            row["message"] = "Name only — add a phone later"
+        if row["status"] == "ready":
+            need = (0 if row["host_only"] else 1) + row["guests"]
+            if room < need:
+                row["status"], row["message"] = "skip", f"Game full ({g.capacity})"
+            else:
+                room -= need
+            if key:
+                seen_names.setdefault(key, row)
         rows.append(row)
     added = 0
     if not dry_run:
+        hosts: dict[str, int] = {_norm(_player_name(db, p)): p.id for p in g.participants}
         for row in rows:
-            if row["status"] == "ready":
-                add_participant(db, actor, g, row["phone"], row.get("name"), row["level"])
-                row["status"] = "added"
+            if row["status"] != "ready":
+                continue
+            key = _norm(row.get("name"))
+            host_id = hosts.get(key) if row["host_only"] else None
+            if not row["host_only"]:
+                host = add_participant(db, actor, g, row.get("phone"), row.get("name"), row["level"])
+                host_id = hosts[key] = host.id
                 added += 1
+            for n in range(row["guests"]):
+                label = f"{row.get('name') or 'Player'}'s guest" + (f" {n + 1}" if row["guests"] > 1 else "")
+                add_participant(db, actor, g, None, label, row["level"], guest_of=host_id)
+                added += 1
+            row["status"] = "added"
         audit.record(db, actor, "community.import_players", "community_game", g.id, None,
                      {"added": added, "rows": len(rows)}, g.venue_id)
-    return {"rows": rows, "ready": sum(r["status"] in ("ready", "added") for r in rows), "added": added,
+    ready = [r for r in rows if r["status"] in ("ready", "added")]
+    return {"rows": rows, "sections": sections,
+            "ready": sum((0 if r["host_only"] else 1) + r["guests"] for r in ready), "added": added,
             "problems": sum(r["status"] == "error" for r in rows), "skipped": sum(r["status"] == "skip" for r in rows),
             "capacity_left": g.capacity - len(g.participants)}
 
@@ -227,16 +314,21 @@ def remove_participant(db: Session, actor: User, p: Participant) -> None:
     _require_manage(actor, "Removing players")
     if p.payment_status == "paid":
         raise DomainError("Mark the payment unpaid before removing a paid participant.")
+    for guest in db.scalars(select(Participant).where(Participant.guest_of == p.id)):
+        guest.guest_of = None
     audit.record(db, actor, "community.remove_participant", "participant", p.id, _p_snapshot(p), None, p.game.venue_id)
     db.delete(p)
 
 
 def participant_dict(db: Session, p: Participant) -> dict:
-    c = db.get(Customer, p.customer_id)
+    c = db.get(Customer, p.customer_id) if p.customer_id else None
     collected_by = None
     if p.payment_status == "paid":
         collected_by = db.scalar(select(Payment.actor_id).where(Payment.source_type == "participant",
                                                                 Payment.source_id == p.id, Payment.void.is_(False)))
-    return {"id": p.id, "customer_id": c.id, "name": c.name, "phone": c.phone, "level": p.level,
+    host = db.get(Participant, p.guest_of) if p.guest_of else None
+    return {"id": p.id, "customer_id": c.id if c else None, "name": (c.name if c else None) or p.name,
+            "phone": c.phone if c else None, "level": p.level, "guest_of": p.guest_of,
+            "guest_of_name": _player_name(db, host) if host else None,
             "attendance": p.attendance, "payment_status": p.payment_status, "amount": p.amount,
             "payment_method": p.payment_method, "collected_by": collected_by}

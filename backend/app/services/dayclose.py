@@ -31,8 +31,8 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
     for g in db.scalars(select(CommunityGame).where(CommunityGame.venue_id == venue_id, CommunityGame.date == d,
                                                     CommunityGame.status == "scheduled")):
         for p in g.participants:
-            c = db.get(Customer, p.customer_id)
-            tag = f"{g.title} {hhmm(g.start_min)} · {c.name or c.phone}"
+            c = db.get(Customer, p.customer_id) if p.customer_id else None
+            tag = f"{g.title} {hhmm(g.start_min)} · {(c and (c.name or c.phone)) or p.name or 'Player'}"
             if p.attendance == "added":
                 items.append({"type": "participant_attendance", "ref_id": p.id, "game_id": g.id, "message": f"{tag}: attendance not recorded",
                               "due": now_min >= g.start_min})

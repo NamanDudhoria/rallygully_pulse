@@ -195,10 +195,15 @@ export function RosterPage() {
   const picked = only.filter((id) => vms.some((m) => m.id === id))
   const shown = (id) => !picked.length || picked.includes(id)
   const toggle = (id) => setOnly(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id])
-  const addTo = (venue, userId, d) => {
-    const joining = !venue.team.some((t) => t.id === userId) && vms.find((m) => m.id === userId)
-    act(() => post('/api/roster', { venue_id: venue.id, user_id: userId, date: d }),
-      joining ? `${joining.name} rostered and added to ${vname(venue.name)}'s team` : 'Rostered')
+  // Every new roster entry goes straight to its shift times.
+  const addTo = async (venue, userId, d) => {
+    const vm = vms.find((m) => m.id === userId)
+    const joining = !venue.team.some((t) => t.id === userId)
+    const r = await run(() => post('/api/roster', { venue_id: venue.id, user_id: userId, date: d }),
+      joining ? `${vm.name} rostered and added to ${vname(venue.name)}'s team` : null)
+    if (!r) return
+    reload()
+    setShift({ entry: { id: r.id, venue_id: venue.id, user_id: userId, name: vm.name, date: d, custom: false }, venue })
   }
   const openShift = (e) => setShift({ entry: e, venue: data.venues.find((v) => v.id === e.venue_id) })
 
@@ -364,44 +369,36 @@ function RosterByVm({ data, today, shown, busy, onAdd, onShift }) {
 }
 
 function ShiftDrawer({ entry, venue, onClose, onDone }) {
-  const [hOpen, hClose] = venue.hours[entry.date] || [0, 1440]
-  const mid = Math.round((hOpen + hClose) / 60) * 30
-  const [f, setF] = useState({ custom: entry.custom, start: entry.start_min ?? hOpen, end: entry.end_min ?? hClose })
+  const hrs = venue.hours[entry.date]
+  const [f, setF] = useState({ custom: true, start: entry.custom ? hhmm(entry.start_min) : '', end: entry.custom ? hhmm(entry.end_min) : '' })
   const [run, busy] = useAction()
-  const slots = []
-  for (let m = hOpen; m <= hClose; m += 30) slots.push(m)
+  const toMin = (v) => { const [h, m] = v.split(':').map(Number); return h * 60 + m }
+  const overnight = f.start && f.end && toMin(f.end) < toMin(f.start)
+  const invalid = f.custom && (!f.start || !f.end || f.start === f.end)
   const save = async (close, body) => {
     if (await run(() => patch(`/api/roster/${entry.id}`, body), 'Shift saved')) { onDone(); close() }
   }
   return (
     <Drawer open onClose={onClose} title={`${entry.name} · ${vname(venue.name)}`}
-      subtitle={`${parseISO(entry.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })} · venue open ${range12(hOpen, hClose)}`}>
+      subtitle={`${parseISO(entry.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}${hrs ? ` · venue open ${range12(hrs[0], hrs[1])}` : ''}`}>
       {(close) => (
-        <form className="form" onSubmit={(e) => { e.preventDefault(); save(close, f.custom ? { start: hhmm(f.start), end: hhmm(f.end) } : {}) }}>
+        <form className="form" onSubmit={(e) => { e.preventDefault(); save(close, f.custom ? { start: f.start, end: f.end } : {}) }}>
           <Seg value={f.custom ? 'custom' : 'full'} onChange={(v) => setF({ ...f, custom: v === 'custom' })} label="Shift"
-            options={[{ value: 'full', label: 'Full day' }, { value: 'custom', label: 'Custom shift' }]} />
+            options={[{ value: 'custom', label: 'Custom shift' }, { value: 'full', label: 'Full day' }]} />
           {f.custom && (
-            <>
-              <div className="row" style={{ gap: 6 }}>
-                <button type="button" className="btn btn-sm" onClick={() => setF({ ...f, start: hOpen, end: mid })}>First half · {range12(hOpen, mid)}</button>
-                <button type="button" className="btn btn-sm" onClick={() => setF({ ...f, start: mid, end: hClose })}>Second half · {range12(mid, hClose)}</button>
-              </div>
-              <div className="form-row">
-                <Field label="Starts">
-                  <select className="select" value={f.start} onChange={(e) => setF({ ...f, start: Number(e.target.value) })}>
-                    {slots.slice(0, -1).map((m) => <option key={m} value={m}>{time12(m)}</option>)}
-                  </select>
-                </Field>
-                <Field label="Ends" error={f.end <= f.start ? 'Must end after it starts' : null}>
-                  <select className="select" value={f.end} onChange={(e) => setF({ ...f, end: Number(e.target.value) })}>
-                    {slots.slice(1).map((m) => <option key={m} value={m}>{time12(m)}</option>)}
-                  </select>
-                </Field>
-              </div>
-            </>
+            <div className="form-row">
+              <Field label="Starts">
+                <input className="input" type="time" value={f.start} onChange={(e) => setF({ ...f, start: e.target.value })} required autoFocus />
+              </Field>
+              <Field label="Ends" help={overnight ? 'Ends after midnight' : null} error={f.start && f.start === f.end ? 'Start and end are the same' : null}>
+                <input className="input" type="time" value={f.end} onChange={(e) => setF({ ...f, end: e.target.value })} required />
+              </Field>
+            </div>
           )}
-          <p className="subtle" style={{ fontSize: 12.5 }}>Rostered VMs can open the venue in Pulse for the whole day; the shift sets who is expected on ground when.</p>
-          <div><button className="btn btn-primary" disabled={busy || (f.custom && f.end <= f.start)}>Save shift</button></div>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <button type="button" className="btn btn-ghost" onClick={close}>{entry.custom ? 'Cancel' : 'Keep full day'}</button>
+            <button className="btn btn-primary" disabled={busy || invalid}>Save shift</button>
+          </div>
         </form>
       )}
     </Drawer>
