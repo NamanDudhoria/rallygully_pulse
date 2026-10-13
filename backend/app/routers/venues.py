@@ -14,7 +14,7 @@ from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, Cor
 from ..services import analytics, bookings, dayclose, inventory, roster
 from ..services.pricing import quote
 from ..timeutil import hhmm, minute_of, now_local
-from .common import day_or_today, get_or_404, minutes
+from .common import custom_window, day_or_today, get_or_404, minutes
 
 router = APIRouter(prefix="/api/venues", tags=["venues"])
 
@@ -88,9 +88,10 @@ def intraday_curve(db: Session, venue_ids: list[int], d: date, hours: tuple[int,
 
 
 @router.get("/{venue_id}/day")
-def venue_day(venue_id: int, date: date | None = None, user: User = Depends(current_user),
-              db: Session = Depends(get_db)):
+def venue_day(venue_id: int, date: date | None = None, cmp_from: date | None = None, cmp_to: date | None = None,
+              user: User = Depends(current_user), db: Session = Depends(get_db)):
     d = day_or_today(date)
+    custom = custom_window(cmp_from, cmp_to)
     v = _venue(db, user, venue_id, d)
     bookings.refresh_overdue(db, venue_id)
     db.commit()
@@ -119,7 +120,7 @@ def venue_day(venue_id: int, date: date | None = None, user: User = Depends(curr
         # Today: everything up to now, so headline numbers match their same-time-of-day baselines.
         "metrics_now": analytics.daily_series(db, [venue_id], d, d, cutoff).get(d) if is_today and hours else None,
         "comparison_mode": "intraday" if is_today else "full_day",
-        "comparisons": analytics.comparisons(db, [venue_id], d, DAY_METRICS, cutoff if is_today else None),
+        "comparisons": analytics.comparisons(db, [venue_id], d, DAY_METRICS, cutoff if is_today else None, custom),
         "intraday": intraday_curve(db, [venue_id], d, hours),
         "trend": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
                    "total_activity": m["total_activity"]} for k, m in trend.items()],

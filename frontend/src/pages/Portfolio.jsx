@@ -1,21 +1,23 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, IndianRupee, Gauge, Layers, Repeat, Target, Zap } from 'lucide-react'
-import { useApi, useLocalState } from '../lib/hooks'
+import { useApi, useBaseline } from '../lib/hooks'
 import { hours, money, moneyShort, num, pct, todayISO, time12 } from '../lib/format'
 import { Delta, ErrorState, Kpi, Meter, PageSkeleton, Seg } from '../components/ui'
-import { WINDOWS, WINDOW_LABEL, closeBadge } from '../components/badges'
+import { WINDOW_LABEL, closeBadge } from '../components/badges'
 import { ChannelMix, LineChart } from '../components/charts'
 import DateNav from '../components/DateNav'
 import Insights from '../components/Insights'
 import TodayBand from '../components/TodayBand'
+import BaselinePicker from '../components/BaselinePicker'
 
 export default function Portfolio() {
   const [params, setParams] = useSearchParams()
   const date = params.get('date') || todayISO()
-  const [win, setWin] = useLocalState('pulse.window', 'same_weekday')
+  const baseline = useBaseline()
+  const { win } = baseline
   const [trendMetric, setTrendMetric] = useState('net_revenue')
-  const { data, error, loading, reload } = useApi(`/api/analytics/portfolio?date=${date}`, { interval: 60000 })
+  const { data, error, loading, reload } = useApi(`/api/analytics/portfolio?date=${date}${baseline.query}`, { interval: 60000 })
   const nav = useNavigate()
 
   const trend = useMemo(() => data?.trend || [], [data])
@@ -50,7 +52,7 @@ export default function Portfolio() {
         }]} />
 
       <div className="spread">
-        <Seg value={win} onChange={setWin} options={WINDOWS} label="Comparison baseline" />
+        <BaselinePicker baseline={baseline} />
         <span className="subtle" style={{ fontSize: 12.5 }}>{data.history_days} days of history in Pulse</span>
       </div>
 
@@ -107,7 +109,7 @@ export default function Portfolio() {
 
       <div className="grid g-main">
         <div className="card">
-          <div className="card-head"><h2>Venues</h2><span className="hint">{WINDOW_LABEL[win === 'same_weekday' || win === 'prev_day' ? win : 'same_weekday']}</span></div>
+          <div className="card-head"><h2>Venues</h2><span className="hint">{WINDOW_LABEL[win]}</span></div>
           <div className="card-body table-wrap" style={{ paddingTop: 8 }}>
             <table className="table">
               <thead>

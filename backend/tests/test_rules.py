@@ -421,3 +421,16 @@ def test_whatsapp_signup_post_imports_matching_section(client):
     linked = next(p for p in r.json()["participants"] if p["id"] == ps[0]["id"])
     assert linked["phone"] == "9811111111" and linked["name"] == "Jatan"
     assert client.patch(f"/api/participants/{ps[2]['id']}", headers=vm, json={"paid": True, "method": "cash"}).status_code == 200
+
+
+def test_mtd_and_custom_baselines(client):
+    from app.services.analytics import _window_days
+    oct7 = date(2026, 10, 7)
+    assert _window_days("mtd", oct7, None) == [date(2026, 10, i) for i in range(1, 7)]
+    assert _window_days("mtd", date(2026, 10, 1), None)[0] == date(2026, 9, 1)  # on the 1st: last month
+    assert len(_window_days("mtd", date(2026, 10, 1), None)) == 30
+    assert _window_days("custom", oct7, (date(2026, 9, 1), date(2026, 9, 3))) == [date(2026, 9, i) for i in (1, 2, 3)]
+    hq = login(client, "hq@x.com")
+    w = client.get("/api/venues/1/day?cmp_from=2026-09-01&cmp_to=2026-09-30", headers=hq).json()
+    assert {"mtd", "custom"} <= set(w["comparisons"]["net_revenue"]["windows"])
+    assert client.get("/api/analytics/portfolio?cmp_from=2026-10-05", headers=hq).status_code == 422
