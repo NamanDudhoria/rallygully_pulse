@@ -637,6 +637,12 @@ def _wake_warmer(_session):
     _warm_wake.set()
 
 
+def warm_once(db: Session) -> None:
+    """Compute everything the portfolio and venue pages use for today (keyword args: the route grows params)."""
+    from ..routers import analytics_routes
+    analytics_routes.portfolio(date=None, cmp_from=None, cmp_to=None, user=None, db=db)
+
+
 def warm_forever(stop: threading.Event) -> None:
     """Recompute today's dashboards right after data changes, and pre-compute the next 5-minute
     intraday step shortly before it arrives, so pages hit a warm cache instead of waiting.
@@ -646,7 +652,6 @@ def warm_forever(stop: threading.Event) -> None:
     """
     import logging
     from ..db import SessionLocal
-    from ..routers import analytics_routes
     log = logging.getLogger("pulse.warm")
     done: set = set()
     while not stop.is_set():
@@ -661,7 +666,7 @@ def warm_forever(stop: threading.Event) -> None:
         db = SessionLocal()
         try:
             if (_version, cur) not in done:
-                analytics_routes.portfolio(None, None, db)  # everything the portfolio and venue pages use
+                warm_once(db)
                 done.add((_version, now_cutoff(d)))
             if minute_of(now, d) + 1 >= nxt and (_version, nxt) not in done and nxt < 1440:
                 raw_days(db, _all_venue_ids(db), d, d, nxt)
