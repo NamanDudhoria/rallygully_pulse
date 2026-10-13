@@ -434,3 +434,13 @@ def test_mtd_and_custom_baselines(client):
     w = client.get("/api/venues/1/day?cmp_from=2026-09-01&cmp_to=2026-09-30", headers=hq).json()
     assert {"mtd", "custom"} <= set(w["comparisons"]["net_revenue"]["windows"])
     assert client.get("/api/analytics/portfolio?cmp_from=2026-10-05", headers=hq).status_code == 422
+
+
+def test_background_warm_up_runs(client):
+    """The warm-up thread calls the portfolio route directly; a signature change must not break it."""
+    from app.services.analytics import warm_once
+    db = SessionLocal()
+    try:
+        warm_once(db)
+    finally:
+        db.close()
