@@ -11,7 +11,7 @@ from ..db import get_db
 from ..models import Booking, DayClose, Facility, User
 from ..services import analytics, anomaly, bookings, dayclose, inventory
 from ..timeutil import hhmm, now_local, today
-from .common import day_or_today
+from .common import custom_window, day_or_today
 from .venues import DAY_METRICS, intraday_curve
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -27,8 +27,10 @@ def _slim(m: dict) -> dict:
 
 
 @router.get("/portfolio")
-def portfolio(date: date | None = None, user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
+def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: date | None = None,
+              user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
     d = day_or_today(date)
+    custom = custom_window(cmp_from, cmp_to)
     bookings.refresh_overdue(db)
     db.commit()
     venues = analytics.venues_list(db, None)
@@ -44,7 +46,7 @@ def portfolio(date: date | None = None, user: User = Depends(require("portfolio.
         src = per_venue_now if is_today else per_venue
         m = analytics.finalize(analytics.combine([src[(v.id, d)]] if (v.id, d) in src else []))
         cmp_ = analytics.comparisons(db, [v.id], d, ["net_revenue", "occupancy", "total_activity"],
-                                     cutoff if is_today else None)
+                                     cutoff if is_today else None, custom)
         rows.append({"venue": {"id": v.id, "name": v.name, "code": v.code, "location": v.location},
                      "hours": _hours(db, v.id, d), "metrics": _slim(m), "comparisons": cmp_,
                      "day_close": dayclose.status(db, v.id, d)["status"]})
@@ -59,7 +61,7 @@ def portfolio(date: date | None = None, user: User = Depends(require("portfolio.
         "cutoff_label": hhmm(cutoff) if cutoff is not None else None,
         "metrics": _slim(total) if total else None,
         "metrics_now": _slim(now_total) if is_today and now_total else None,
-        "comparisons": analytics.comparisons(db, ids, d, DAY_METRICS, cutoff if is_today else None),
+        "comparisons": analytics.comparisons(db, ids, d, DAY_METRICS, cutoff if is_today else None, custom),
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89)),
         "repeat_lifetime": analytics.repeat_rate(db, d),
         "venues": rows,

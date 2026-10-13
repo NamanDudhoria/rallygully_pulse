@@ -554,17 +554,37 @@ def daily_series(db: Session, venue_ids: list[int], start: date, end: date, cuto
     return out
 
 
-WINDOWS = {"prev_day": 1, "same_weekday": 4, "d7": 7, "d30": 30, "d90": 90}
-MIN_SAMPLES = {"prev_day": 1, "same_weekday": 1, "d7": 3, "d30": 7, "d90": 30}
+WINDOWS = {"prev_day": 1, "same_weekday": 4, "d7": 7, "d30": 30, "d90": 90, "mtd": 31, "custom": 366}
+MIN_SAMPLES = {"prev_day": 1, "same_weekday": 1, "d7": 3, "d30": 7, "d90": 30, "mtd": 1, "custom": 1}
 
 
-def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], cutoff_min: int | None = None) -> dict:
+def _window_days(w: str, d: date, custom: tuple[date, date] | None) -> list[date]:
+    if w == "same_weekday":
+        return [d - timedelta(days=7 * i) for i in range(1, 5)]
+    if w == "mtd":
+        # Earlier days of this month; on the 1st, the whole previous month.
+        start = d.replace(day=1) if d.day > 1 else (d - timedelta(days=1)).replace(day=1)
+        return [start + timedelta(days=i) for i in range((d - start).days)]
+    if w == "custom":
+        if not custom:
+            return []
+        lo, hi = custom
+        return [lo + timedelta(days=i) for i in range((hi - lo).days + 1) if lo + timedelta(days=i) != d]
+    return [d - timedelta(days=i) for i in range(1, WINDOWS[w] + 1)]
+
+
+def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], cutoff_min: int | None = None,
+                custom: tuple[date, date] | None = None) -> dict:
     """Current value vs each historical baseline: absolute & % change, with sample size.
 
+    Baselines are the average daily value over the window: previous day, the last 4 same weekdays,
+    7/30/90 days, month-to-date (earlier days of this month), or a ``custom`` date range.
     With ``cutoff_min`` both current and history are cut at the same time of day (PRD §51).
     Windows without enough history return ``available: false`` instead of a misleading number.
     """
     series = daily_series(db, venue_ids, d - timedelta(days=90), d, cutoff_min)
+    if custom and custom[0] < d - timedelta(days=90):
+        series = {**daily_series(db, venue_ids, custom[0], min(custom[1], d), cutoff_min), **series}
     cur = series.get(d)
     result = {}
     for name in metrics:
@@ -572,10 +592,7 @@ def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], 
         current = f(cur) if cur else None
         windows = {}
         for w, span in WINDOWS.items():
-            if w == "same_weekday":
-                days = [d - timedelta(days=7 * i) for i in range(1, 5)]
-            else:
-                days = [d - timedelta(days=i) for i in range(1, span + 1)]
+            days = _window_days(w, d, custom)
             vals = [f(series[x]) for x in days if x in series and series[x]["operational_units"] > 0
                     and f(series[x]) is not None]
             n = len(vals)
@@ -583,7 +600,7 @@ def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], 
                 windows[w] = {"available": False, "samples": n, "required": MIN_SAMPLES[w]}
                 continue
             base = sum(vals) / n
-            windows[w] = {"available": True, "samples": n, "full": n >= min(span, 4 if w == "same_weekday" else span),
+            windows[w] = {"available": True, "samples": n, "full": n >= min(len(days), 4 if w == "same_weekday" else span),
                           "baseline": base, "abs_change": current - base,
                           "pct_change": (current - base) / base if base else None}
         result[name] = {"current": current, "windows": windows}

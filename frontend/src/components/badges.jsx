@@ -8,6 +8,8 @@ export const WINDOWS = [
   { value: 'd7', label: '7d' },
   { value: 'd30', label: '30d' },
   { value: 'd90', label: '90d' },
+  { value: 'mtd', label: 'MTD' },
+  { value: 'custom', label: 'Custom' },
 ]
 
 export const WINDOW_LABEL = {
@@ -16,6 +18,8 @@ export const WINDOW_LABEL = {
   d7: 'vs 7-day avg',
   d30: 'vs 30-day avg',
   d90: 'vs 90-day avg',
+  mtd: 'vs MTD daily avg',
+  custom: 'vs custom range avg',
 }
 
 export function closeBadge(status) {

@@ -24,3 +24,12 @@ def minutes(value: str | int) -> int:
         return parse_hhmm(value)
     except (ValueError, AttributeError):
         raise HTTPException(422, f"Invalid time '{value}' (use HH:MM)") from None
+
+
+def custom_window(cmp_from: date | None, cmp_to: date | None) -> tuple[date, date] | None:
+    """Optional custom comparison range (both ends, up to a year)."""
+    if cmp_from is None and cmp_to is None:
+        return None
+    if cmp_from is None or cmp_to is None or cmp_to < cmp_from or (cmp_to - cmp_from).days > 366:
+        raise HTTPException(422, "Choose a custom comparison range of up to one year.")
+    return cmp_from, cmp_to

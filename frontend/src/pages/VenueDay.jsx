@@ -5,13 +5,14 @@ import {
   MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
-import { useApi, useLocalState } from '../lib/hooks'
+import { useApi, useBaseline } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
 import { KIND, KINDS, METHOD, hours, money, moneyShort, num, pct, range12, shortDate, time12, todayISO } from '../lib/format'
-import { Badge, Delta, Empty, ErrorState, Kpi, KindLabel, PageSkeleton, Seg, Tabs } from '../components/ui'
+import { Badge, Delta, Empty, ErrorState, Kpi, KindLabel, PageSkeleton, Tabs } from '../components/ui'
 import { ChannelMix, LineChart } from '../components/charts'
 import DateNav from '../components/DateNav'
 import TodayBand from '../components/TodayBand'
+import BaselinePicker from '../components/BaselinePicker'
 import AvailabilityGrid, { GridLegend } from '../components/AvailabilityGrid'
 import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, DirectBookingDrawer, GameDrawer } from '../components/drawers'
 import { WINDOWS, attendBadge, closeBadge, payBadge } from '../components/badges'
@@ -23,7 +24,8 @@ export default function VenueDay() {
   const tab = params.get('tab') || 'summary'
   const setDate = (d) => setParams((p) => { const n = new URLSearchParams(p); d === todayISO() ? n.delete('date') : n.set('date', d); return n })
   const setTab = (t) => setParams((p) => { const n = new URLSearchParams(p); t === 'summary' ? n.delete('tab') : n.set('tab', t); return n })
-  const day = useApi(`/api/venues/${id}/day?date=${date}`, { interval: 60000 })
+  const baseline = useBaseline()
+  const day = useApi(`/api/venues/${id}/day?date=${date}${baseline.query}`, { interval: 60000 })
   const grid = useApi(`/api/venues/${id}/grid?date=${date}`, { interval: 60000 })
   const [drawer, setDrawer] = useState(null)
   const refresh = () => { day.reload(); grid.reload() }
@@ -69,7 +71,7 @@ export default function VenueDay() {
       ]} />
 
       {tab === 'summary' && (d.show_performance
-        ? <Summary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />
+        ? <Summary d={d} baseline={baseline} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />
         : <OpsSummary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />)}
       {tab === 'grid' && (
         <GridTab d={d} grid={grid.data} canOperate={canOperate} onFree={(f, m) => setDrawer({ type: 'direct', facilityId: f.id, start: m })}
@@ -133,8 +135,8 @@ function AttentionList({ items, onOpen }) {
   )
 }
 
-function Summary({ d, attention, onOpen, goGrid }) {
-  const [win, setWin] = useLocalState('pulse.window', 'same_weekday')
+function Summary({ d, baseline, attention, onOpen, goGrid }) {
+  const { win } = baseline
   const live = d.comparison_mode === 'intraday'
   const m = (live && d.metrics_now) || d.metrics
   const full = d.metrics
@@ -143,7 +145,7 @@ function Summary({ d, attention, onOpen, goGrid }) {
     <>
       <TodayBand full={full} now={d.metrics_now} cmp={c} win={win} live={live} date={d.date} />
       <div className="spread">
-        <Seg value={win} onChange={setWin} options={WINDOWS} label="Comparison baseline" />
+        <BaselinePicker baseline={baseline} />
         <span className="subtle" style={{ fontSize: 12.5 }}>
           {live ? `Live: compared up to ${time12(d.now_min)} on comparable days` : 'Full-day comparison'}
         </span>
@@ -334,17 +336,18 @@ const CMP_ROWS = [
 ]
 
 function ComparisonTable({ c }) {
+  const cols = WINDOWS.filter((w) => w.value !== 'custom' || c.net_revenue?.windows?.custom?.available)
   return (
     <table className="table">
       <thead>
-        <tr><th>Metric</th><th className="num">Now</th>{WINDOWS.map((w) => <th key={w.value} className="num">{w.label}</th>)}</tr>
+        <tr><th>Metric</th><th className="num">Now</th>{cols.map((w) => <th key={w.value} className="num">{w.label}</th>)}</tr>
       </thead>
       <tbody>
         {CMP_ROWS.map(([k, label, f, inv]) => (
           <tr key={k}>
             <td>{label}</td>
             <td className="num" style={{ fontWeight: 600 }}>{f(c[k]?.current)}</td>
-            {WINDOWS.map((w) => {
+            {cols.map((w) => {
               const x = c[k]?.windows?.[w.value]
               return (
                 <td key={w.value} className="num" title={x?.available ? `Baseline ${f(x.baseline)} · ${x.samples} day(s)` : `${x?.samples ?? 0} of ${x?.required} days`}>

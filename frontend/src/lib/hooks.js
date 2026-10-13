@@ -34,3 +34,12 @@ export function useLocalState(key, initial) {
   useEffect(() => { try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* storage unavailable */ } }, [key, v])
   return [v, setV]
 }
+
+/** Comparison baseline shared by Portfolio and venue pages; "custom" carries a date range for the API. */
+export function useBaseline() {
+  const [win, setWin] = useLocalState('pulse.window', 'same_weekday')
+  const [range, setRange] = useLocalState('pulse.cmpRange', null)
+  const custom = win === 'custom' && range?.from && range?.to && range.from <= range.to
+  const query = custom ? `&cmp_from=${range.from}&cmp_to=${range.to}` : ''
+  return { win, setWin, range, setRange, query }
+}

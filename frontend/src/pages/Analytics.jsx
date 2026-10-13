@@ -7,6 +7,7 @@ import { ChannelMix, LineChart } from '../components/charts'
 
 const RANGES = [
   { value: 'mtd', label: 'MTD' }, { value: '7', label: '7D' }, { value: '30', label: '30D' }, { value: '90', label: '90D' },
+  { value: 'custom', label: 'Custom' },
 ]
 
 function change(cur, prev) {
@@ -15,8 +16,15 @@ function change(cur, prev) {
 }
 
 /** Completed days only (through yesterday). MTD compares with the same days of the previous month. */
-function periodFor(range, today = todayISO()) {
+function periodFor(range, params, today = todayISO()) {
   const to = addDays(today, -1)
+  if (range === 'custom') {
+    const from = params.get('from') || addDays(to, -6)
+    const end = params.get('to') || to
+    const cf = params.get('cfrom')
+    const ct = params.get('cto')
+    return { from, to: end < from ? from : end, ...(cf && ct && cf <= ct ? { cmpFrom: cf, cmpTo: ct } : {}) }
+  }
   if (range !== 'mtd') return { from: addDays(to, -(Number(range) - 1)), to }
   const [y, m, d] = to.split('-').map(Number)
   const from = `${to.slice(0, 8)}01`
@@ -26,6 +34,22 @@ function periodFor(range, today = todayISO()) {
   const cmpFrom = `${py}-${String(pm).padStart(2, '0')}-01`
   const cmpTo = `${py}-${String(pm).padStart(2, '0')}-${String(Math.min(d, pmDays)).padStart(2, '0')}`
   return { from, to, cmpFrom, cmpTo }
+}
+
+function DatePair({ label, from, to, max, onChange }) {
+  const style = { width: 150, minHeight: 32, padding: '3px 8px' }
+  return (
+    <div className="field" style={{ gap: 6 }}>
+      <span>{label}</span>
+      <div className="row" style={{ gap: 6 }}>
+        <input className="input" type="date" aria-label={`${label} from`} value={from} max={to || max} style={style}
+          onChange={(e) => onChange(e.target.value, to || e.target.value)} />
+        <span className="subtle">to</span>
+        <input className="input" type="date" aria-label={`${label} to`} value={to} min={from || undefined} max={max} style={style}
+          onChange={(e) => onChange(from || e.target.value, e.target.value)} />
+      </div>
+    </div>
+  )
 }
 
 function Pts({ cur, prev }) {
@@ -40,7 +64,7 @@ export default function Analytics() {
   const range = RANGES.some((r) => r.value === params.get('range')) ? params.get('range') : 'mtd'
   const venueId = params.get('venue')
   const sport = params.get('sport')
-  const { from, to, cmpFrom, cmpTo } = periodFor(range)
+  const { from, to, cmpFrom, cmpTo } = periodFor(range, params)
   const q = new URLSearchParams({ date_from: from, date_to: to })
   if (cmpFrom) { q.set('compare_from', cmpFrom); q.set('compare_to', cmpTo) }
   if (venueId) q.set('venue_id', venueId)
@@ -60,7 +84,14 @@ export default function Analytics() {
     if (data.level === 'venue') set({ venue: row.key, sport: null })
     else if (data.level === 'sport') set({ sport: row.key })
   }
-  const p = data.previous_total || {}
+  // Different-length comparison (custom ranges): scale additive totals to the same number of days.
+  const days = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1
+  const ratio = days(data.date_from, data.date_to) / days(data.previous_from, data.previous_to)
+  const raw = data.previous_total || {}
+  const p = ratio === 1 ? raw : {
+    ...raw, net_revenue: raw.net_revenue * ratio, collected: raw.collected * ratio, opportunity: raw.opportunity * ratio,
+    total_activity: raw.total_activity * ratio, unique_customers: null,
+  }
   const vs = <span>vs {shortDate(data.previous_from)} – {shortDate(data.previous_to)}</span>
 
   return (
@@ -74,13 +105,25 @@ export default function Analytics() {
           </div>
           <h1 style={{ marginTop: 4 }}>Performance</h1>
           <p>
-            {range === 'mtd' ? (from.slice(5, 7) === todayISO().slice(5, 7) ? 'Month to date' : 'Last month (no completed days yet this month)') : `Last ${range} days`}
+            {range === 'mtd' ? (from.slice(5, 7) === todayISO().slice(5, 7) ? 'Month to date' : 'Last month (no completed days yet this month)')
+              : range === 'custom' ? 'Custom range' : `Last ${range} days`}
             {' · '}{shortDate(from)} – {shortDate(to)} · compared with {shortDate(data.previous_from)} – {shortDate(data.previous_to)}
-            {range === 'mtd' ? ' (same days last month)' : ' (previous period)'}
+            {range === 'mtd' ? ' (same days last month)' : cmpFrom ? ' (chosen comparison)' : ' (previous period)'}
+            {ratio !== 1 && ` · ${days(data.previous_from, data.previous_to)}-day comparison scaled to ${days(data.date_from, data.date_to)} days`}
           </p>
         </div>
-        <Seg value={range} onChange={(v) => set({ range: v })} options={RANGES} label="Range" />
+        <Seg value={range} onChange={(v) => set(v === 'custom' ? { range: v, from, to } : { range: v, from: null, to: null, cfrom: null, cto: null })}
+          options={RANGES} label="Range" />
       </div>
+      {range === 'custom' && (
+        <div className="card card-pad row" style={{ gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <DatePair label="Period" from={from} to={to} max={todayISO()} onChange={(a, b) => set({ from: a, to: b })} />
+          <DatePair label="Compare with" from={cmpFrom || ''} to={cmpTo || ''} max={todayISO()}
+            onChange={(a, b) => set({ cfrom: a || null, cto: b || null })} />
+          {cmpFrom ? <button className="btn btn-sm btn-ghost" onClick={() => set({ cfrom: null, cto: null })}>Use previous period</button>
+            : <span className="subtle" style={{ fontSize: 12.5 }}>Leave blank to compare with the previous period of the same length</span>}
+        </div>
+      )}
 
       <div className="kpis">
         <Kpi label="Net revenue" value={money(t.net_revenue)}
@@ -137,14 +180,14 @@ export default function Analytics() {
                     <tr key={r.key} className={data.level !== 'facility' ? 'clickable' : ''} onClick={() => drill(r)}>
                       <td style={{ fontWeight: 600 }}>{String(r.name).replace('RallyGully ', '')}</td>
                       <td className="num">{money(m.net_revenue)}</td>
-                      <td className="num"><Delta win={change(m.net_revenue, rp?.net_revenue)} /></td>
+                      <td className="num"><Delta win={change(m.net_revenue, rp && rp.net_revenue * ratio)} /></td>
                       <td className="num" style={{ minWidth: 120 }}>{pct(m.occupancy, 1)}<Meter value={m.occupancy} /></td>
                       <td className="num">
                         {dOcc == null ? <span className="subtle">—</span> : (
                           <span className={`delta ${Math.abs(dOcc) < 0.5 ? 'flat' : dOcc > 0 ? 'up' : 'down'}`}>{dOcc > 0 ? '+' : ''}{dOcc.toFixed(1)}</span>
                         )}
                       </td>
-                      <td className="num">{num(m.total_activity)}<div><Delta win={change(m.total_activity, rp?.total_activity)} /></div></td>
+                      <td className="num">{num(m.total_activity)}<div><Delta win={change(m.total_activity, rp && rp.total_activity * ratio)} /></div></td>
                       <td className="num">{money(m.opportunity)}</td>
                       {data.level !== 'facility' && <td className="num"><ChevronRight size={16} color="var(--text-3)" /></td>}
                     </tr>
