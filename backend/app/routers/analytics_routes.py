@@ -100,13 +100,25 @@ def _exceptions(db: Session, ids: list[int], d: date) -> list[dict]:
 
 @router.get("/drill")
 def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: str | None = None,
+          compare_from: date | None = None, compare_to: date | None = None,
           user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
-    """One level of the drill-down with the matching previous period for comparison."""
+    """One level of the drill-down against a comparison period.
+
+    The comparison defaults to the equal-length period just before; pass compare_from/compare_to
+    for another (e.g. month-to-date vs the same days of last month).
+    """
     allowed = None
     if date_to < date_from or (date_to - date_from).days > 366:
         raise HTTPException(422, "Choose a range of up to one year.")
-    span = (date_to - date_from).days + 1
-    prev_from, prev_to = date_from - timedelta(days=span), date_from - timedelta(days=1)
+    if (compare_from is None) != (compare_to is None):
+        raise HTTPException(422, "Give both compare_from and compare_to.")
+    if compare_from is not None:
+        if compare_to < compare_from or (compare_to - compare_from).days > 366:
+            raise HTTPException(422, "Choose a comparison range of up to one year.")
+        prev_from, prev_to = compare_from, compare_to
+    else:
+        span = (date_to - date_from).days + 1
+        prev_from, prev_to = date_from - timedelta(days=span), date_from - timedelta(days=1)
     venues = analytics.venues_list(db, allowed)
     if venue_id is not None:
         venues = [v for v in venues if v.id == venue_id]
@@ -153,14 +165,21 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
     rows.sort(key=lambda r: -(r["metrics"]["net_revenue"] or 0))
     scope_ids = ids if venue_id is None else [venue_id]
     series = analytics.daily_series(db, scope_ids, date_from, date_to)
-    total = analytics.finalize(analytics.combine([analytics.compute(db, scope_ids, date_from, date_to)["days"][k]
-                                                  for k in analytics.compute(db, scope_ids, date_from, date_to)["days"]]))
-    if sport is not None:
-        total = analytics.finalize(analytics.combine(
-            [m for (fid, _), m in analytics.compute(db, [venue_id], date_from, date_to, with_facilities=True)["facilities"].items()
-             if db.get(Facility, fid) and db.get(Facility, fid).sport == sport]))
+
+    def total_for(start, end):
+        if sport is not None:
+            sport_fids = {f.id for f in db.scalars(select(Facility).where(Facility.venue_id == venue_id,
+                                                                         Facility.sport == sport))}
+            return analytics.finalize(analytics.combine(
+                [m for (fid, _), m in analytics.compute(db, [venue_id], start, end, with_facilities=True)["facilities"].items()
+                 if fid in sport_fids]))
+        return analytics.finalize(analytics.combine(list(analytics.compute(db, scope_ids, start, end)["days"].values())))
+
+    total = total_for(date_from, date_to)
+    prev_total = total_for(prev_from, prev_to) if prev_available else None
     return {"level": level, "date_from": date_from, "date_to": date_to, "previous_from": prev_from,
             "previous_to": prev_to, "previous_available": prev_available, "rows": rows, "total": _slim(total),
+            "previous_total": _slim(prev_total) if prev_total else None,
             "series": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
                         "total_activity": m["total_activity"]} for k, m in series.items()]}
 

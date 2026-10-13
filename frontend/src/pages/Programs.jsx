@@ -56,7 +56,7 @@ export function CommunityPage() {
     <div className="stack rise">
       <div className="page-head">
         <div><h1>Community Games</h1></div>
-        <button className="btn btn-primary" onClick={() => setCreating(true)} disabled={!venues.length}><Plus /> Lodge game</button>
+        <button className="btn btn-primary" onClick={() => setCreating(true)} disabled={!venues.length}><Plus /> Set up game</button>
       </div>
       <div className="card"><div className="card-body table-wrap">
         {error ? <ErrorState error={error} /> : !data ? <Skeleton h={240} /> : !data.length ? <Empty title="No games in the last 30 days" /> : (
@@ -67,7 +67,11 @@ export function CommunityPage() {
                 <td className="nowrap">{shortDate(g.date)}<div className="subtle mono" style={{ fontSize: 11.5 }}>{range12(g.start_min, g.end_min)}</div></td>
                 <td><KindLabel kind="community">{g.title}</KindLabel><div className="subtle" style={{ fontSize: 12 }}>{g.sport} · {money(g.per_person)}/person</div></td>
                 <td>{venues.find((v) => v.id === g.venue_id)?.code} · {g.facilities.join(' + ')}</td>
-                <td>{g.attended}/{g.participant_count} <span className="subtle">of {g.capacity}</span></td>
+                <td>
+                  {g.participant_count}<span className="subtle">/{g.capacity}</span>
+                  <div className="subtle" style={{ fontSize: 12 }}>{g.state === 'upcoming' ? `${g.paid} prepaid` : `${g.attended} in · ${g.paid} paid`}</div>
+                  {g.state === 'upcoming' && g.participant_count === 0 && <Badge tone="warn">Add players</Badge>}
+                </td>
                 <td><Badge tone={g.state === 'cancelled' ? 'bad' : g.state === 'live' ? 'good' : undefined}>{g.state}</Badge></td>
                 <td className="num">{money(g.collected)}</td>
               </tr>))}
@@ -75,7 +79,7 @@ export function CommunityPage() {
           </table>
         )}
       </div></div>
-      {creating && <GameCreate venues={venues} onClose={() => setCreating(false)} onDone={reload} />}
+      {creating && <GameCreate venues={venues} onClose={() => setCreating(false)} onDone={(g) => { reload(); setOpen(g.id) }} />}
       {open && <GameDrawer id={open} onClose={() => setOpen(null)} onChanged={reload} />}
     </div>
   )
@@ -89,12 +93,12 @@ function GameCreate({ venues, onClose, onDone }) {
   const sport = f.sport || sports[0]
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e?.target ? e.target.value : e }))
   return (
-    <Drawer open onClose={onClose} title="Lodge Community Game" subtitle="Reserves the selected courts for the full duration">
+    <Drawer open onClose={onClose} title="Set up Community Game" subtitle="Reserves the selected courts; add the players next">
       {(close) => (
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()
-          const r = await run(() => post('/api/community-games', { ...f, sport, capacity: Number(f.capacity), per_person: Number(f.per_person) }), 'Game lodged · courts reserved')
-          if (r) { onDone(); close() }
+          const r = await run(() => post('/api/community-games', { ...f, sport, capacity: Number(f.capacity), per_person: Number(f.per_person) }), 'Game set up · courts reserved')
+          if (r) { onDone(r); close() }
         }}>
           <VenuePicker venues={venues} value={f.venue_id} onChange={(v) => setF((x) => ({ ...x, venue_id: v, facility_ids: [], sport: '' }))} />
           <Field label="Title"><input className="input" value={f.title} onChange={set('title')} /></Field>
@@ -113,10 +117,10 @@ function GameCreate({ venues, onClose, onDone }) {
             <Field label="Max players"><input className="input" type="number" min={1} value={f.capacity} onChange={set('capacity')} /></Field>
             <Field label="Charge / person (₹)"><input className="input" type="number" min={0} value={f.per_person} onChange={set('per_person')} /></Field>
           </div>
-          <Field label="Community joining link" help="Sent automatically on WhatsApp when a VM adds a player"><input className="input" type="url" value={f.community_link} onChange={set('community_link')} required /></Field>
+          <Field label="Community joining link" help="Sent automatically on WhatsApp when a player is added"><input className="input" type="url" value={f.community_link} onChange={set('community_link')} required /></Field>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={close}>Cancel</button>
-            <button className="btn btn-primary" disabled={busy || !f.facility_ids.length}>Lodge game</button>
+            <button className="btn btn-primary" disabled={busy || !f.facility_ids.length}>Create & add players</button>
           </div>
         </form>
       )}

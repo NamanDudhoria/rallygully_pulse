@@ -258,3 +258,18 @@ def test_login_throttle(c):
         assert c.post("/api/auth/login", json={"email": "vm@x.com", "password": "wrong-pass"}).status_code == 401
     r = c.post("/api/auth/login", json={"email": "vm@x.com", "password": "pulse1234"})
     assert r.status_code == 429
+
+
+def test_roster_custom_shifts(c):
+    hq = login(c, "hq@x.com")
+    url = "/api/roster"
+    r = c.post(url, headers=hq, json={"venue_id": 2, "user_id": 5, "date": DAY.isoformat(), "start": "18:00", "end": "21:00"})
+    assert r.status_code == 200
+    e = next(x for x in c.get(f"{url}?date_from={DAY}&date_to={DAY}", headers=hq).json()["entries"] if x["id"] == r.json()["id"])
+    assert (e["start_min"], e["end_min"], e["custom"]) == (18 * 60, 21 * 60, True)
+    assert c.patch(f"{url}/{e['id']}", headers=hq, json={"start": "18:15", "end": "21:00"}).status_code == 422
+    assert c.patch(f"{url}/{e['id']}", headers=hq, json={"start": "18:00"}).status_code == 422
+    full = c.patch(f"{url}/{e['id']}", headers=hq, json={}).json()  # back to the venue's full hours
+    assert full["custom"] is False and full["start_min"] is not None
+    me = c.get("/api/auth/me", headers=login(c, "vm@x.com")).json()
+    assert all("start_min" in x for x in me["roster"])

@@ -1,11 +1,11 @@
 /** People & access (users.manage) and the daily VM roster (roster.manage). */
 import { useState } from 'react'
 import { AlertTriangle, ChevronLeft, ChevronRight, Copy, Lock, Mail, Plus, Search, X } from 'lucide-react'
-import { del, post, put } from '../lib/api'
-import { useApi } from '../lib/hooks'
+import { del, patch, post, put } from '../lib/api'
+import { useApi, useLocalState } from '../lib/hooks'
 import { useAction, useAuth, useToast } from '../lib/useCtx'
-import { addDays, dateTime, parseISO, shortDate, todayISO } from '../lib/format'
-import { Badge, Drawer, Empty, ErrorState, Field, Skeleton } from '../components/ui'
+import { addDays, dateTime, hhmm, parseISO, range12, shortDate, time12, todayISO } from '../lib/format'
+import { Badge, Drawer, Empty, ErrorState, Field, Seg, Skeleton } from '../components/ui'
 
 const ROLE_TONE = { hq_admin: 'brand', hq: 'brand', community: 'info', academy: 'warn', vm: undefined }
 
@@ -177,21 +177,35 @@ function mondayOf(iso) {
   return addDays(iso, -((d.getDay() + 6) % 7))
 }
 
+const vname = (n) => n.replace('RallyGully ', '')
+const short12 = (m) => time12(m).replace(':00', '').replace(' AM', 'a').replace(' PM', 'p')
+const shiftLabel = (e) => (e.start_min == null ? '' : `${short12(e.start_min)}–${short12(e.end_min)}`)
+
 export function RosterPage() {
   const [start, setStart] = useState(mondayOf(todayISO()))
+  const [view, setView] = useLocalState('pulse.roster.view', 'venue')
+  const [only, setOnly] = useLocalState('pulse.roster.vms', [])
+  const [shift, setShift] = useState(null)
   const end = addDays(start, 6)
   const { data, error, reload } = useApi(`/api/roster?date_from=${start}&date_to=${end}`)
   const [run, busy] = useAction()
   const today = todayISO()
-  const tomorrow = addDays(today, 1)
   const act = async (fn, msg) => { if (await run(fn, msg)) reload() }
+  const vms = data?.vms || []
+  const picked = only.filter((id) => vms.some((m) => m.id === id))
+  const shown = (id) => !picked.length || picked.includes(id)
+  const toggle = (id) => setOnly(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id])
+  const addTo = (venue, userId, d) => {
+    const joining = !venue.team.some((t) => t.id === userId) && vms.find((m) => m.id === userId)
+    act(() => post('/api/roster', { venue_id: venue.id, user_id: userId, date: d }),
+      joining ? `${joining.name} rostered and added to ${vname(venue.name)}'s team` : 'Rostered')
+  }
+  const openShift = (e) => setShift({ entry: e, venue: data.venues.find((v) => v.id === e.venue_id) })
 
   return (
     <div className="stack rise">
       <div className="page-head">
-        <div>
-          <h1>VM roster</h1>
-        </div>
+        <div><h1>VM roster</h1></div>
         <div className="row">
           <button className="btn btn-icon btn-sm" onClick={() => setStart(addDays(start, -7))} aria-label="Previous week"><ChevronLeft /></button>
           <span style={{ minWidth: 150, textAlign: 'center', fontWeight: 500 }}>{shortDate(start)} – {shortDate(end)}</span>
@@ -201,69 +215,195 @@ export function RosterPage() {
             'Copied last week')} title="Copy the previous week's roster into this week (keeps existing entries)"><Copy /> Copy last week</button>
         </div>
       </div>
+      <div className="spread" style={{ gap: 12, flexWrap: 'wrap' }}>
+        <Seg value={view} onChange={setView} label="Roster view" options={[{ value: 'venue', label: 'By venue' }, { value: 'vm', label: 'By VM' }]} />
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Filter by VM">
+          <span className="subtle" style={{ fontSize: 12.5 }}>VMs</span>
+          <button className={`btn btn-sm ${!picked.length ? 'btn-primary' : ''}`} aria-pressed={!picked.length} onClick={() => setOnly([])}>All</button>
+          {vms.map((m) => (
+            <button key={m.id} className={`btn btn-sm ${picked.includes(m.id) ? 'btn-primary' : ''}`} aria-pressed={picked.includes(m.id)}
+              onClick={() => toggle(m.id)}>{m.name}</button>
+          ))}
+        </div>
+      </div>
       {data?.tomorrow_gaps?.length > 0 && (
         <div className="callout bad"><AlertTriangle />
-          <span><b>No VM rostered for tomorrow</b> at {data.tomorrow_gaps.map((n) => n.replace('RallyGully ', '')).join(', ')}. Nobody will be able to operate {data.tomorrow_gaps.length > 1 ? 'them' : 'it'} in Pulse; Operations is emailed from 8 PM if this is still open.</span>
+          <span><b>No VM rostered for tomorrow</b> at {data.tomorrow_gaps.map(vname).join(', ')}. Nobody will be able to operate {data.tomorrow_gaps.length > 1 ? 'them' : 'it'} in Pulse; Operations is emailed from 8 PM if this is still open.</span>
         </div>
       )}
-      {error ? <ErrorState error={error} onRetry={reload} /> : !data ? <Skeleton h={300} /> : (
-        <div className="card"><div className="card-body table-wrap">
-          <table className="table" style={{ tableLayout: 'fixed', minWidth: 900 }}>
-            <thead><tr><th style={{ width: 150 }}>Venue</th>{data.days.map((d) => (
-              <th key={d} style={{ color: d === today ? 'var(--brand)' : undefined }}>
-                {parseISO(d).toLocaleDateString('en-IN', { weekday: 'short' })} {shortDate(d)}{d === today ? ' · Today' : d === tomorrow ? ' · Tmrw' : ''}
-              </th>))}</tr></thead>
-            <tbody>{data.venues.map((v) => (
-              <tr key={v.id}>
-                <td style={{ verticalAlign: 'top' }}>
-                  <div style={{ fontWeight: 600 }}>{v.name.replace('RallyGully ', '')}</div>
-                  <div className="subtle" style={{ fontSize: 12 }}>{v.team.length} on team</div>
-                </td>
-                {data.days.map((d) => {
-                  const on = data.entries.filter((e) => e.venue_id === v.id && e.date === d)
-                  const operating = v.operating[d]
-                  const isOn = (m) => on.some((e) => e.user_id === m.id)
-                  const free = v.team.filter((m) => !isOn(m))
-                  const others = (data.vms || []).filter((m) => !isOn(m) && !v.team.some((t) => t.id === m.id))
-                  return (
-                    <td key={d} style={{ verticalAlign: 'top', background: !operating ? 'var(--surface-sunk)' : undefined }}>
-                      {!operating ? <span className="subtle" style={{ fontSize: 12 }}>Closed</span> : (
-                        <div style={{ display: 'grid', gap: 4 }}>
-                          {on.map((e) => (
-                            <span key={e.id} className="badge brand" style={{ justifyContent: 'space-between', height: 26 }}>
-                              {e.name.split(' ')[0]}
-                              <button className="btn-ghost" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'inherit' }}
-                                aria-label={`Remove ${e.name} from ${v.name} on ${d}`} disabled={busy}
-                                onClick={() => act(() => del(`/api/roster/${e.id}`), `${e.name} removed`)}><X size={13} /></button>
-                            </span>
-                          ))}
-                          {!on.length && <span className="badge bad" title="No VM can open this venue in Pulse on this day"><Lock /> No VM</span>}
-                          {free.length + others.length > 0 && (
-                            <select className="select" value="" style={{ minHeight: 28, padding: '2px 6px', fontSize: 12.5 }}
-                              aria-label={`Add VM to ${v.name} on ${d}`} disabled={busy}
-                              onChange={(e) => {
-                                const id = Number(e.target.value)
-                                if (!id) return
-                                const joining = others.find((m) => m.id === id)
-                                act(() => post('/api/roster', { venue_id: v.id, user_id: id, date: d }),
-                                  joining ? `${joining.name} rostered and added to ${v.name.replace('RallyGully ', '')}'s team` : 'Rostered')
-                              }}>
-                              <option value="">+ Add…</option>
-                              {free.length > 0 && <optgroup label="Venue team">{free.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
-                              {others.length > 0 && <optgroup label="Other VMs (joins team)">{others.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
-                            </select>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  )
-                })}
-              </tr>))}
-            </tbody>
-          </table>
-
-        </div></div>
-      )}
+      {error ? <ErrorState error={error} onRetry={reload} /> : !data ? <Skeleton h={300} /> : view === 'vm'
+        ? <RosterByVm data={data} today={today} shown={shown} busy={busy} onAdd={addTo} onShift={openShift} />
+        : <RosterByVenue data={data} today={today} shown={shown} filtered={picked.length > 0} busy={busy} onAdd={addTo} onShift={openShift}
+          onRemove={(e) => act(() => del(`/api/roster/${e.id}`), `${e.name} removed`)} />}
+      {shift && <ShiftDrawer {...shift} onClose={() => setShift(null)} onDone={reload} />}
     </div>
+  )
+}
+
+function DayHead({ d, today }) {
+  const tomorrow = addDays(today, 1)
+  return (
+    <th style={{ color: d === today ? 'var(--brand)' : undefined }}>
+      {parseISO(d).toLocaleDateString('en-IN', { weekday: 'short' })} {shortDate(d)}{d === today ? ' · Today' : d === tomorrow ? ' · Tmrw' : ''}
+    </th>
+  )
+}
+
+function ShiftChip({ e, label, onShift, onRemove, busy }) {
+  return (
+    <span className="badge brand roster-chip">
+      <button type="button" className="roster-chip-main" onClick={() => onShift(e)} title="Set shift">
+        <span>{label}</span>
+        <span className="roster-chip-time">{e.custom ? shiftLabel(e) : 'Full day'}</span>
+      </button>
+      {onRemove && (
+        <button type="button" className="roster-chip-x" aria-label={`Remove ${e.name}`} disabled={busy} onClick={() => onRemove(e)}><X size={13} /></button>
+      )}
+    </span>
+  )
+}
+
+function RosterByVenue({ data, today, shown, filtered, busy, onAdd, onShift, onRemove }) {
+  const venues = data.venues.filter((v) => !filtered || v.team.some((m) => shown(m.id))
+    || data.entries.some((e) => e.venue_id === v.id && shown(e.user_id)))
+  if (!venues.length) return <Empty title="No venues for the selected VMs this week" />
+  return (
+    <div className="card"><div className="card-body table-wrap">
+      <table className="table" style={{ tableLayout: 'fixed', minWidth: 980 }}>
+        <thead><tr><th style={{ width: 150 }}>Venue</th>{data.days.map((d) => <DayHead key={d} d={d} today={today} />)}</tr></thead>
+        <tbody>{venues.map((v) => (
+          <tr key={v.id}>
+            <td style={{ verticalAlign: 'top' }}>
+              <div style={{ fontWeight: 600 }}>{vname(v.name)}</div>
+              <div className="subtle" style={{ fontSize: 12 }}>{v.team.length} on team</div>
+            </td>
+            {data.days.map((d) => {
+              const on = data.entries.filter((e) => e.venue_id === v.id && e.date === d)
+              const hrs = v.hours[d]
+              const isOn = (m) => on.some((e) => e.user_id === m.id)
+              const free = v.team.filter((m) => !isOn(m))
+              const others = (data.vms || []).filter((m) => !isOn(m) && !v.team.some((t) => t.id === m.id))
+              return (
+                <td key={d} style={{ verticalAlign: 'top', background: !hrs ? 'var(--surface-sunk)' : undefined }}>
+                  {!hrs ? <span className="subtle" style={{ fontSize: 12 }}>Closed</span> : (
+                    <div style={{ display: 'grid', gap: 4 }}>
+                      {on.map((e) => (
+                        <div key={e.id} style={{ opacity: shown(e.user_id) ? 1 : 0.35 }}>
+                          <ShiftChip e={e} label={e.name.split(' ')[0]} onShift={onShift} onRemove={onRemove} busy={busy} />
+                        </div>
+                      ))}
+                      {!on.length && <span className="badge bad" title="No VM can open this venue in Pulse on this day"><Lock /> No VM</span>}
+                      {free.length + others.length > 0 && (
+                        <select className="select" value="" style={{ minHeight: 28, padding: '2px 6px', fontSize: 12.5 }}
+                          aria-label={`Add VM to ${v.name} on ${d}`} disabled={busy}
+                          onChange={(ev) => { const id = Number(ev.target.value); if (id) onAdd(v, id, d) }}>
+                          <option value="">+ Add…</option>
+                          {free.length > 0 && <optgroup label="Venue team">{free.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
+                          {others.length > 0 && <optgroup label="Other VMs (joins team)">{others.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                </td>
+              )
+            })}
+          </tr>))}
+        </tbody>
+      </table>
+    </div></div>
+  )
+}
+
+/** Where each VM is positioned, day by day. */
+function RosterByVm({ data, today, shown, busy, onAdd, onShift }) {
+  const vms = (data.vms || []).filter((m) => shown(m.id))
+  if (!vms.length) return <Empty title="No Venue Managers" />
+  return (
+    <div className="card"><div className="card-body table-wrap">
+      <table className="table" style={{ tableLayout: 'fixed', minWidth: 980 }}>
+        <thead><tr><th style={{ width: 150 }}>VM</th>{data.days.map((d) => <DayHead key={d} d={d} today={today} />)}</tr></thead>
+        <tbody>{vms.map((m) => {
+          const mine = data.entries.filter((e) => e.user_id === m.id)
+          const days = new Set(mine.map((e) => e.date)).size
+          return (
+            <tr key={m.id}>
+              <td style={{ verticalAlign: 'top' }}>
+                <div style={{ fontWeight: 600 }}>{m.name}</div>
+                <div className="subtle" style={{ fontSize: 12 }}>{days ? `${days} day${days > 1 ? 's' : ''} this week` : 'Not rostered'}</div>
+              </td>
+              {data.days.map((d) => {
+                const on = mine.filter((e) => e.date === d)
+                  .sort((a, b) => (a.start_min ?? 0) - (b.start_min ?? 0))
+                const addable = data.venues.filter((v) => v.hours[d] && !on.some((e) => e.venue_id === v.id))
+                return (
+                  <td key={d} style={{ verticalAlign: 'top', background: d === today ? 'var(--brand-soft)' : undefined }}>
+                    <div style={{ display: 'grid', gap: 4 }}>
+                      {on.map((e) => (
+                        <ShiftChip key={e.id} e={e} label={vname(data.venues.find((v) => v.id === e.venue_id)?.code || '')} onShift={onShift} />
+                      ))}
+                      {!on.length && <span className="subtle" style={{ fontSize: 12 }}>Off</span>}
+                      {addable.length > 0 && (
+                        <select className="select" value="" style={{ minHeight: 28, padding: '2px 6px', fontSize: 12.5 }}
+                          aria-label={`Roster ${m.name} on ${d}`} disabled={busy}
+                          onChange={(ev) => { const v = data.venues.find((x) => x.id === Number(ev.target.value)); if (v) onAdd(v, m.id, d) }}>
+                          <option value="">+ Venue…</option>
+                          {addable.map((v) => <option key={v.id} value={v.id}>{vname(v.name)}</option>)}
+                        </select>
+                      )}
+                    </div>
+                  </td>
+                )
+              })}
+            </tr>
+          )
+        })}
+        </tbody>
+      </table>
+    </div></div>
+  )
+}
+
+function ShiftDrawer({ entry, venue, onClose, onDone }) {
+  const [hOpen, hClose] = venue.hours[entry.date] || [0, 1440]
+  const mid = Math.round((hOpen + hClose) / 60) * 30
+  const [f, setF] = useState({ custom: entry.custom, start: entry.start_min ?? hOpen, end: entry.end_min ?? hClose })
+  const [run, busy] = useAction()
+  const slots = []
+  for (let m = hOpen; m <= hClose; m += 30) slots.push(m)
+  const save = async (close, body) => {
+    if (await run(() => patch(`/api/roster/${entry.id}`, body), 'Shift saved')) { onDone(); close() }
+  }
+  return (
+    <Drawer open onClose={onClose} title={`${entry.name} · ${vname(venue.name)}`}
+      subtitle={`${parseISO(entry.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })} · venue open ${range12(hOpen, hClose)}`}>
+      {(close) => (
+        <form className="form" onSubmit={(e) => { e.preventDefault(); save(close, f.custom ? { start: hhmm(f.start), end: hhmm(f.end) } : {}) }}>
+          <Seg value={f.custom ? 'custom' : 'full'} onChange={(v) => setF({ ...f, custom: v === 'custom' })} label="Shift"
+            options={[{ value: 'full', label: 'Full day' }, { value: 'custom', label: 'Custom shift' }]} />
+          {f.custom && (
+            <>
+              <div className="row" style={{ gap: 6 }}>
+                <button type="button" className="btn btn-sm" onClick={() => setF({ ...f, start: hOpen, end: mid })}>First half · {range12(hOpen, mid)}</button>
+                <button type="button" className="btn btn-sm" onClick={() => setF({ ...f, start: mid, end: hClose })}>Second half · {range12(mid, hClose)}</button>
+              </div>
+              <div className="form-row">
+                <Field label="Starts">
+                  <select className="select" value={f.start} onChange={(e) => setF({ ...f, start: Number(e.target.value) })}>
+                    {slots.slice(0, -1).map((m) => <option key={m} value={m}>{time12(m)}</option>)}
+                  </select>
+                </Field>
+                <Field label="Ends" error={f.end <= f.start ? 'Must end after it starts' : null}>
+                  <select className="select" value={f.end} onChange={(e) => setF({ ...f, end: Number(e.target.value) })}>
+                    {slots.slice(1).map((m) => <option key={m} value={m}>{time12(m)}</option>)}
+                  </select>
+                </Field>
+              </div>
+            </>
+          )}
+          <p className="subtle" style={{ fontSize: 12.5 }}>Rostered VMs can open the venue in Pulse for the whole day; the shift sets who is expected on ground when.</p>
+          <div><button className="btn btn-primary" disabled={busy || (f.custom && f.end <= f.start)}>Save shift</button></div>
+        </form>
+      )}
+    </Drawer>
   )
 }

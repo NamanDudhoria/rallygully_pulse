@@ -11,7 +11,7 @@ from ..permissions import can, ensure_venue, roster_pairs, roster_scoped
 from ..db import get_db
 from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, CorporateEvent, Customer, Facility,
                       OperationalBlock, User, Venue)
-from ..services import analytics, bookings, dayclose, inventory
+from ..services import analytics, bookings, dayclose, inventory, roster
 from ..services.pricing import quote
 from ..timeutil import hhmm, minute_of, now_local
 from .common import day_or_today, get_or_404, minutes
@@ -96,15 +96,25 @@ def venue_day(venue_id: int, date: date | None = None, user: User = Depends(curr
     db.commit()
     hours = inventory.hours_for(db, venue_id, d)
     now = now_local()
-    cutoff = analytics.now_cutoff(d)  # unclamped: same key as the portfolio, so the warmed cache is shared
-    full = analytics.daily_series(db, [venue_id], d, d).get(d)
-    trend = analytics.daily_series(db, [venue_id], d - timedelta(days=29), d)
     acts = _activities(db, venue_id, d)
     is_today = d == now.date()
-    return {
+    out = {
         "venue": serialize.venue(v, full=True), "date": d, "is_today": is_today,
         "now_min": minute_of(now, d) if is_today else None,
         "hours": {"open_min": hours[0], "close_min": hours[1]} if hours else None,
+        "activities": acts,
+        "day_close": dayclose.status(db, venue_id, d),
+        "on_duty": roster.on_duty(db, venue_id, d),
+        "can_operate": can(user, "venue.operate"),
+        "show_performance": can(user, "portfolio.view"),
+    }
+    if not out["show_performance"]:
+        return out  # Venue Managers run the day; revenue and comparisons stay with HQ and the verticals.
+    cutoff = analytics.now_cutoff(d)  # unclamped: same key as the portfolio, so the warmed cache is shared
+    full = analytics.daily_series(db, [venue_id], d, d).get(d)
+    trend = analytics.daily_series(db, [venue_id], d - timedelta(days=29), d)
+    return {
+        **out,
         "metrics": full,
         # Today: everything up to now, so headline numbers match their same-time-of-day baselines.
         "metrics_now": analytics.daily_series(db, [venue_id], d, d, cutoff).get(d) if is_today and hours else None,
@@ -115,9 +125,6 @@ def venue_day(venue_id: int, date: date | None = None, user: User = Depends(curr
                    "total_activity": m["total_activity"]} for k, m in trend.items()],
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89), [venue_id]),
         "history_days": analytics.history_days(db),
-        "activities": acts,
-        "day_close": dayclose.status(db, venue_id, d),
-        "can_operate": can(user, "venue.operate"),
     }
 
 

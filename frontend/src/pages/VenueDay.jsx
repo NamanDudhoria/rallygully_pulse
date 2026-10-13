@@ -43,13 +43,13 @@ export default function VenueDay() {
     <div className="stack rise">
       <div className="page-head">
         <div>
-          <div className="crumbs"><Link to="/">Portfolio</Link> / <span>{d.venue.code}</span></div>
+          {d.show_performance && <div className="crumbs"><Link to="/">Portfolio</Link> / <span>{d.venue.code}</span></div>}
           <h1 style={{ marginTop: 4 }}>{d.venue.name}</h1>
           <p className="row" style={{ gap: 10 }}>
             <span>{d.hours ? `Open ${range12(d.hours.open_min, d.hours.close_min)}` : 'Closed on this date'}</span>
             {closeBadge(d.day_close.status)}
-            {d.day_close.rostered?.length > 0
-              ? <Badge icon={UserCheck}>On duty: {d.day_close.rostered.join(', ')}</Badge>
+            {d.on_duty?.length > 0
+              ? <Badge icon={UserCheck}>On duty: {d.on_duty.map((x) => (x.custom ? `${x.name} ${range12(x.start_min, x.end_min)}` : x.name)).join(', ')}</Badge>
               : d.hours && <Badge tone="warn" icon={UserX}>No VM rostered</Badge>}
             {!canOperate && <Badge tone="info" icon={Eye}>View only</Badge>}
           </p>
@@ -60,14 +60,16 @@ export default function VenueDay() {
       </div>
 
       <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'summary', label: 'Daily performance', icon: Gauge },
+        { value: 'summary', label: d.show_performance ? 'Daily performance' : 'Today', icon: d.show_performance ? Gauge : ListChecks },
         { value: 'grid', label: 'Availability', icon: LayoutGrid },
         { value: 'activity', label: 'Activity', icon: ListChecks, count: attention.length, alert: attention.length > 0 },
         { value: 'community', label: 'Community', icon: Users, count: acts.games.filter((g) => g.status !== 'cancelled').length },
         { value: 'close', label: 'Day close', icon: ClipboardCheck, count: d.day_close.missing.filter((x) => x.due !== false).length, alert: d.day_close.missing.some((x) => x.due !== false) },
       ]} />
 
-      {tab === 'summary' && <Summary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />}
+      {tab === 'summary' && (d.show_performance
+        ? <Summary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />
+        : <OpsSummary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />)}
       {tab === 'grid' && (
         <GridTab d={d} grid={grid.data} canOperate={canOperate} onFree={(f, m) => setDrawer({ type: 'direct', facilityId: f.id, start: m })}
           onBlock={() => setDrawer({ type: 'block' })}
@@ -104,8 +106,7 @@ function needsAttention(d) {
   }
   for (const g of d.activities.games) {
     if (g.status === 'cancelled' || g.state === 'upcoming') continue
-    const pending = g.participant_count - g.attended
-    if (pending > 0 || g.attended > g.paid) out.push({ kind: 'community', ref: g.id, tone: 'warn', icon: Users, text: `${g.title} — ${pending > 0 ? `${pending} attendance to record` : `${g.attended - g.paid} payments to record`}`, sub: range12(g.start_min, g.end_min) })
+    if (g.unmarked > 0 || g.to_collect > 0) out.push({ kind: 'community', ref: g.id, tone: 'warn', icon: Users, text: `${g.title} — ${[g.unmarked > 0 && `${g.unmarked} attendance to record`, g.to_collect > 0 && `${g.to_collect} to collect`].filter(Boolean).join(' · ')}`, sub: range12(g.start_min, g.end_min) })
   }
   return out
 }
@@ -226,6 +227,65 @@ function Summary({ d, attention, onOpen, goGrid }) {
           <div className="card-head"><h2>Historical comparison</h2><span className="hint">{live ? 'same time of day' : 'full day'}</span></div>
           <div className="card-body table-wrap">
             <ComparisonTable c={c} />
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** Venue Manager view of the day: what to do, not how the venue is performing. */
+function OpsSummary({ d, attention, onOpen, goGrid }) {
+  const [showPast, setShowPast] = useState(false)
+  const a = d.activities
+  const live = a.bookings.filter((b) => b.status === 'confirmed')
+  const arrivals = live.filter((b) => b.attendance === 'pending').length
+  const owed = live.filter((b) => b.attendance !== 'no_show' && (b.payment_status === 'to_collect' || b.payment_status === 'overdue'))
+  const games = a.games.filter((g) => g.status !== 'cancelled')
+  const players = games.reduce((n, g) => n + g.participant_count, 0)
+  const gameOwed = games.reduce((n, g) => n + g.owed * g.per_person, 0)
+  const schedule = [
+    ...live.map((b) => ({ key: `b${b.id}`, kind: b.source, start: b.start_min, end: b.end_min, title: b.customer.name || b.customer.phone, sub: b.facility || 'Court on arrival', open: () => onOpen(b.source, b.id) })),
+    ...games.map((g) => ({ key: `g${g.id}`, kind: 'community', start: g.start_min, end: g.end_min, title: g.title, sub: `${g.participant_count} players · ${g.facilities.join(' + ')}`, open: () => onOpen('community', g.id) })),
+    ...a.academy.map((o) => ({ key: `a${o.id}`, kind: 'academy', start: o.start_min, end: o.end_min, title: o.name, sub: 'Academy' })),
+    ...a.events.filter((e) => e.status !== 'cancelled').map((e) => ({ key: `e${e.id}`, kind: 'corporate', start: e.start_min, end: e.end_min, title: e.company || 'Corporate event', sub: 'Corporate' })),
+    ...a.blocks.map((b) => ({ key: `k${b.id}`, kind: 'block', start: b.start_min, end: b.end_min, title: b.reason ? b.reason[0].toUpperCase() + b.reason.slice(1).replace('_', ' ') : 'Block', sub: b.facility || '' })),
+  ].sort((x, y) => x.start - y.start)
+  const upcoming = d.now_min == null ? schedule : schedule.filter((x) => x.end > d.now_min)
+  const shown = showPast ? schedule : upcoming
+  return (
+    <>
+      <div className="kpis">
+        <Kpi label="Bookings" icon={CalendarRange} value={num(live.length)} foot={<span>{arrivals} still to arrive</span>} />
+        <Kpi label="To collect" icon={Wallet} value={money(owed.reduce((n, b) => n + b.booking_value, 0) + gameOwed)}
+          foot={<span>{owed.length} booking{owed.length === 1 ? '' : 's'}{gameOwed > 0 ? ' · community players' : ''}</span>} />
+        <Kpi label="Community" icon={Users} value={num(games.length)} foot={<span>{players} players listed</span>} />
+        <Kpi label="Academy & events" icon={ListChecks} value={num(a.academy.length + a.events.filter((e) => e.status !== 'cancelled').length)}
+          foot={<span>{a.blocks.length} block{a.blocks.length === 1 ? '' : 's'}</span>} />
+      </div>
+      <div className="grid g-main">
+        <div className="card">
+          <div className="card-head"><h2>Needs attention</h2><button className="btn btn-sm" onClick={goGrid}><LayoutGrid /> Availability</button></div>
+          <div className="card-body scroll-y"><AttentionList items={attention} onOpen={onOpen} /></div>
+        </div>
+        <div className="card">
+          <div className="card-head">
+            <h2>{d.now_min == null || showPast ? 'Schedule' : 'Coming up'}</h2>
+            {upcoming.length < schedule.length && (
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowPast(!showPast)}>{showPast ? 'Hide earlier' : `Show earlier (${schedule.length - upcoming.length})`}</button>
+            )}
+          </div>
+          <div className="card-body scroll-y" style={{ maxHeight: 420 }}>
+            {!shown.length ? <Empty title={schedule.length ? 'Nothing left today' : 'Nothing scheduled'} /> : (
+              <div className="list">
+                {shown.map((x) => (
+                  <button key={x.key} className="list-item" onClick={x.open} disabled={!x.open} style={{ cursor: x.open ? 'pointer' : 'default' }}>
+                    <span className="mono subtle nowrap" style={{ fontSize: 12, minWidth: 92 }}>{range12(x.start, x.end)}</span>
+                    <span className="grow"><span className="title" style={{ display: 'block' }}><KindLabel kind={x.kind}>{x.title}</KindLabel></span><span className="meta">{x.sub}</span></span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

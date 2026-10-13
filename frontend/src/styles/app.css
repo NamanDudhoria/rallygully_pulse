@@ -73,8 +73,8 @@
 .g-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .g-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .g-main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
-@media (max-width: 1100px) { .g-main, .g-3 { grid-template-columns: 1fr; } }
-@media (max-width: 720px) { .g-2 { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .g-main, .g-3 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 720px) { .g-2 { grid-template-columns: minmax(0, 1fr); } }
 .stack { display: grid; gap: 16px; }
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -342,3 +342,29 @@ button.list-item { width: 100%; background: none; border: 0; border-bottom: 1px 
 .nowrap { white-space: nowrap; }
 .right { text-align: right; }
 .w-full { width: 100%; }
+
+/* Roster shift chips: name + shift time, click to edit */
+.roster-chip { border-radius: 8px; display: flex; align-items: stretch; height: auto; padding: 0; width: 100%; overflow: hidden; }
+.roster-chip-main {
+  flex: 1; min-width: 0; display: grid; gap: 1px; text-align: left; padding: 4px 8px;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
+}
+.roster-chip-main:hover { background: color-mix(in srgb, var(--brand) 10%, transparent); }
+.roster-chip-main:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.roster-chip-main > span:first-child { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roster-chip-time { font-size: 11px; opacity: .8; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.roster-chip-x { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 6px; display: inline-flex; align-items: center; }
+.roster-chip-x:hover { background: color-mix(in srgb, var(--brand) 14%, transparent); }
+
+/* Portfolio: today at a glance */
+.today-band { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; overflow: hidden; }
+.today-hero { padding: 18px 20px; display: grid; gap: 6px; align-content: center; background: var(--brand-soft); }
+.today-value { font-size: 34px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; color: var(--brand-ink); font-variant-numeric: tabular-nums; }
+.today-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.today-cell { padding: 14px 16px; display: grid; gap: 4px; align-content: start; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-bottom: -1px; }
+.today-cell-value { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .today-band { grid-template-columns: minmax(0, 1fr); }
+  .today-cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .today-value { font-size: 28px; }
+}

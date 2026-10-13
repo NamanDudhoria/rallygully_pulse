@@ -86,6 +86,9 @@ def game(db: Session, g: CommunityGame, detail: bool = False) -> dict:
         "participant_count": len(parts), "attended": sum(1 for p in parts if p.attendance == "attended"),
         "paid": sum(1 for p in parts if p.payment_status == "paid"),
         "collected": sum(p.amount for p in parts if p.payment_status == "paid"),
+        "to_collect": sum(1 for p in parts if p.attendance == "attended" and p.payment_status != "paid"),
+        "unmarked": sum(1 for p in parts if p.attendance == "added"),
+        "owed": sum(1 for p in parts if p.attendance != "no_show" and p.payment_status != "paid"),
     }
     if detail:
         out["participants"] = [participant_dict(db, p) for p in parts]

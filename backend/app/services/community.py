@@ -1,14 +1,19 @@
-"""Community Games: HQ lodges the game and its courts; VMs record on-ground participants."""
+"""Community Games.
+
+The Community team sets up the game and adds every player before it starts (one at a
+time, pasted from a sheet, or uploaded). On the day, VMs only mark attendance and
+collect payment from players who haven't already paid.
+"""
 from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit
-from ..permissions import is_hq
+from ..permissions import can
 from ..audit import DomainError
 from ..models import AllocationKind, CommunityGame, Customer, Facility, Participant, Payment, User
-from ..timeutil import minute_of, now_local, today
+from ..timeutil import minute_of, now_local
 from . import customers, inventory, notify
 from .bookings import PAYMENT_METHODS
 
@@ -98,13 +103,21 @@ def cancel_game(db: Session, actor: User, g: CommunityGame, reason: str, note: s
     return g
 
 
-def add_participant(db: Session, actor: User, g: CommunityGame, phone: str, name: str | None, level: str) -> Participant:
+def _require_manage(actor: User, what: str) -> None:
+    if not can(actor, "community.manage"):
+        raise DomainError(f"{what} is done by the Community team. Venue Managers mark attendance and "
+                          f"collect payment.", 403)
+
+
+def add_participant(db: Session, actor: User, g: CommunityGame, phone: str, name: str | None, level: str,
+                    notify_player: bool = True) -> Participant:
+    _require_manage(actor, "Adding players")
     if g.status == "cancelled":
         raise DomainError("Game is cancelled.")
+    if game_state(g) == "completed":
+        raise DomainError("This game has finished.")
     if level not in LEVELS:
         raise DomainError("Choose a level: beginner, intermediate or advanced.", 422)
-    if not is_hq(actor) and g.date != today():
-        raise DomainError("Participants are added on the game day.")
     existing = customers.find_by_phone(db, phone)
     if not existing and not (name or "").strip():
         raise DomainError("New participant — enter their name.", 422)
@@ -118,9 +131,58 @@ def add_participant(db: Session, actor: User, g: CommunityGame, phone: str, name
     db.flush()
     audit.record(db, actor, "community.add_participant", "participant", p.id, None,
                  {"game_id": g.id, "customer_id": customer.id, "level": level}, g.venue_id)
-    notify.whatsapp(db, customer.phone, "community_link", notify.community_message(level, g.community_link),
-                    "participant", p.id)
+    if notify_player:
+        notify.whatsapp(db, customer.phone, "community_link", notify.community_message(level, g.community_link),
+                        "participant", p.id)
     return p
+
+
+def import_players(db: Session, actor: User, g: CommunityGame, parsed: list[dict], default_level: str,
+                   dry_run: bool) -> dict:
+    """Validate (and unless ``dry_run``, add) a parsed player list. Rows that can't be added are reported."""
+    _require_manage(actor, "Adding players")
+    if g.status == "cancelled":
+        raise DomainError("Game is cancelled.")
+    if default_level not in LEVELS:
+        raise DomainError("Choose a default level.", 422)
+    in_game = {p.customer_id for p in g.participants}
+    room = g.capacity - len(g.participants)
+    seen: set[str] = set()
+    rows = []
+    for r in parsed:
+        row = {**r, "level": r.get("level") or default_level, "status": "ready", "message": None}
+        if r.get("error"):
+            row["status"], row["message"] = "error", r["error"]
+        else:
+            c = customers.find_by_phone(db, r["phone"])
+            if r["phone"] in seen:
+                row["status"], row["message"] = "skip", "Listed twice"
+            elif c and c.id in in_game:
+                row["status"], row["message"] = "skip", "Already in this game"
+            elif not c and not (r.get("name") or "").strip():
+                row["status"], row["message"] = "error", "New player — name needed"
+            else:
+                row["existing"] = bool(c)
+                if c and c.name_locked and c.name:
+                    row["name"] = c.name
+                if room <= 0:
+                    row["status"], row["message"] = "skip", f"Game full ({g.capacity})"
+                else:
+                    room -= 1
+            seen.add(r["phone"])
+        rows.append(row)
+    added = 0
+    if not dry_run:
+        for row in rows:
+            if row["status"] == "ready":
+                add_participant(db, actor, g, row["phone"], row.get("name"), row["level"])
+                row["status"] = "added"
+                added += 1
+        audit.record(db, actor, "community.import_players", "community_game", g.id, None,
+                     {"added": added, "rows": len(rows)}, g.venue_id)
+    return {"rows": rows, "ready": sum(r["status"] in ("ready", "added") for r in rows), "added": added,
+            "problems": sum(r["status"] == "error" for r in rows), "skipped": sum(r["status"] == "skip" for r in rows),
+            "capacity_left": g.capacity - len(g.participants)}
 
 
 def _p_snapshot(p: Participant) -> dict:
@@ -132,7 +194,9 @@ def update_participant(db: Session, actor: User, p: Participant, *, attendance: 
                        paid: bool | None = None, method: str | None = None, level: str | None = None) -> Participant:
     g = p.game
     before = _p_snapshot(p)
-    if level is not None:
+    manage = can(actor, "community.manage")
+    if level is not None and level != p.level:
+        _require_manage(actor, "Changing a player's level")
         if level not in LEVELS:
             raise DomainError("Invalid level.", 422)
         p.level = level
@@ -147,6 +211,10 @@ def update_participant(db: Session, actor: User, p: Participant, *, attendance: 
         db.add(Payment(source_type="participant", source_id=p.id, venue_id=g.venue_id, activity_date=g.date,
                        amount=g.per_person, method=method, collected_at=now_local(), actor_id=actor.id))
     elif paid is False and p.payment_status == "paid":
+        live = list(db.scalars(select(Payment).where(Payment.source_type == "participant", Payment.source_id == p.id,
+                                                     Payment.void.is_(False))))
+        if not manage and any(pay.actor_id != actor.id for pay in live):
+            raise DomainError("This payment was recorded by the Community team — ask them to change it.", 403)
         p.payment_status, p.payment_method, p.amount = "unpaid", None, 0
         for pay in db.scalars(select(Payment).where(Payment.source_type == "participant", Payment.source_id == p.id,
                                                     Payment.void.is_(False))):
@@ -156,6 +224,7 @@ def update_participant(db: Session, actor: User, p: Participant, *, attendance: 
 
 
 def remove_participant(db: Session, actor: User, p: Participant) -> None:
+    _require_manage(actor, "Removing players")
     if p.payment_status == "paid":
         raise DomainError("Mark the payment unpaid before removing a paid participant.")
     audit.record(db, actor, "community.remove_participant", "participant", p.id, _p_snapshot(p), None, p.game.venue_id)
@@ -164,6 +233,10 @@ def remove_participant(db: Session, actor: User, p: Participant) -> None:
 
 def participant_dict(db: Session, p: Participant) -> dict:
     c = db.get(Customer, p.customer_id)
+    collected_by = None
+    if p.payment_status == "paid":
+        collected_by = db.scalar(select(Payment.actor_id).where(Payment.source_type == "participant",
+                                                                Payment.source_id == p.id, Payment.void.is_(False)))
     return {"id": p.id, "customer_id": c.id, "name": c.name, "phone": c.phone, "level": p.level,
             "attendance": p.attendance, "payment_status": p.payment_status, "amount": p.amount,
-            "payment_method": p.payment_method}
+            "payment_method": p.payment_method, "collected_by": collected_by}

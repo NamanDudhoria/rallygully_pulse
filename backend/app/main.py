@@ -10,14 +10,14 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, scheduler
 from .audit import DomainError
-from .db import Base, engine
+from .db import ensure_schema
 from .services import analytics
 from .routers import admin, analytics_routes, auth_routes, operations, people, venues
 
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    Base.metadata.create_all(engine)
+    ensure_schema()
     task = asyncio.create_task(scheduler.loop()) if config.RUN_SCHEDULER else None
     stop = threading.Event()
     if config.RUN_SCHEDULER:

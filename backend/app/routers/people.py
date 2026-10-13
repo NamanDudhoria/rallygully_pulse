@@ -14,7 +14,7 @@ from ..permissions import PERMISSIONS, ROLE_PERMISSIONS, ROLES, require
 from ..services import inventory, roster
 from ..timeutil import today
 from .auth_routes import send_link_email, smtp_configured
-from .common import get_or_404
+from .common import get_or_404, minutes
 
 router = APIRouter(prefix="/api", tags=["people"])
 
@@ -121,6 +121,17 @@ class RosterIn(BaseModel):
     venue_id: int
     user_id: int
     date: date
+    start: str | None = None  # HH:MM; omit start and end for the venue's full hours
+    end: str | None = None
+
+
+class ShiftIn(BaseModel):
+    start: str | None = None
+    end: str | None = None
+
+
+def _shift(start: str | None, end: str | None) -> tuple[int | None, int | None]:
+    return (minutes(start) if start else None), (minutes(end) if end else None)
 
 
 class CopyIn(BaseModel):
@@ -150,21 +161,33 @@ def get_roster(date_from: date, date_to: date, user: User = Depends(require("ros
     return {
         "days": days,
         "venues": [{"id": v.id, "name": v.name, "code": v.code, "team": teams[v.id],
-                    "operating": {x.isoformat(): inventory.hours_for(db, v.id, x) is not None for x in days}}
+                    "hours": {x.isoformat(): inventory.hours_for(db, v.id, x) for x in days}}
                    for v in venues],
-        "entries": [{"id": r.id, "venue_id": r.venue_id, "user_id": r.user_id, "name": u.name, "date": r.date}
-                    for r, u in entries],
+        "entries": [_entry(db, r, u) for r, u in entries],
         "tomorrow_gaps": [v.name for v in roster.gaps(db, today() + timedelta(days=1))],
         "vms": [{"id": u.id, "name": u.name, "email": u.email} for u in db.scalars(
             select(User).where(User.role == "vm", User.active.is_(True)).order_by(User.name))],
     }
 
 
+def _entry(db: Session, r: VmRoster, u: User) -> dict:
+    w = roster.window(db, r)
+    return {"id": r.id, "venue_id": r.venue_id, "user_id": r.user_id, "name": u.name, "date": r.date,
+            "custom": r.start_min is not None, "start_min": w[0] if w else None, "end_min": w[1] if w else None}
+
+
 @router.post("/roster")
 def add_roster(body: RosterIn, user: User = Depends(require("roster.manage")), db: Session = Depends(get_db)):
-    r = roster.add(db, user, body.venue_id, body.user_id, body.date)
+    r = roster.add(db, user, body.venue_id, body.user_id, body.date, *_shift(body.start, body.end))
     db.commit()
     return {"id": r.id}
+
+
+@router.patch("/roster/{rid}")
+def set_shift(rid: int, body: ShiftIn, user: User = Depends(require("roster.manage")), db: Session = Depends(get_db)):
+    r = roster.set_shift(db, user, get_or_404(db, VmRoster, rid), *_shift(body.start, body.end))
+    db.commit()
+    return _entry(db, r, db.get(User, r.user_id))
 
 
 @router.delete("/roster/{rid}")
