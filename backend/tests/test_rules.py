@@ -210,7 +210,9 @@ def test_blocks_reduce_sellable_not_revenue(client):
     timeutil.set_clock(at(17))
     client.post("/api/blocks", headers=vm, json={"venue_id": 1, "facility_id": 3, "date": DAY.isoformat(),
                                                  "start": "17:00", "end": "23:00", "reason": "maintenance"})
-    m = client.get("/api/venues/1/day", headers=vm).json()["metrics"]
+    as_vm = client.get("/api/venues/1/day", headers=vm).json()
+    assert "metrics" not in as_vm and as_vm["show_performance"] is False  # VMs don't see performance
+    m = client.get("/api/venues/1/day", headers=login(client, "hq@x.com")).json()["metrics"]
     assert m["blocked_units"] == 12 and m["sellable_units"] == 24 and m["net_revenue"] == 0
 
 
@@ -231,10 +233,10 @@ def test_community_participants_link_to_customer_and_whatsapp(client):
         "venue_id": 1, "sport": "Pickleball", "date": DAY.isoformat(), "start": "19:00", "end": "21:00",
         "facility_ids": [1, 2], "capacity": 8, "per_person": 500, "community_link": "https://chat.whatsapp.com/x"}).json()
     direct(client, vm, facility=3, phone="9866666666", name="Meera")
-    g2 = client.post(f"/api/community-games/{g['id']}/participants", headers=vm,
+    g2 = client.post(f"/api/community-games/{g['id']}/participants", headers=hq,
                      json={"phone": "+91 98666 66666", "level": "advanced"}).json()
     assert g2["participants"][0]["name"] == "Meera"
-    assert client.post(f"/api/community-games/{g['id']}/participants", headers=vm,
+    assert client.post(f"/api/community-games/{g['id']}/participants", headers=hq,
                        json={"phone": "9877777777", "level": "beginner"}).status_code == 422  # new needs name
     notes = client.get("/api/system/notifications", headers=hq).json()
     assert any(n["template"] == "community_link" for n in notes)
@@ -294,3 +296,82 @@ def test_partial_payment_impossible(client):
     paid = client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "card"}).json()
     assert paid["collected_amount"] == paid["booking_value"]
     assert client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "card"}).status_code == 409
+
+
+def _game(client, hq, capacity=8):
+    return client.post("/api/community-games", headers=hq, json={
+        "venue_id": 1, "sport": "Pickleball", "date": DAY.isoformat(), "start": "19:00", "end": "21:00",
+        "facility_ids": [1, 2], "capacity": capacity, "per_person": 500,
+        "community_link": "https://chat.whatsapp.com/x"}).json()
+
+
+def test_vm_only_marks_attendance_and_collects(client):
+    hq, vm = login(client, "hq@x.com"), login(client, "vm@x.com")
+    g = _game(client, hq)
+    r = client.post(f"/api/community-games/{g['id']}/participants", headers=vm,
+                    json={"phone": "9811111111", "name": "Asha", "level": "beginner"})
+    assert r.status_code == 403  # players are added by the Community team
+    g = client.post(f"/api/community-games/{g['id']}/participants", headers=hq,
+                    json={"phone": "9811111111", "name": "Asha", "level": "beginner"}).json()
+    g = client.post(f"/api/community-games/{g['id']}/participants", headers=hq,
+                    json={"phone": "9822222222", "name": "Ravi", "level": "advanced"}).json()
+    asha, ravi = g["participants"]
+    # Community records Ravi's prepayment before the game
+    assert client.patch(f"/api/participants/{ravi['id']}", headers=hq, json={"paid": True, "method": "upi"}).status_code == 200
+    # VM: attendance + collect from the one who hasn't paid
+    assert client.patch(f"/api/participants/{asha['id']}", headers=vm, json={"attendance": "attended"}).status_code == 200
+    assert client.patch(f"/api/participants/{asha['id']}", headers=vm, json={"paid": True, "method": "cash"}).status_code == 200
+    assert client.patch(f"/api/participants/{asha['id']}", headers=vm, json={"paid": False}).status_code == 200  # own entry
+    assert client.patch(f"/api/participants/{ravi['id']}", headers=vm, json={"paid": False}).status_code == 403
+    assert client.patch(f"/api/participants/{ravi['id']}", headers=vm, json={"level": "beginner"}).status_code == 403
+    assert client.delete(f"/api/participants/{asha['id']}", headers=vm).status_code == 403
+
+
+def test_bulk_import_preview_then_add(client):
+    hq = login(client, "hq@x.com")
+    direct(client, login(client, "vm@x.com"), facility=3, phone="9866666666", name="Meera")
+    g = _game(client, hq, capacity=4)
+    text = ("Name\tPhone\tLevel\n"
+            "Asha Rao\t+91 98111 11111\tBeginner\n"
+            "\t98666 66666\t\n"            # existing customer: name comes from the record
+            "Ravi\t12345\tadv\n"            # bad phone
+            "Kiran\t9833333333\n"
+            "Asha again\t9811111111\t\n"    # listed twice
+            "Dev\t9844444444\tpro\n"
+            "Zoya\t9855555555\t\n")         # over capacity
+    url = f"/api/community-games/{g['id']}/participants/import"
+    prev = client.post(url, headers=hq, json={"text": text, "default_level": "intermediate"}).json()
+    st = {r["line"]: (r["status"], r["level"]) for r in prev["rows"]}
+    assert st[2] == ("ready", "beginner") and st[3][0] == "ready" and st[4][0] == "error"
+    assert st[5] == ("ready", "intermediate") and st[6][0] == "skip" and st[7] == ("ready", "advanced")
+    assert st[8][0] == "skip"  # game full
+    assert next(r for r in prev["rows"] if r["line"] == 3)["name"] == "Meera"
+    assert client.get(f"/api/community-games/{g['id']}", headers=hq).json()["participant_count"] == 0  # dry run
+    done = client.post(url, headers=hq, json={"text": text, "default_level": "intermediate", "dry_run": False}).json()
+    assert done["added"] == 4 and done["game"]["participant_count"] == 4
+
+
+def test_import_free_text_csv_and_xlsx(client):
+    import base64
+    import io
+    from openpyxl import Workbook
+    from app.services import player_import as pi
+    rows = pi.parse(pi.rows_from_text("Meera Kapoor 98666 66666 advanced\n+91 98111-11111 - Asha\nNo phone here"))
+    assert [(r["name"], r["phone"], r["level"]) for r in rows[:2]] == [
+        ("Meera Kapoor", "9866666666", "advanced"), ("Asha", "9811111111", None)]
+    assert rows[2]["error"] == "Phone number missing"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Mobile", "Player Name"])
+    ws.append([9822222222, "Ravi"])  # Excel number cell
+    buf = io.BytesIO()
+    wb.save(buf)
+    hq = login(client, "hq@x.com")
+    g = _game(client, hq)
+    r = client.post(f"/api/community-games/{g['id']}/participants/import", headers=hq, json={
+        "file_b64": base64.b64encode(buf.getvalue()).decode(), "filename": "list.xlsx", "dry_run": False}).json()
+    assert r["added"] == 1 and r["game"]["participants"][0]["name"] == "Ravi"
+    csv = base64.b64encode("phone,name,level\n9833333333,Kiran,beginner\n".encode()).decode()
+    r = client.post(f"/api/community-games/{g['id']}/participants/import", headers=hq,
+                    json={"file_b64": csv, "filename": "list.csv"}).json()
+    assert r["ready"] == 1 and r["rows"][0]["level"] == "beginner"

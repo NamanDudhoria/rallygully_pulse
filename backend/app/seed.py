@@ -10,10 +10,11 @@ import argparse
 import random
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .auth import hash_password
-from .db import Base, SessionLocal, engine
+from .db import Base, SessionLocal, engine, ensure_schema
 from .models import (AcademyOccurrence, AcademyReconciliation, AcademySeries, Allocation, Booking, CommunityGame,
                      CorporateEvent, Customer, DayClose, Facility, Notification, OperationalBlock, Participant,
                      Payment, PricingRule, Refund, User, Venue, VmAssignment, VmRoster, WeeklyHours)
@@ -53,6 +54,8 @@ OPEN_HOURS = {d: (6, 23) for d in range(7)}
 CLUSTERS = {"Gaurav": ["DW10", "DW19", "EOK", "PSP"],
             "Govind": ["GG83", "DPSG", "CCS", "S83"],
             "Mohit": ["NOI49", "LCR", "BNR"]}
+# Demo custom shifts (hours) at all-day venues, from today on.
+SPLIT_SHIFTS = {"GG83": (6, 15), "CCS": (15, 23), "LCR": (6, 14), "BNR": (14, 23)}
 
 
 def _venues() -> list[dict]:
@@ -95,7 +98,7 @@ def phone() -> str:
 def run(reset: bool) -> None:
     if reset:
         Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    ensure_schema()
     db = SessionLocal()
     if db.query(Venue).count():
         print("Database already seeded (use --reset to rebuild).")
@@ -141,6 +144,8 @@ def run(reset: bool) -> None:
                               ("Community Ops", "community@rallygully.com", "community"),
                               ("Academy Team", "academy@rallygully.com", "academy")]:
         db.add(User(name=name, email=email, password_hash=pw, role=role))
+    db.flush()
+    community_id = db.scalar(select(User.id).where(User.email == "community@rallygully.com"))
     # An invited teammate who hasn't set a password yet (shows the invite flow).
     db.add(User(name="Neha Gupta", email="neha@rallygully.com", password_hash=None, role="community"))
     # VMs: one per cluster, on the venue team for every venue in their cluster.
@@ -281,11 +286,23 @@ def run(reset: bool) -> None:
                     take(v.id, f, d, s, e, "community", g.id, active=not cancelled)
                 game_end = at_minute(d, e)
                 if cancelled or game_end > now and d >= today:
-                    if d == today and not cancelled and at_minute(d, s) <= now:
-                        n = R.randint(cap // 2, cap - 2)  # game in progress: some added, not yet resolved
+                    if not cancelled and d <= today + timedelta(days=3):
+                        # Community adds the player list before the game; some prepay online.
+                        n = R.randint(cap // 2, cap - 1)
                         for c in R.sample(pool[:500], n):
                             name_customer(c)
-                            db.add(Participant(game_id=g.id, customer_id=c.id, level=R.choice(["beginner", "intermediate", "advanced"])))
+                            p = Participant(game_id=g.id, customer_id=c.id,
+                                            level=R.choice(["beginner", "intermediate", "advanced"]),
+                                            created_at=min(at_minute(d, s) - timedelta(days=R.randint(1, 3)),
+                                                           now - timedelta(minutes=R.randint(5, 600))))
+                            if R.random() < .4:
+                                p.payment_status, p.amount, p.payment_method = "paid", fee, "upi"
+                            db.add(p)
+                            db.flush()
+                            if p.payment_status == "paid":
+                                payments.append(Payment(source_type="participant", source_id=p.id, venue_id=v.id,
+                                                        activity_date=d, amount=fee, method="upi",
+                                                        collected_at=p.created_at, actor_id=community_id))
                     continue
                 n = max(4, min(cap, int(R.gauss(cap * .75 * trend, 2))))
                 for c in R.sample(pool[:500], n):
@@ -469,13 +486,16 @@ def run(reset: bool) -> None:
                                 closed_at=at_minute(d, 23 * 60 + R.randint(0, 25))))
 
     # Roster: each cluster VM is on at all their venues every day. Sec 83 Turf & Padel is deliberately
-    # unrostered tomorrow so the evening "no VM rostered" alert has something to report.
+    # unrostered tomorrow so the evening "no VM rostered" alert has something to report. From today,
+    # VMs splitting two all-day venues get custom shifts (morning at one, evening at the other).
     for offset in range(HISTORY_DAYS + 8):
         d = start + timedelta(days=offset)
         for v, spec in venues:
             if d == today + timedelta(days=1) and spec["code"] == "S83":
                 continue
-            db.add(VmRoster(venue_id=v.id, user_id=vm_ids[v.id], date=d))
+            shift = SPLIT_SHIFTS.get(spec["code"]) if d >= today else None
+            db.add(VmRoster(venue_id=v.id, user_id=vm_ids[v.id], date=d,
+                            start_min=shift[0] * 60 if shift else None, end_min=shift[1] * 60 if shift else None))
 
     for b in bookings[-40:]:
         db.add(Notification(channel="whatsapp", recipient=db.get(Customer, b.customer_id).phone, template="booking_created",

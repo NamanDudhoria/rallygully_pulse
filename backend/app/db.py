@@ -33,3 +33,24 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_schema() -> None:
+    """Create missing tables, then add any new nullable columns to existing ones.
+
+    Lightweight stand-in for migrations so an existing local database picks up
+    additive schema changes without a reseed. Only nullable columns are added.
+    """
+    from sqlalchemy import inspect, text
+
+    from . import models  # noqa: F401 — register every table on Base.metadata
+
+    Base.metadata.create_all(engine)
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name not in have and col.nullable:
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" '
+                                      f'{col.type.compile(engine.dialect)}'))

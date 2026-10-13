@@ -8,7 +8,7 @@ import logo from '../assets/logo.svg'
 import { post } from '../lib/api'
 import { useAction, useAuth } from '../lib/useCtx'
 import { useApi, useLocalState } from '../lib/hooks'
-import { initials, shortDate, todayISO } from '../lib/format'
+import { initials, range12, shortDate, todayISO } from '../lib/format'
 import { Drawer, Field } from './ui'
 
 function useTheme() {
@@ -47,7 +47,10 @@ export default function Shell() {
         onClick={() => setOpen(false)} className={`nav-link ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined}>
         <CalendarDays aria-hidden />
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {r.venue.replace('RallyGully ', '')} · {r.date === today ? 'Today' : shortDate(r.date)}
+          {r.venue.replace('RallyGully ', '')}
+          <span className="subtle" style={{ display: 'block', fontSize: 11.5 }}>
+            {r.date === today ? 'Today' : shortDate(r.date)}{r.start_min != null && ` · ${range12(r.start_min, r.end_min)}`}
+          </span>
         </span>
       </Link>
     )

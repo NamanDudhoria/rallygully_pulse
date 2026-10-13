@@ -61,6 +61,9 @@ class VmRoster(Base):
     venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     date: Mapped[date] = mapped_column(Date)
+    # Shift window in minutes from midnight; both null = the venue's full operating hours.
+    start_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
     __table_args__ = (UniqueConstraint("venue_id", "user_id", "date"), Index("ix_roster_date", "date"))

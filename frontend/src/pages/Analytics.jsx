@@ -6,7 +6,7 @@ import { Delta, Empty, ErrorState, Kpi, Meter, PageSkeleton, Seg } from '../comp
 import { ChannelMix, LineChart } from '../components/charts'
 
 const RANGES = [
-  { value: '7', label: '7 days' }, { value: '30', label: '30 days' }, { value: '90', label: '90 days' },
+  { value: 'mtd', label: 'MTD' }, { value: '7', label: '7D' }, { value: '30', label: '30D' }, { value: '90', label: '90D' },
 ]
 
 function change(cur, prev) {
@@ -14,15 +14,35 @@ function change(cur, prev) {
   return { available: true, samples: 1, baseline: prev, pct_change: prev ? (cur - prev) / prev : null }
 }
 
+/** Completed days only (through yesterday). MTD compares with the same days of the previous month. */
+function periodFor(range, today = todayISO()) {
+  const to = addDays(today, -1)
+  if (range !== 'mtd') return { from: addDays(to, -(Number(range) - 1)), to }
+  const [y, m, d] = to.split('-').map(Number)
+  const from = `${to.slice(0, 8)}01`
+  const pm = m === 1 ? 12 : m - 1
+  const py = m === 1 ? y - 1 : y
+  const pmDays = new Date(py, pm, 0).getDate()
+  const cmpFrom = `${py}-${String(pm).padStart(2, '0')}-01`
+  const cmpTo = `${py}-${String(pm).padStart(2, '0')}-${String(Math.min(d, pmDays)).padStart(2, '0')}`
+  return { from, to, cmpFrom, cmpTo }
+}
+
+function Pts({ cur, prev }) {
+  if (cur == null || prev == null) return <span className="delta na">—</span>
+  const v = (cur - prev) * 100
+  return <span className={`delta ${Math.abs(v) < 0.5 ? 'flat' : v > 0 ? 'up' : 'down'}`}>{v > 0 ? '+' : ''}{v.toFixed(1)} pts</span>
+}
+
 /** Portfolio → Venue → Sport → Facility, each level against the previous equal-length period. */
 export default function Analytics() {
   const [params, setParams] = useSearchParams()
-  const range = params.get('range') || '30'
+  const range = RANGES.some((r) => r.value === params.get('range')) ? params.get('range') : 'mtd'
   const venueId = params.get('venue')
   const sport = params.get('sport')
-  const to = addDays(todayISO(), -1)
-  const from = addDays(to, -(Number(range) - 1))
+  const { from, to, cmpFrom, cmpTo } = periodFor(range)
   const q = new URLSearchParams({ date_from: from, date_to: to })
+  if (cmpFrom) { q.set('compare_from', cmpFrom); q.set('compare_to', cmpTo) }
   if (venueId) q.set('venue_id', venueId)
   if (sport) q.set('sport', sport)
   const { data, error, reload } = useApi(`/api/analytics/drill?${q}`)
@@ -40,7 +60,8 @@ export default function Analytics() {
     if (data.level === 'venue') set({ venue: row.key, sport: null })
     else if (data.level === 'sport') set({ sport: row.key })
   }
-  const prevTotal = data.previous_available ? data.rows.reduce((a, r) => a + (r.previous?.net_revenue || 0), 0) : null
+  const p = data.previous_total || {}
+  const vs = <span>vs {shortDate(data.previous_from)} – {shortDate(data.previous_to)}</span>
 
   return (
     <div className="stack rise">
@@ -52,18 +73,28 @@ export default function Analytics() {
             {sport && <><ChevronRight size={14} /><span style={{ padding: '0 10px' }}>{sport}</span></>}
           </div>
           <h1 style={{ marginTop: 4 }}>Performance</h1>
-          <p>{shortDate(from)} – {shortDate(to)} · compared with {shortDate(data.previous_from)} – {shortDate(data.previous_to)}</p>
+          <p>
+            {range === 'mtd' ? (from.slice(5, 7) === todayISO().slice(5, 7) ? 'Month to date' : 'Last month (no completed days yet this month)') : `Last ${range} days`}
+            {' · '}{shortDate(from)} – {shortDate(to)} · compared with {shortDate(data.previous_from)} – {shortDate(data.previous_to)}
+            {range === 'mtd' ? ' (same days last month)' : ' (previous period)'}
+          </p>
         </div>
         <Seg value={range} onChange={(v) => set({ range: v })} options={RANGES} label="Range" />
       </div>
 
       <div className="kpis">
         <Kpi label="Net revenue" value={money(t.net_revenue)}
-          foot={<><Delta win={change(t.net_revenue, sport ? null : prevTotal)} /><span>vs previous period</span></>} />
-        <Kpi label="Occupancy" value={pct(t.occupancy, 1)} foot={<span>{hours(t.occupied_units)} of {hours(t.sellable_units)}</span>} />
-        <Kpi label="Utilization" value={pct(t.utilization, 1)} foot={<span>incl. {hours(t.blocked_units)} blocked</span>} />
-        <Kpi label="Revenue opportunity" value={money(t.opportunity)} foot={<span>{hours(t.unused_units)} unused sellable</span>} />
-        <Kpi label="Activity" value={num(t.total_activity)} foot={<span>{t.no_shows} no-shows · {t.cancellations} cancelled</span>} />
+          foot={<><Delta win={change(t.net_revenue, p.net_revenue)} />{vs}</>} />
+        <Kpi label="Occupancy" value={pct(t.occupancy, 1)}
+          foot={<><Pts cur={t.occupancy} prev={p.occupancy} /><span>{hours(t.occupied_units)} of {hours(t.sellable_units)}</span></>} />
+        <Kpi label="Utilization" value={pct(t.utilization, 1)}
+          foot={<><Pts cur={t.utilization} prev={p.utilization} /><span>incl. {hours(t.blocked_units)} blocked</span></>} />
+        <Kpi label="Revenue opportunity" value={money(t.opportunity)}
+          foot={<><Delta win={change(t.opportunity, p.opportunity)} invert /><span>{hours(t.unused_units)} unused</span></>} />
+        <Kpi label="Activity" value={num(t.total_activity)}
+          foot={<><Delta win={change(t.total_activity, p.total_activity)} /><span>{t.no_shows} no-shows · {t.cancellations} cancelled</span></>} />
+        <Kpi label="Customers" value={num(t.unique_customers)}
+          foot={<><Delta win={change(t.unique_customers, p.unique_customers)} /><span>{num(t.returning_customers)} returning</span></>} />
       </div>
 
       <div className="grid g-main">
@@ -100,20 +131,20 @@ export default function Analytics() {
               <tbody>
                 {data.rows.map((r) => {
                   const m = r.metrics
-                  const p = r.previous
-                  const dOcc = p && m.occupancy != null && p.occupancy != null ? (m.occupancy - p.occupancy) * 100 : null
+                  const rp = r.previous
+                  const dOcc = rp && m.occupancy != null && rp.occupancy != null ? (m.occupancy - rp.occupancy) * 100 : null
                   return (
                     <tr key={r.key} className={data.level !== 'facility' ? 'clickable' : ''} onClick={() => drill(r)}>
                       <td style={{ fontWeight: 600 }}>{String(r.name).replace('RallyGully ', '')}</td>
                       <td className="num">{money(m.net_revenue)}</td>
-                      <td className="num"><Delta win={change(m.net_revenue, p?.net_revenue)} /></td>
+                      <td className="num"><Delta win={change(m.net_revenue, rp?.net_revenue)} /></td>
                       <td className="num" style={{ minWidth: 120 }}>{pct(m.occupancy, 1)}<Meter value={m.occupancy} /></td>
                       <td className="num">
                         {dOcc == null ? <span className="subtle">—</span> : (
                           <span className={`delta ${Math.abs(dOcc) < 0.5 ? 'flat' : dOcc > 0 ? 'up' : 'down'}`}>{dOcc > 0 ? '+' : ''}{dOcc.toFixed(1)}</span>
                         )}
                       </td>
-                      <td className="num">{num(m.total_activity)}</td>
+                      <td className="num">{num(m.total_activity)}<div><Delta win={change(m.total_activity, rp?.total_activity)} /></div></td>
                       <td className="num">{money(m.opportunity)}</td>
                       {data.level !== 'facility' && <td className="num"><ChevronRight size={16} color="var(--text-3)" /></td>}
                     </tr>

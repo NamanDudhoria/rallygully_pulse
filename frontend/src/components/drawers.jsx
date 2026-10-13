@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Check, Clock, UserCheck, UserX, Wallet, XCircle, RotateCcw, Undo2, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, ClipboardPaste, Clock, FileSpreadsheet, UserCheck, UserX, Wallet, XCircle, RotateCcw, Undo2, Trash2 } from 'lucide-react'
 import { api, del, patch, post } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
@@ -360,7 +360,7 @@ export function BlockDrawer({ venue, date, facilityId, start, blockId, onClose, 
 
 /** Community Game: on-ground participants, levels, attendance, payment. */
 export function GameDrawer({ id, onClose, onChanged }) {
-  const { can } = useAuth()
+  const { can, user } = useAuth()
   const manage = can('community.manage')
   const operate = manage || can('venue.operate')
   const { data: g, reload } = useApi(`/api/community-games/${id}`)
@@ -371,6 +371,7 @@ export function GameDrawer({ id, onClose, onChanged }) {
   const existing = digitsOf(add.phone) === lookup.phone ? lookup.customer : null
   const [method, setMethod] = useState('upi')
   const [cancel, setCancel] = useState({ reason: '', note: '' })
+  const [bulk, setBulk] = useState(false)
 
   useEffect(() => {
     const digits = digitsOf(add.phone)
@@ -391,25 +392,32 @@ export function GameDrawer({ id, onClose, onChanged }) {
   } : null, [g])
   if (!g) return <Drawer open onClose={onClose} title="Community Game"><p className="subtle">Loading…</p></Drawer>
   const open = g.status !== 'cancelled'
+  const started = g.state === 'live' || g.state === 'completed'
+  const canAdd = open && manage && g.state !== 'completed'
+  const full = g.participant_count >= g.capacity
+  const levels = (reasons?.levels || ['beginner', 'intermediate', 'advanced']).map((l) => ({ value: l, label: l[0].toUpperCase() + l.slice(1) }))
 
   return (
-    <Drawer open onClose={onClose} width={560}
+    <Drawer open onClose={onClose} width={600}
       title={<span className="row" style={{ gap: 10 }}><KindLabel kind="community" />{g.title}</span>}
       subtitle={`${g.facilities.join(' + ')} · ${range12(g.start_min, g.end_min)} · ${g.date} · ${money(g.per_person)}/person`}>
       <div className="row">
         <Badge tone={g.state === 'live' ? 'good' : g.state === 'cancelled' ? 'bad' : undefined}>{g.state}</Badge>
         <Badge>{g.participant_count}/{g.capacity} players</Badge>
         <Badge tone="good">{stats.attended} attended</Badge>
-        <Badge tone="brand">{money(stats.collected)} collected</Badge>
+        <Badge tone="brand">{stats.paid} paid · {money(stats.collected)}</Badge>
       </div>
 
-      {open && operate && (
+      {canAdd && !bulk && (
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()
-          const r = await act(() => post(`/api/community-games/${g.id}/participants`, add), 'Participant added · WhatsApp link sent')
+          const r = await act(() => post(`/api/community-games/${g.id}/participants`, add), 'Player added · WhatsApp link sent')
           if (r) setAdd({ phone: '', name: '', level: add.level })
         }}>
-          <div className="section-title">Add participant on ground</div>
+          <div className="spread">
+            <div className="section-title" style={{ margin: 0 }}>Add player</div>
+            <button type="button" className="btn btn-sm" onClick={() => setBulk(true)} disabled={full}><ClipboardPaste /> Paste list / upload Excel</button>
+          </div>
           <div className="form-row">
             <Field label="Phone" help={existing ? `Existing: ${existing.name || 'no name yet'}` : 'New players need a name'}>
               <input className="input" inputMode="tel" value={add.phone} onChange={(e) => setAdd({ ...add, phone: e.target.value })} required />
@@ -420,51 +428,65 @@ export function GameDrawer({ id, onClose, onChanged }) {
             </Field>
           </div>
           <div className="spread">
-            <Seg value={add.level} onChange={(v) => setAdd({ ...add, level: v })} label="Level"
-              options={(reasons?.levels || ['beginner', 'intermediate', 'advanced']).map((l) => ({ value: l, label: l[0].toUpperCase() + l.slice(1) }))} />
-            <button className="btn btn-primary" disabled={busy || g.participant_count >= g.capacity}>Add</button>
+            <Seg value={add.level} onChange={(v) => setAdd({ ...add, level: v })} label="Level" options={levels} />
+            <button className="btn btn-primary" disabled={busy || full}>{full ? 'Game full' : 'Add'}</button>
           </div>
         </form>
+      )}
+      {canAdd && bulk && (
+        <ImportPlayers game={g} levels={levels} onCancel={() => setBulk(false)}
+          onAdded={async () => { setBulk(false); await reload(); onChanged?.() }} />
+      )}
+      {open && !manage && operate && (
+        <p className="subtle" style={{ fontSize: 12.5 }}>Players are added by the Community team before the game. Mark who turned up and collect from anyone not yet paid.</p>
       )}
 
       <section>
         <div className="spread" style={{ marginBottom: 8 }}>
-          <div className="section-title" style={{ margin: 0 }}>Participants</div>
-          {operate && <Seg value={method} onChange={setMethod} options={METHODS} label="Payment method for Paid" />}
+          <div className="section-title" style={{ margin: 0 }}>Players</div>
+          {operate && open && <Seg value={method} onChange={setMethod} options={METHODS} label="Payment method for Paid" />}
         </div>
-        {g.participants.length === 0 ? <p className="subtle">No one recorded yet.</p> : (
+        {g.participants.length === 0 ? <p className="subtle">{manage ? 'No players added yet.' : 'The Community team hasn’t added players yet.'}</p> : (
           <div className="list">
-            {g.participants.map((p) => (
-              <div key={p.id} className="list-item" style={{ flexWrap: 'wrap' }}>
-                <div className="grow">
-                  <div className="title">{p.name || phoneFmt(p.phone)}</div>
-                  <div className="meta">{phoneFmt(p.phone)} · {p.level}</div>
+            {g.participants.map((p) => {
+              const canUndo = manage || (p.collected_by != null && p.collected_by === user.id)
+              return (
+                <div key={p.id} className="list-item" style={{ flexWrap: 'wrap' }}>
+                  <div className="grow">
+                    <div className="title">{p.name || phoneFmt(p.phone)}</div>
+                    <div className="meta">{phoneFmt(p.phone)} · {p.level}</div>
+                  </div>
+                  {!operate || !open ? (
+                    <>
+                      {p.attendance === 'attended' ? <Badge tone="good">In</Badge> : p.attendance === 'no_show' ? <Badge tone="bad">No-show</Badge> : <Badge>Added</Badge>}
+                      {payBadge(p.payment_status)}
+                    </>
+                  ) : (<>
+                    {(started || !manage) && (
+                      <Seg value={p.attendance} label={`Attendance for ${p.name}`}
+                        onChange={(v) => act(() => patch(`/api/participants/${p.id}`, { attendance: v }))}
+                        options={[{ value: 'attended', label: 'In' }, { value: 'no_show', label: 'No-show' }]} />
+                    )}
+                    {p.payment_status === 'paid' ? (
+                      canUndo ? (
+                        <button className="btn btn-sm" title="Undo payment" disabled={busy} onClick={() => act(() => patch(`/api/participants/${p.id}`, { paid: false }), 'Payment reverted')}>
+                          <Check /> Paid · {METHOD[p.payment_method]}
+                        </button>
+                      ) : <Badge tone="good" icon={Check}>Paid · {METHOD[p.payment_method]}</Badge>
+                    ) : (
+                      <button className="btn btn-sm btn-primary" disabled={busy}
+                        onClick={() => act(() => patch(`/api/participants/${p.id}`, started || !manage ? { paid: true, method, attendance: 'attended' } : { paid: true, method }),
+                          `${money(g.per_person)} recorded`)}>
+                        <Wallet /> {started || !manage ? 'Collect' : 'Mark prepaid'}
+                      </button>
+                    )}
+                    {manage && p.payment_status !== 'paid' && (
+                      <button className="btn btn-sm btn-ghost btn-icon" aria-label={`Remove ${p.name}`} onClick={() => act(() => del(`/api/participants/${p.id}`), 'Removed')}><Trash2 /></button>
+                    )}
+                  </>)}
                 </div>
-                {!operate ? (
-                  <>
-                    {p.attendance === 'attended' ? <Badge tone="good">In</Badge> : p.attendance === 'no_show' ? <Badge tone="bad">No-show</Badge> : <Badge>Added</Badge>}
-                    {payBadge(p.payment_status)}
-                  </>
-                ) : (<>
-                <Seg value={p.attendance} label={`Attendance for ${p.name}`}
-                  onChange={(v) => act(() => patch(`/api/participants/${p.id}`, { attendance: v }))}
-                  options={[{ value: 'attended', label: 'In' }, { value: 'no_show', label: 'No-show' }]} />
-                {p.payment_status === 'paid' ? (
-                  <button className="btn btn-sm" title="Undo payment" onClick={() => act(() => patch(`/api/participants/${p.id}`, { paid: false }), 'Payment reverted')}>
-                    <Check /> {METHOD[p.payment_method]}
-                  </button>
-                ) : (
-                  <button className="btn btn-sm btn-primary" disabled={busy}
-                    onClick={() => act(() => patch(`/api/participants/${p.id}`, { paid: true, method, attendance: 'attended' }), `${money(g.per_person)} recorded`)}>
-                    <Wallet /> Paid
-                  </button>
-                )}
-                {p.payment_status !== 'paid' && (
-                  <button className="btn btn-sm btn-ghost btn-icon" aria-label={`Remove ${p.name}`} onClick={() => act(() => del(`/api/participants/${p.id}`), 'Removed')}><Trash2 /></button>
-                )}
-                </>)}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </section>
@@ -485,6 +507,100 @@ export function GameDrawer({ id, onClose, onChanged }) {
       )}
       <p className="subtle" style={{ fontSize: 12.5 }}>Joining link: <a href={g.community_link} target="_blank" rel="noreferrer">{g.community_link}</a></p>
     </Drawer>
+  )
+}
+
+const IMPORT_TONE = { ready: 'good', added: 'good', skip: undefined, error: 'bad' }
+const IMPORT_LABEL = { ready: 'Will add', added: 'Added', skip: 'Skipped', error: 'Fix' }
+
+function readFileB64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(',')[1] || '')
+    r.onerror = () => reject(new Error('Could not read the file'))
+    r.readAsDataURL(file)
+  })
+}
+
+/** Paste rows from a sheet / WhatsApp, or upload .xlsx / .csv → preview → add. */
+function ImportPlayers({ game, levels, onCancel, onAdded }) {
+  const [text, setText] = useState('')
+  const [file, setFile] = useState(null)
+  const [level, setLevel] = useState('intermediate')
+  const [preview, setPreview] = useState(null)
+  const [run, busy] = useAction()
+  const url = `/api/community-games/${game.id}/participants/import`
+  const payload = async (dryRun) => {
+    const base = { default_level: level, dry_run: dryRun }
+    if (file) return { ...base, filename: file.name, file_b64: await readFileB64(file) }
+    return { ...base, text }
+  }
+  const check = async () => {
+    const r = await run(async () => post(url, await payload(true)))
+    if (r) setPreview(r)
+  }
+  const commit = async () => {
+    const r = await run(async () => post(url, await payload(false)), (x) => `${x.added} player${x.added === 1 ? '' : 's'} added · WhatsApp links sent`)
+    if (r) {
+      setPreview(r)
+      if (r.added) onAdded(r)
+    }
+  }
+  const reset = () => setPreview(null)
+
+  return (
+    <section className="form">
+      <div className="spread">
+        <div className="section-title" style={{ margin: 0 }}>Add players in bulk</div>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>One at a time</button>
+      </div>
+      {!preview ? (
+        <>
+          <Field label="Paste from Excel, Google Sheets or WhatsApp" help="One player per line — name, phone and (optionally) level, in any order. A header row is fine.">
+            <textarea className="input" rows={6} value={text} disabled={!!file} placeholder={'Meera Kapoor\t98666 66666\tAdvanced\nRavi, 9822222222\n+91 98111 11111 - Asha'}
+              onChange={(e) => setText(e.target.value)} style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5 }} />
+          </Field>
+          <div className="row" style={{ gap: 8 }}>
+            <label className="btn btn-sm">
+              <FileSpreadsheet /> {file ? file.name : 'Upload .xlsx / .csv'}
+              <input type="file" accept=".xlsx,.csv" hidden onChange={(e) => setFile(e.target.files?.[0] || null)} />
+            </label>
+            {file && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFile(null)}>Clear file</button>}
+          </div>
+          <Field label="Level for rows without one"><Seg value={level} onChange={setLevel} label="Default level" options={levels} /></Field>
+          <div><button type="button" className="btn btn-primary" disabled={busy || (!file && !text.trim())} onClick={check}>Preview</button></div>
+        </>
+      ) : (
+        <>
+          <div className="row" style={{ gap: 6 }}>
+            <Badge tone="good">{preview.ready} to add</Badge>
+            {preview.problems > 0 && <Badge tone="bad">{preview.problems} need fixing</Badge>}
+            {preview.skipped > 0 && <Badge>{preview.skipped} skipped</Badge>}
+            <span className="subtle" style={{ fontSize: 12.5 }}>{preview.capacity_left} spot{preview.capacity_left === 1 ? '' : 's'} left before import</span>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
+            <table className="table">
+              <thead><tr><th>Row</th><th>Name</th><th>Phone</th><th>Level</th><th>Status</th></tr></thead>
+              <tbody>{preview.rows.map((r) => (
+                <tr key={r.line}>
+                  <td className="mono subtle">{r.line}</td>
+                  <td>{r.name || <span className="subtle">—</span>}{r.existing && <span className="subtle" style={{ fontSize: 11.5 }}> · existing</span>}</td>
+                  <td className="mono nowrap">{r.phone ? phoneFmt(r.phone) : '—'}</td>
+                  <td>{r.level}</td>
+                  <td><Badge tone={IMPORT_TONE[r.status]}>{IMPORT_LABEL[r.status]}</Badge>{r.message && <div className="subtle" style={{ fontSize: 11.5 }}>{r.message}</div>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn btn-primary" disabled={busy || !preview.ready || preview.added > 0} onClick={commit}>
+              Add {preview.ready} player{preview.ready === 1 ? '' : 's'} · send WhatsApp link
+            </button>
+            <button type="button" className="btn" disabled={busy} onClick={reset}>Edit list</button>
+          </div>
+        </>
+      )}
+    </section>
   )
 }
 

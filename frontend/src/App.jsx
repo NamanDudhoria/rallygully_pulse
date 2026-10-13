@@ -10,7 +10,7 @@ import Bookings from './pages/Bookings'
 import { AcademyPage, CommunityPage, EventsPage } from './pages/Programs'
 import { AuditPage, ConfigPage, CustomersPage, SystemPage } from './pages/Admin'
 import { PeoplePage, RosterPage } from './pages/People'
-import { todayISO } from './lib/format'
+import { range12, todayISO } from './lib/format'
 
 /** Landing page per role: analytics roles see the portfolio; VMs go to today's rostered venue. */
 function Home() {
@@ -25,7 +25,7 @@ function Home() {
       <h1>You&apos;re not on today&apos;s roster</h1>
       <p className="muted">
         Venue access opens on the days HQ rosters you.{' '}
-        {next ? <>Your next shift is <b>{next.venue.replace('RallyGully ', '')}</b> on {next.date}.</> : 'No upcoming shifts yet.'}
+        {next ? <>Your next shift is <b>{next.venue.replace('RallyGully ', '')}</b> on {next.date}{next.start_min != null && <>, {range12(next.start_min, next.end_min)}</>}.</> : 'No upcoming shifts yet.'}
       </p>
     </div>
   )

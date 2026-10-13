@@ -1,7 +1,9 @@
 """Bookings, Community Games, Academy, Corporate events and Operational Blocks."""
+import base64
+import binascii
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
@@ -12,7 +14,7 @@ from ..permissions import can, ensure_venue, require, roster_pairs, roster_scope
 from ..db import get_db
 from ..models import (AcademyOccurrence, AcademySeries, Booking, CommunityGame, CorporateEvent, OperationalBlock,
                       Participant, User)
-from ..services import activities, bookings, community
+from ..services import activities, bookings, community, player_import
 from .common import get_or_404, minutes
 
 router = APIRouter(prefix="/api", tags=["operations"])
@@ -208,6 +210,14 @@ class ParticipantIn(BaseModel):
     level: str
 
 
+class ImportIn(BaseModel):
+    text: str | None = None          # pasted rows (tab / comma separated, or free text with a phone)
+    file_b64: str | None = None      # .xlsx / .csv contents, base64
+    filename: str | None = None
+    default_level: str = "intermediate"
+    dry_run: bool = True
+
+
 class ParticipantPatch(BaseModel):
     attendance: str | None = None
     paid: bool | None = None
@@ -264,12 +274,38 @@ def game_cancel(gid: int, body: CancelIn, user: User = Depends(require("communit
 
 
 @router.post("/community-games/{gid}/participants")
-def add_participant(gid: int, body: ParticipantIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def add_participant(gid: int, body: ParticipantIn, user: User = Depends(require("community.manage")),
+                    db: Session = Depends(get_db)):
     g = _game(db, user, gid, write=True)
     community.add_participant(db, user, g, body.phone, body.name, body.level)
     db.commit()
     db.refresh(g)
     return serialize.game(db, g, detail=True)
+
+
+@router.post("/community-games/{gid}/participants/import")
+def import_participants(gid: int, body: ImportIn, user: User = Depends(require("community.manage")),
+                        db: Session = Depends(get_db)):
+    """Preview (dry_run) or add a pasted / uploaded player list."""
+    g = _game(db, user, gid, write=True)
+    if body.file_b64:
+        try:
+            data = base64.b64decode(body.file_b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(422, "Upload couldn't be read.") from None
+        rows = player_import.rows_from_file(body.filename or "", data)
+    elif (body.text or "").strip():
+        rows = player_import.rows_from_text(body.text)
+    else:
+        raise HTTPException(422, "Paste a list or choose a file.")
+    result = community.import_players(db, user, g, player_import.parse(rows), body.default_level, body.dry_run)
+    if body.dry_run:
+        db.rollback()
+    else:
+        db.commit()
+        db.refresh(g)
+        result["game"] = serialize.game(db, g, detail=True)
+    return result
 
 
 def _participant(db, user, pid) -> Participant:

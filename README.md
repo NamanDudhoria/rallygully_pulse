@@ -26,7 +26,7 @@ The seed loads the 11 venues and court counts from *List of Venues for Academies
 `backend/app/seed.py`) with ~100 days of history, so the 7/30/90-day comparisons and anomaly detection have real
 baselines. Operating hours (school venues 4–11 PM on weekdays, 7 AM–11 PM weekends; standalone venues 6 AM–11 PM),
 prices and demand are **placeholders** — replace them under Configuration. "Today" is built around the day you seed,
-so re-run `python -m app.seed --reset` on demo day. Schema changes ship without migrations in V1.
+so re-run `python -m app.seed --reset` on demo day. New nullable columns are added to an existing database at startup; anything else still needs a reseed (no migrations in V1).
 
 ## People, roles and access
 
@@ -39,14 +39,23 @@ disabling a person or changing their role signs them out everywhere; logins are 
 |---|---|
 | HQ Admin | Everything, including people and roles |
 | HQ | Everything except people management |
-| Community Operations | Community Games (create/edit/cancel), customers, full analytics, read-only venue views |
+| Community Operations | Community Games (set up, add players, record prepayments, cancel), customers, full analytics, read-only venue views |
 | Academy | Academy bookings and reconciliation, full analytics, read-only venue views |
-| Venue Manager | Venue operations — **only at venues and on dates they're on the roster** |
+| Venue Manager | Venue operations — **only at venues and on dates they're on the roster**. No revenue, analytics or comparisons; at Community Games they only mark attendance and collect from players who haven't paid |
 
 Permissions are defined once in `backend/app/permissions.py` and enforced on every API request; the UI only mirrors
 them. **VM roster** (HQ, normally set the day before): each VM belongs to one or more venue teams, and the daily roster
 decides who can open which venue that day. Several VMs can share a venue-day. From 8 PM IST, Operations is emailed
 about any operating venue with nobody rostered for tomorrow; HQ can add someone on the day and access is immediate.
+Each roster entry is the full day by default or a **custom shift** (30-minute steps inside venue hours; click a name on
+the roster to set it). Shifts at different venues may overlap, since one VM often covers a cluster; access stays
+day-level so a VM on an early shift can still do the 11:30 PM day close. **By VM** view shows where each VM is
+positioned across the week; the VM filter applies to both views.
+
+**Community Games players**: the Community team adds every player before the game — one at a time, pasted from a
+sheet / WhatsApp (one per line: name, phone, optional level, any order; header row optional), or an uploaded
+`.xlsx` / `.csv`. The import previews every row (ready / needs fixing / skipped as duplicate, already in game, or over
+capacity) before anything is added. Prepayments recorded by the Community team can only be reversed by them.
 
 **Development** (hot reload):
 
