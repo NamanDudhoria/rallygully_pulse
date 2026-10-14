@@ -18,11 +18,11 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
 def _slim(m: dict) -> dict:
-    keys = ("gross_revenue", "collected", "booking_value", "refunds", "outstanding", "opportunity", "potential_value",
+    keys = ("net_revenue", "collected", "booking_value", "refunds", "outstanding", "opportunity", "potential_value",
             "occupancy", "utilization", "occupied_units", "sellable_units", "operational_units", "blocked_units",
             "unused_units", "reserved_units", "total_activity", "unique_customers", "returning_customers",
             "no_shows", "cancellations", "overdue", "unassigned_district", "cash_share", "activities",
-            "gross_by_kind", "occupied_by_kind", "collected_by_method", "academy_accrued")
+            "net_by_kind", "occupied_by_kind", "collected_by_method", "academy_accrued")
     return {k: m.get(k) for k in keys}
 
 
@@ -45,7 +45,7 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
     for v in venues:
         src = per_venue_now if is_today else per_venue
         m = analytics.finalize(analytics.combine([src[(v.id, d)]] if (v.id, d) in src else []))
-        cmp_ = analytics.comparisons(db, [v.id], d, ["gross_revenue", "occupancy", "total_activity"],
+        cmp_ = analytics.comparisons(db, [v.id], d, ["net_revenue", "occupancy", "total_activity"],
                                      cutoff if is_today else None, custom)
         rows.append({"venue": {"id": v.id, "name": v.name, "code": v.code, "location": v.location},
                      "hours": _hours(db, v.id, d), "metrics": _slim(m), "comparisons": cmp_,
@@ -65,7 +65,7 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89)),
         "repeat_lifetime": analytics.repeat_rate(db, d),
         "venues": rows,
-        "trend": [{"date": k, "gross_revenue": m["gross_revenue"], "occupancy": m["occupancy"],
+        "trend": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
                    "opportunity": m["opportunity"], "total_activity": m["total_activity"]} for k, m in trend.items()],
         "intraday": intraday_curve(db, ids, d, span) if is_today else None,
         "insights": insights,
@@ -164,7 +164,7 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
         p = prev.get(key)
         rows.append({"key": key, "name": names.get(key, str(key)), "metrics": _slim(m),
                      "previous": _slim(p) if p and prev_available else None})
-    rows.sort(key=lambda r: -(r["metrics"]["gross_revenue"] or 0))
+    rows.sort(key=lambda r: -(r["metrics"]["net_revenue"] or 0))
     scope_ids = ids if venue_id is None else [venue_id]
     series = analytics.daily_series(db, scope_ids, date_from, date_to)
 
@@ -182,7 +182,7 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
     return {"level": level, "date_from": date_from, "date_to": date_to, "previous_from": prev_from,
             "previous_to": prev_to, "previous_available": prev_available, "rows": rows, "total": _slim(total),
             "previous_total": _slim(prev_total) if prev_total else None,
-            "series": [{"date": k, "gross_revenue": m["gross_revenue"], "occupancy": m["occupancy"],
+            "series": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
                         "total_activity": m["total_activity"]} for k, m in series.items()]}
 
 

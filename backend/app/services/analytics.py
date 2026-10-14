@@ -9,7 +9,7 @@ Definitions (PRD §36-47):
 - Sellable = operational − blocked. Occupancy = occupied ÷ sellable.
 - Occupied: District/Direct only when attended; Community/Academy/Corporate by allocation.
 - Revenue Opportunity: priced value of sellable units with no revenue allocation.
-- Gross revenue: collected − refunds, attributed to the activity date; Academy is
+- Net revenue: collected − refunds, attributed to the activity date; Academy is
   accrued at occurrence value until its month is reconciled, then the reconciled
   amount is spread across that month's occurrences.
 """
@@ -68,17 +68,17 @@ def _blank_day() -> dict:
     return {
         "operational_units": 0, "blocked_units": 0, "sellable_units": 0, "occupied_units": 0,
         "unused_units": 0, "reserved_units": 0, "potential_value": 0.0, "opportunity": 0.0,
-        "booking_value": 0.0, "collected": 0.0, "refunds": 0.0, "gross_revenue": 0.0, "outstanding": 0.0,
+        "booking_value": 0.0, "collected": 0.0, "refunds": 0.0, "net_revenue": 0.0, "outstanding": 0.0,
         "academy_accrued": 0.0,
         "activities": {k: 0 for k in (*KINDS, "block")},
         "occupied_by_kind": {k: 0 for k in KINDS},
-        "gross_by_kind": {k: 0.0 for k in KINDS},
+        "net_by_kind": {k: 0.0 for k in KINDS},
         "collected_by_method": {m: 0.0 for m in METHODS},
         "cancellations": 0, "no_shows": 0, "overdue": 0, "to_collect": 0, "unassigned_district": 0,
         "customers": set(), "returning": set(), "participants": 0,
         # Amount accrued in [h:00, h+1:00) of the activity day; index 0 also holds anything
         # earlier (e.g. prepaid days ahead), 24 anything later. Cumulative sum to H == cutoff H:00.
-        "hourly_gross": [0.0] * 25, "hourly_occ": [0] * 25,
+        "hourly_net": [0.0] * 25, "hourly_occ": [0] * 25,
     }
 
 
@@ -251,8 +251,8 @@ def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_m
         fids = [a.facility_id for a in allocs if a.kind == kind and a.ref_id == ref_id]
         for fid in fids:
             fday(fid, d)[field] += amount / len(fids)
-            if field == "gross_revenue":
-                fday(fid, d)["gross_by_kind"][kind] += amount / len(fids)
+            if field == "net_revenue":
+                fday(fid, d)["net_by_kind"][kind] += amount / len(fids)
 
     for b in bookings:
         if not started(b.date, b.start_min):
@@ -328,10 +328,10 @@ def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_m
         else:
             share = o.value
             t["academy_accrued"] += share
-        t["gross_revenue"] += share
-        t["hourly_gross"][o.start_min // 60] += share
-        t["gross_by_kind"]["academy"] += share
-        split_to_facilities("academy", o.id, o.date, share, "gross_revenue")
+        t["net_revenue"] += share
+        t["hourly_net"][o.start_min // 60] += share
+        t["net_by_kind"]["academy"] += share
+        split_to_facilities("academy", o.id, o.date, share, "net_revenue")
         split_to_facilities("academy", o.id, o.date, o.value, "booking_value")
 
     for e in events.values():
@@ -367,16 +367,16 @@ def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_m
         else:
             kind, fid, ref = "corporate", None, p.source_id
         t["collected"] += p.amount
-        t["gross_revenue"] += p.amount
-        t["hourly_gross"][_hour_bucket(p.collected_at, p.activity_date)] += p.amount
-        t["gross_by_kind"][kind] += p.amount
+        t["net_revenue"] += p.amount
+        t["hourly_net"][_hour_bucket(p.collected_at, p.activity_date)] += p.amount
+        t["net_by_kind"][kind] += p.amount
         t["collected_by_method"][p.method if p.method in METHODS else "other"] += p.amount
         if with_facilities:
             if fid:
-                fday(fid, p.activity_date)["gross_revenue"] += p.amount
-                fday(fid, p.activity_date)["gross_by_kind"][kind] += p.amount
+                fday(fid, p.activity_date)["net_revenue"] += p.amount
+                fday(fid, p.activity_date)["net_by_kind"][kind] += p.amount
             elif ref:
-                split_to_facilities(kind, ref, p.activity_date, p.amount, "gross_revenue")
+                split_to_facilities(kind, ref, p.activity_date, p.amount, "net_revenue")
 
     for r in refunds:
         b = booking_by_id[r.booking_id]
@@ -384,6 +384,11 @@ def _compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_m
             continue
         t = day(b.venue_id, b.date)  # refunds hit the original activity date (PRD §43)
         t["refunds"] += r.amount
+        t["net_revenue"] -= r.amount
+        t["hourly_net"][_hour_bucket(r.processed_at, b.date)] -= r.amount
+        t["net_by_kind"][b.source] -= r.amount
+        if with_facilities and b.facility_id:
+            fday(b.facility_id, b.date)["net_revenue"] -= r.amount
 
     # 4. Repeat customers: lifetime attended consumer interactions up to each day.
     history = _attended_history(db)
@@ -455,7 +460,7 @@ def _active_customers(db: Session, since: date, upto: date, venue_ids: list[int]
 # ── aggregation helpers ──────────────────────────────────────────────────────
 ADDITIVE = ("operational_units", "blocked_units", "sellable_units", "occupied_units", "unused_units",
             "reserved_units", "potential_value", "opportunity", "booking_value", "collected", "refunds",
-            "gross_revenue", "outstanding", "academy_accrued", "cancellations", "no_shows", "overdue",
+            "net_revenue", "outstanding", "academy_accrued", "cancellations", "no_shows", "overdue",
             "to_collect", "unassigned_district", "participants")
 
 
@@ -465,13 +470,13 @@ def combine(days: list[dict]) -> dict:
     for d in days:
         for k in ADDITIVE:
             t[k] += d[k]
-        for group in ("activities", "occupied_by_kind", "gross_by_kind", "collected_by_method"):
+        for group in ("activities", "occupied_by_kind", "net_by_kind", "collected_by_method"):
             for k, v in d[group].items():
                 t[group][k] += v
         t["customers"] |= d["customers"]
         t["returning"] |= d["returning"]
         for i in range(25):
-            t["hourly_gross"][i] += d["hourly_gross"][i]
+            t["hourly_net"][i] += d["hourly_net"][i]
             t["hourly_occ"][i] += d["hourly_occ"][i]
     return t
 
@@ -496,7 +501,7 @@ def finalize(t: dict) -> dict:
 
 # Metric extractors used by comparisons & anomaly detection.
 METRICS = {
-    "gross_revenue": lambda m: m["gross_revenue"],
+    "net_revenue": lambda m: m["net_revenue"],
     "collected": lambda m: m["collected"],
     "occupancy": lambda m: m["occupancy"],
     "occupied_units": lambda m: m["occupied_units"],

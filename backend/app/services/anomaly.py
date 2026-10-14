@@ -18,11 +18,11 @@ from . import analytics
 from .analytics import METRICS
 
 Z_THRESHOLD = 3.5
-LIVE_CHECKS = ("gross_revenue", "occupancy", "total_activity")
+LIVE_CHECKS = ("net_revenue", "occupancy", "total_activity")
 
 CHECKS = {
     # metric: (label, format, min_abs_change)
-    "gross_revenue": ("Gross revenue", "inr", 500.0),
+    "net_revenue": ("Net revenue", "inr", 500.0),
     "occupancy": ("Occupancy", "pct", 0.05),
     "utilization": ("Utilization", "pct", 0.05),
     "total_activity": ("Booking volume", "int", 3),
