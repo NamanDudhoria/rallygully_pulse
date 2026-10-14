@@ -18,7 +18,7 @@ from .common import custom_window, day_or_today, get_or_404, minutes
 
 router = APIRouter(prefix="/api/venues", tags=["venues"])
 
-DAY_METRICS = ["net_revenue", "collected", "occupancy", "utilization", "total_activity", "opportunity",
+DAY_METRICS = ["gross_revenue", "collected", "occupancy", "utilization", "total_activity", "opportunity",
                "unique_customers"]
 
 
@@ -59,7 +59,7 @@ def _activities(db: Session, venue_id: int, d: date) -> dict:
 
 
 def intraday_curve(db: Session, venue_ids: list[int], d: date, hours: tuple[int, int] | None) -> dict | None:
-    """Cumulative net revenue & occupied units by hour, vs the same weekday's last 4 weeks."""
+    """Cumulative gross revenue & occupied units by hour, vs the same weekday's last 4 weeks."""
     if not hours:
         return None
     now = now_local()
@@ -79,9 +79,9 @@ def intraday_curve(db: Session, venue_ids: list[int], d: date, hours: tuple[int,
         reached = d < now.date() or (d == now.date() and minute_of(now, d) >= mk)
         points.append({
             "minute": mk, "label": hhmm(mk),
-            "net_revenue": upto(cur, mk, "hourly_net") if cur and reached else None,
+            "gross_revenue": upto(cur, mk, "hourly_gross") if cur and reached else None,
             "occupied_units": upto(cur, mk, "hourly_occ") if cur and reached else None,
-            "baseline_net_revenue": sum(upto(h, mk, "hourly_net") for h in hist) / len(hist) if hist else None,
+            "baseline_gross_revenue": sum(upto(h, mk, "hourly_gross") for h in hist) / len(hist) if hist else None,
             "baseline_occupied_units": sum(upto(h, mk, "hourly_occ") for h in hist) / len(hist) if hist else None,
         })
     return {"points": points, "baseline_samples": len(hist)}
@@ -122,7 +122,7 @@ def venue_day(venue_id: int, date: date | None = None, cmp_from: date | None = N
         "comparison_mode": "intraday" if is_today else "full_day",
         "comparisons": analytics.comparisons(db, [venue_id], d, DAY_METRICS, cutoff if is_today else None, custom),
         "intraday": intraday_curve(db, [venue_id], d, hours),
-        "trend": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
+        "trend": [{"date": k, "gross_revenue": m["gross_revenue"], "occupancy": m["occupancy"],
                    "total_activity": m["total_activity"]} for k, m in trend.items()],
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89), [venue_id]),
         "history_days": analytics.history_days(db),

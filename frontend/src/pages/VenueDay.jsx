@@ -153,7 +153,7 @@ function Summary({ d, baseline, attention, onOpen, goGrid }) {
         </span>
       </div>
       <div className="kpis">
-        <Kpi label="Net revenue" icon={IndianRupee} value={money(m.net_revenue)} cmp={c.net_revenue} windowKey={win} />
+        <Kpi label="Gross revenue" icon={IndianRupee} value={money(m.gross_revenue)} cmp={c.gross_revenue} windowKey={win} />
         <Kpi label="Occupancy" icon={Gauge} value={pct(m.occupancy, 1)} cmp={c.occupancy} windowKey={win}
           foot={<span>· {hours(m.occupied_units)} / {hours(m.sellable_units)}</span>} />
         <Kpi label="Activity" icon={Zap} value={num(m.total_activity)} cmp={c.total_activity} windowKey={win} />
@@ -180,18 +180,18 @@ function Summary({ d, baseline, attention, onOpen, goGrid }) {
 
       <div className="grid g-main">
         <div className="card">
-          <div className="card-head"><h2>{live ? 'Intraday progression' : 'Last 30 days'}</h2><span className="hint">{live ? 'cumulative net revenue' : 'net revenue'}</span></div>
+          <div className="card-head"><h2>{live ? 'Intraday progression' : 'Last 30 days'}</h2><span className="hint">{live ? 'cumulative gross revenue' : 'gross revenue'}</span></div>
           <div className="card-body">
             {d.intraday && live ? (
               <LineChart data={d.intraday.points} x="label" xFormat={(v) => v} format={money} yFormat={moneyShort}
                 ariaLabel="Cumulative revenue today versus same weekday average"
                 series={[
-                  { key: 'net_revenue', label: 'Today', color: 'var(--brand)' },
-                  { key: 'baseline_net_revenue', label: `Same weekday avg (${d.intraday.baseline_samples} wks)`, color: 'var(--text-3)', dashed: true },
+                  { key: 'gross_revenue', label: 'Today', color: 'var(--brand)' },
+                  { key: 'baseline_gross_revenue', label: `Same weekday avg (${d.intraday.baseline_samples} wks)`, color: 'var(--text-3)', dashed: true },
                 ]} />
             ) : (
-              <LineChart data={d.trend} format={money} yFormat={moneyShort} ariaLabel="Net revenue, last 30 days"
-                series={[{ key: 'net_revenue', label: 'Net revenue', color: 'var(--brand)' }]} />
+              <LineChart data={d.trend} format={money} yFormat={moneyShort} ariaLabel="Gross revenue, last 30 days"
+                series={[{ key: 'gross_revenue', label: 'Gross revenue', color: 'var(--brand)' }]} />
             )}
           </div>
         </div>
@@ -202,8 +202,8 @@ function Summary({ d, baseline, attention, onOpen, goGrid }) {
               <dt>Booking value</dt><dd className="right">{money(full.booking_value)}</dd>
               <dt>Collected</dt><dd className="right">{money(full.collected)}</dd>
               {full.academy_accrued > 0 && <><dt>Academy (accrued, month-end)</dt><dd className="right">{money(full.academy_accrued)}</dd></>}
-              <dt>Refunds</dt><dd className="right">−{money(full.refunds)}</dd>
-              <dt style={{ color: 'var(--text)', fontWeight: 600 }}>Net revenue</dt><dd className="right" style={{ fontWeight: 600 }}>{money(full.net_revenue)}</dd>
+              <dt style={{ color: 'var(--text)', fontWeight: 600 }}>Gross revenue</dt><dd className="right" style={{ fontWeight: 600 }}>{money(full.gross_revenue)}</dd>
+              <dt>Refunds</dt><dd className="right">{money(full.refunds)}</dd>
             </dl>
             <div className="divider" />
             <div className="section-title">Collected by method</div>
@@ -218,9 +218,9 @@ function Summary({ d, baseline, attention, onOpen, goGrid }) {
 
       <div className="grid g-2">
         <div className="card">
-          <div className="card-head"><h2>Activity by channel</h2><span className="hint">net revenue</span></div>
+          <div className="card-head"><h2>Activity by channel</h2><span className="hint">gross revenue</span></div>
           <div className="card-body">
-            <ChannelMix values={m.net_by_kind} title="Net revenue by channel" />
+            <ChannelMix values={m.gross_by_kind} title="Gross revenue by channel" />
             <div className="divider" />
             <div className="row" style={{ gap: 14, fontSize: 13 }}>
               {KINDS.map((k) => <span key={k}><KindLabel kind={k} />: <b>{m.activities[k]}</b></span>)}
@@ -329,7 +329,7 @@ function InventoryBar({ m }) {
 }
 
 const CMP_ROWS = [
-  ['net_revenue', 'Net revenue', money, false],
+  ['gross_revenue', 'Gross revenue', money, false],
   ['occupancy', 'Occupancy', (v) => pct(v, 1), false],
   ['utilization', 'Utilization', (v) => pct(v, 1), false],
   ['total_activity', 'Activity', num, false],
@@ -338,7 +338,7 @@ const CMP_ROWS = [
 ]
 
 function ComparisonTable({ c }) {
-  const cols = WINDOWS.filter((w) => w.value !== 'custom' || c.net_revenue?.windows?.custom?.available)
+  const cols = WINDOWS.filter((w) => w.value !== 'custom' || c.gross_revenue?.windows?.custom?.available)
   return (
     <table className="table">
       <thead>

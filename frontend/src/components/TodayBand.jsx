@@ -21,9 +21,9 @@ export default function TodayBand({ full: fullIn, now: nowIn, cmp, win, live, da
     <section className="card today-band" aria-label={live ? 'Today at a glance' : 'Day at a glance'}>
       <div className="today-hero">
         <div className="kpi-label"><IndianRupee size={14} aria-hidden />{live ? "Today's revenue" : `Revenue · ${date}`}</div>
-        <div className="today-value">{money(full.net_revenue)}</div>
+        <div className="today-value">{money(full.gross_revenue)}</div>
         <div className="kpi-foot">
-          <Delta win={cmp?.net_revenue?.windows?.[win]} />
+          <Delta win={cmp?.gross_revenue?.windows?.[win]} />
           <span>{WINDOW_LABEL[win]}{live ? ', same time of day' : ''}</span>
         </div>
         <div className="subtle" style={{ fontSize: 12 }}>{money(full.booking_value)} booked value</div>

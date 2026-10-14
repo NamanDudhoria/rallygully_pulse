@@ -198,11 +198,11 @@ def test_refund_hits_original_date_and_occupancy_needs_attendance(client):
     client.post(f"/api/bookings/{bid}/assign", headers=vm, json={"facility_id": 1})
     timeutil.set_clock(at(23, 50))
     m = client.get("/api/venues/1/day", headers=hq).json()["metrics"]
-    assert m["net_revenue"] == 800 and m["occupied_units"] == 2 and m["sellable_units"] == 36
+    assert m["gross_revenue"] == 800 and m["occupied_units"] == 2 and m["sellable_units"] == 36
     timeutil.set_clock(at(12, d=DAY + timedelta(days=2)))
     client.post(f"/api/bookings/{bid}/refund", headers=hq, json={"amount": 800, "reason": "Court lights failed"})
     m = client.get(f"/api/venues/1/day?date={DAY.isoformat()}", headers=hq).json()["metrics"]
-    assert m["net_revenue"] == 0 and m["refunds"] == 800
+    assert m["gross_revenue"] == 800 and m["refunds"] == 800  # gross is before refunds
 
 
 def test_blocks_reduce_sellable_not_revenue(client):
@@ -213,7 +213,7 @@ def test_blocks_reduce_sellable_not_revenue(client):
     as_vm = client.get("/api/venues/1/day", headers=vm).json()
     assert "metrics" not in as_vm and as_vm["show_performance"] is False  # VMs don't see performance
     m = client.get("/api/venues/1/day", headers=login(client, "hq@x.com")).json()["metrics"]
-    assert m["blocked_units"] == 12 and m["sellable_units"] == 24 and m["net_revenue"] == 0
+    assert m["blocked_units"] == 12 and m["sellable_units"] == 24 and m["gross_revenue"] == 0
 
 
 def test_recurring_academy_materializes_occurrences(client):
@@ -281,9 +281,9 @@ def test_correction_flows_to_history(client):
     timeutil.set_clock(at(19))
     client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "cash"})
     timeutil.set_clock(at(10, d=DAY + timedelta(days=1)))
-    before = client.get(f"/api/venues/1/day?date={DAY.isoformat()}", headers=hq).json()["metrics"]["net_revenue"]
+    before = client.get(f"/api/venues/1/day?date={DAY.isoformat()}", headers=hq).json()["metrics"]["gross_revenue"]
     client.post(f"/api/bookings/{b['id']}/amount", headers=hq, json={"amount": 1000})
-    after = client.get(f"/api/venues/1/day?date={DAY.isoformat()}", headers=hq).json()["metrics"]["net_revenue"]
+    after = client.get(f"/api/venues/1/day?date={DAY.isoformat()}", headers=hq).json()["metrics"]["gross_revenue"]
     assert (before, after) == (800, 1000)
     log = client.get(f"/api/audit?entity=booking&entity_id={b['id']}", headers=hq).json()
     assert any(a["action"] == "booking.amount_change" for a in log)
@@ -432,7 +432,7 @@ def test_mtd_and_custom_baselines(client):
     assert _window_days("custom", oct7, (date(2026, 9, 1), date(2026, 9, 3))) == [date(2026, 9, i) for i in (1, 2, 3)]
     hq = login(client, "hq@x.com")
     w = client.get("/api/venues/1/day?cmp_from=2026-09-01&cmp_to=2026-09-30", headers=hq).json()
-    assert {"mtd", "custom"} <= set(w["comparisons"]["net_revenue"]["windows"])
+    assert {"mtd", "custom"} <= set(w["comparisons"]["gross_revenue"]["windows"])
     assert client.get("/api/analytics/portfolio?cmp_from=2026-10-05", headers=hq).status_code == 422
 
 
