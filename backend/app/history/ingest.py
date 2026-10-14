@@ -412,7 +412,7 @@ def write_report(db, path, out):
             u = "" if m["unexplained"] is None else f"{m['unexplained']:,.2f}"
             L.append(f"| {m['month']} | {m['pulse']:,.2f} | {m['excluded']:,.2f} | {t} | {u} |")
         if rec["excluded"]:
-            L += ["", "Venues not in Pulse (excluded by HQ; in the tracker total only): " +
+            L += ["", "Venues not in Pulse: " +
                   ", ".join(f"{e['label']} ₹{e['total']:,.0f}" for e in rec["excluded"])]
     L += ["", "## Sources", "", "| Venue | Month | File | Status | Summary total | Imported | Note |", "|---|---|---|---|---:|---:|---|"]
     for s in srcs:

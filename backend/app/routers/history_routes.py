@@ -42,14 +42,14 @@ def overview(venue_id: int | None = None, user: User = Depends(require("portfoli
     months = sorted({_key(y, m) for _, y, m, *_ in rows})
     cells = defaultdict(float)
     by_vertical = defaultdict(lambda: defaultdict(float))
-    by_channel = defaultdict(float)
+    by_channel = defaultdict(lambda: defaultdict(float))
     by_sport = defaultdict(float)
     per_month = defaultdict(float)
     for vid, y, m, vert, ch, sp, g, _net, _h in rows:
         k = _key(y, m)
         cells[f"{vid}|{k}"] += g
         by_vertical[vert][k] += g
-        by_channel[ch] += g
+        by_channel[ch][k] += g
         by_sport[sp or "Unspecified"] += g
         per_month[k] += g
     venues = {v.id: v for v in db.scalars(select(Venue))}
@@ -69,8 +69,9 @@ def overview(venue_id: int | None = None, user: User = Depends(require("portfoli
         "per_month": {k: round(v, 2) for k, v in per_month.items()},
         "by_vertical": {v: {k: round(x, 2) for k, x in d.items()} for v, d in by_vertical.items()},
         "vertical_labels": VERTICAL_LABEL,
-        "by_channel": sorted(({"channel": c, "label": CHANNEL_LABEL.get(c, c), "vertical": VERTICAL.get(c), "gross": round(x, 2)}
-                              for c, x in by_channel.items()), key=lambda r: -r["gross"]),
+        "by_channel": sorted(({"channel": c, "label": CHANNEL_LABEL.get(c, c), "vertical": VERTICAL.get(c),
+                               "gross": round(sum(d.values()), 2), "by_month": {k: round(x, 2) for k, x in d.items()}}
+                              for c, d in by_channel.items()), key=lambda r: -r["gross"]),
         "by_sport": sorted(({"sport": s, "gross": round(x, 2)} for s, x in by_sport.items()), key=lambda r: -r["gross"]),
         "pnl": {c: {k: round(x, 2) for k, x in d.items()} for c, d in pnl.items()},
         "total": round(sum(per_month.values()), 2),

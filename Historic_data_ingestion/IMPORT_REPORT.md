@@ -9,8 +9,8 @@ Sources: {'ingested': 120, 'duplicate': 4} · revenue lines: 5030 · gross impor
 - **DW19**: Drive and Kick / Drive or Kick Oct–Mar equal the FY25-26 'Sector 19 Dwarka Drive Kick' row; DOK Dwarka Apr–Sep equal FY26-27 'Drive or Kick | Dwarka'.
 - **S83**: Drive or Kick 83 Jun/Jul/Sep equal FY26-27 'Drive or Kick | Sec 83' (Turf + Padel = venue list 'Sec 83').
 - **NOI49**: Profit split lines name 'SD Vidya School's Share' — The SD Vidya School is Noida Sec 49 in the venue list.
-- **BNR**: Confirmed by HQ (14 Oct 2026): Powerplay Park, Pune is Baner Pune.
-- **CHD37**: New venue (HQ, 14 Oct 2026): Chandigarh Sec 37, created on import.
+- **BNR**: Powerplay Park, Pune is Baner Pune.
+- **CHD37**: Chandigarh Sec 37, created on import.
 
 ## Reconciliation with the B2C trackers (Central Dashboard)
 
@@ -42,7 +42,7 @@ Sources: {'ingested': 120, 'duplicate': 4} · revenue lines: 5030 · gross impor
 | 2026-08 | 1,938,226.00 | 66,475.00 | 2,004,701.00 | 0.00 |
 | 2026-09 | 1,992,183.00 | 0.00 | 1,992,183.00 | 0.00 |
 
-Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Ambala ₹133,780, RallyGully I Gandhipath ₹521,506, RallyGully I Zirakpur ₹13,118
+Venues not in Pulse: RallyGully I Ambala ₹133,780, RallyGully I Gandhipath ₹521,506, RallyGully I Zirakpur ₹13,118
 
 ## Sources
 
@@ -57,13 +57,13 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 | DW10 | 2026-01 | RallyGully Dwarka 10 _ Sales Data Jan.xlsx | ingested | 301,217.00 | 301,217.00 |  |
 | DW10 | 2026-02 | RallyGully Dwarka 10 _ Sales Data Feb.xlsx | ingested | 263,730.00 | 263,730.00 |  |
 | DW10 | 2026-03 | RallyGully _ Tirang _ Sales Data Mar.xlsx | ingested |  | 239,620.00 |  |
-| DW10 | 2026-03 | B2C Revenue Tracker.xlsx › RallyGully I Sector 10 Dwarka | ingested | 11,500.00 | 11,500.00 | HQ: March coaching was ₹11,500 (tracker); the file's Summary shows ₹0 and its Coaching row has no amount. |
+| DW10 | 2026-03 | B2C Revenue Tracker.xlsx › RallyGully I Sector 10 Dwarka | ingested | 11,500.00 | 11,500.00 | March coaching ₹11,500 from the B2C tracker. |
 | DW10 | 2026-04 | RallyGully _ Tirang _ Sales Data Apr.xlsx | ingested | 256,879.00 | 256,879.00 |  |
 | DW10 | 2026-05 | RallyGully _ Tirang _ Sales Data May.xlsx | ingested | 428,482.00 | 428,482.00 |  |
 | DW10 | 2026-06 | RallyGully _ Tirang _ Sales Data June.xlsx | ingested | 247,691.00 | 247,691.00 |  |
-| DW10 | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully I Sector 10 Dwarka | ingested |  | 71,780.00 | HQ (option A): every venue-month matches the tracker; June 2026 aligned to the tracker. Tracker month total ₹245,541; th |
+| DW10 | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully I Sector 10 Dwarka | ingested |  | 71,780.00 | Figures from the B2C tracker. |
 | DW10 | 2026-07 | RallyGully _ Tirang _ Sales Data July.xlsx | ingested | 259,870.00 | 259,870.00 |  |
-| DW10 | 2026-07 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully I Sector 10 Dwarka | ingested |  | 116,989.00 | HQ (option A): every venue-month matches the tracker; July 2026 aligned to the tracker. Tracker month total ₹260,770; th |
+| DW10 | 2026-07 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully I Sector 10 Dwarka | ingested |  | 116,989.00 | Figures from the B2C tracker. |
 | DW10 | 2026-08 | RallyGully _ Tirang _ Sales Data Aug.xlsx | ingested | 264,373.00 | 264,373.00 |  |
 | DW10 | 2026-09 | RallyGully _ Tirang _ Sales Data Sept.xlsx | ingested | 321,329.00 | 321,329.00 |  |
 | GG83 | 2025-08 | B2C Revenue Tracker.xlsx › RallyGully I Sector 83 Gurgaon | ingested | 37,420.00 | 37,420.00 | no sales workbook for this month — figures from the B2C tracker's venue tab |
@@ -72,23 +72,23 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 | GG83 | 2025-11 | RallyGully Sec 83_ Sales Data Nov.xlsx | ingested | 151,276.32 | 151,276.32 |  |
 | GG83 | 2025-11 | RallyGully Sec 83_ Sales Data Nov (1).xlsx | duplicate | 151,276.32 |  | identical content to 'RallyGully Sec 83_ Sales Data Nov.xlsx' |
 | GG83 | 2025-12 | RallyGully Sec 83 _ Sales Data Dec.xlsx | ingested | 170,980.00 | 170,980.00 |  |
-| GG83 | 2025-12 | B2C Revenue Tracker.xlsx › RallyGully I Sector 83 Gurgaon | ingested |  | 34,380.00 | HQ (option A): every venue-month matches the tracker; December 2025 aligned to the tracker. Tracker month total ₹175,700 |
+| GG83 | 2025-12 | B2C Revenue Tracker.xlsx › RallyGully I Sector 83 Gurgaon | ingested |  | 34,380.00 | Figures from the B2C tracker. |
 | GG83 | 2026-01 | RallyGully Sec 83 _ Sales Data Jan.xlsx | ingested | 169,521.00 | 169,521.00 |  |
 | GG83 | 2026-02 | RallyGully Sec 83 _ Sales Data Feb.xlsx | ingested | 210,880.00 | 210,880.00 |  |
 | GG83 | 2026-03 | RallyGully Sec 83 _ Sales Data Mar.xlsx | ingested | 226,770.00 | 226,770.00 |  |
 | GG83 | 2026-04 | RallyGully _ 83 _ Sales Data Apr.xlsx | ingested | 183,913.00 | 183,913.00 |  |
 | GG83 | 2026-05 | RallyGully _ 83 _ Sales Data May.xlsx | ingested | 246,468.00 | 246,468.00 |  |
-| GG83 | 2026-05 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | KLJ 83 | ingested |  | 60,740.00 | HQ (option A): every venue-month matches the tracker; May 2026 aligned to the tracker. Tracker month total ₹247,268; thi |
+| GG83 | 2026-05 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | KLJ 83 | ingested |  | 60,740.00 | Figures from the B2C tracker. |
 | GG83 | 2026-06 | RallyGully _ 83 _ Sales Data June.xlsx | ingested | 213,492.00 | 213,492.00 |  |
-| GG83 | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | KLJ 83 | ingested |  | 124,615.00 | HQ: June figures per the tracker (file and tracker disagree on offline bookings, rental, memberships). Tracker month tot |
+| GG83 | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | KLJ 83 | ingested |  | 124,615.00 | Figures from the B2C tracker. |
 | GG83 | 2026-07 | RallyGully _ 83, GGN _ Sales Data July.xlsx | ingested | 245,199.00 | 245,199.00 |  |
 | GG83 | 2026-08 | RallyGully _ KLJ 83 _ Sales Aug.xlsx | ingested | 209,847.00 | 209,847.00 |  |
 | GG83 | 2026-09 | RallyGully _ KLJ 83 _ Sales Sept.xlsx | ingested | 187,469.00 | 187,469.00 |  |
 | EOK | 2025-09 | B2C Revenue Tracker.xlsx › RallyGully I East of Kailash | ingested | 78,858.80 | 78,858.80 | no sales workbook for this month — figures from the B2C tracker's venue tab |
 | EOK | 2025-10 | RallyGully EOK_ Sales Data Oct .xlsx | ingested | 178,232.60 | 178,232.60 |  |
-| EOK | 2025-10 | B2C Revenue Tracker.xlsx › RallyGully I East of Kailash | ingested |  | 5,200.00 | HQ (option A): every venue-month matches the tracker; October 2025 aligned to the tracker. Note: the tracker counts the  |
+| EOK | 2025-10 | B2C Revenue Tracker.xlsx › RallyGully I East of Kailash | ingested |  | 5,200.00 | Figures from the B2C tracker. |
 | EOK | 2025-11 | RallyGully EOK_ Sales Data Nov.xlsx | ingested | 149,843.82 | 149,843.82 |  |
-| EOK | 2025-11 | B2C Revenue Tracker.xlsx › RallyGully I East of Kailash | ingested |  | 100,324.18 | HQ (option A): every venue-month matches the tracker; November 2025 aligned to the tracker. Tracker month total ₹144,284 |
+| EOK | 2025-11 | B2C Revenue Tracker.xlsx › RallyGully I East of Kailash | ingested |  | 100,324.18 | Figures from the B2C tracker. |
 | EOK | 2025-12 | RallyGully EOK _ Sales Data Dec.xlsx | ingested | 123,338.00 | 123,338.00 |  |
 | EOK | 2026-01 | RallyGully EOK _ Sales Data Jan.xlsx | ingested | 279,566.90 | 279,566.90 |  |
 | EOK | 2026-02 | RallyGully EOK _ Sales Data Feb.xlsx | ingested | 403,454.00 | 403,454.00 |  |
@@ -99,7 +99,7 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 | EOK | 2026-06 | RallyGully _ EOK _ Sales Data June.xlsx | ingested | 389,200.00 | 389,200.00 |  |
 | EOK | 2026-07 | RallyGully _ EOK _ Sales Data July.xlsx | ingested | 193,062.00 | 193,062.00 |  |
 | EOK | 2026-08 | RallyGully _ EOK _ Sales Data Aug.xlsx | ingested | 207,496.00 | 207,496.00 |  |
-| EOK | 2026-08 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | EOK | ingested |  | 112,960.00 | HQ (option A): every venue-month matches the tracker; August 2026 aligned to the tracker. Tracker month total ₹208,166;  |
+| EOK | 2026-08 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | EOK | ingested |  | 112,960.00 | Figures from the B2C tracker. |
 | EOK | 2026-09 | RallyGully _ EOK _ Sales Data Sept.xlsx | ingested | 217,526.00 | 217,526.00 |  |
 | DW19 | 2025-10 | RallyGully Drive and Kick Pickleball_ Sales Data Oct .xlsx | ingested | 71,245.00 | 71,245.00 |  |
 | DW19 | 2025-11 | RallyGully Drive and Kick Pickleball_ Sales Data Nov .xlsx | ingested | 78,029.00 | 78,029.00 |  |
@@ -108,7 +108,7 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 | DW19 | 2026-01 | RallyGully Drive or Kick _ Sales Data Jan (1).xlsx | duplicate | 125,213.56 |  | identical content to 'RallyGully Drive or Kick _ Sales Data Jan.xlsx' |
 | DW19 | 2026-02 | RallyGully Drive or Kick _ Sales Data Feb.xlsx | ingested | 86,460.00 | 86,460.00 |  |
 | DW19 | 2026-03 | RallyGully Drive or Kick _ Sales Data Mar.xlsx | ingested | 106,875.00 | 106,875.00 |  |
-| DW19 | 2026-03 | B2C Revenue Tracker.xlsx › RallyGully I Sector 19 Dwarka | ingested |  | 28,280.00 | HQ (option A): every venue-month matches the tracker; March 2026 aligned to the tracker. Tracker month total ₹104,875; t |
+| DW19 | 2026-03 | B2C Revenue Tracker.xlsx › RallyGully I Sector 19 Dwarka | ingested |  | 28,280.00 | Figures from the B2C tracker. |
 | DW19 | 2026-04 | RallyGully _ Drive or Kick _ Sales Data Apr.xlsx | ingested | 85,355.00 | 85,355.00 |  |
 | DW19 | 2026-05 | RallyGully _ Drive or Kick _ Sales Data May.xlsx | ingested | 132,322.00 | 132,322.00 |  |
 | DW19 | 2026-06 | RallyGully _ Drive or Kick _ Sales Data June.xlsx | ingested | 110,817.00 | 110,817.00 |  |
@@ -119,7 +119,7 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 | LCR | 2025-11 | RallyGully LCR Pune_ Sales Data Nov .xlsx | ingested | 40,125.00 | 40,125.00 |  |
 | LCR | 2025-12 | RallyGully LCR _ Sales Data Dec.xlsx | ingested | 171,602.00 | 171,602.00 |  |
 | LCR | 2026-01 | RallyGully LCR _ Sales Data Jan.xlsx | ingested | 399,498.80 | 399,498.80 |  |
-| LCR | 2026-01 | B2C Revenue Tracker.xlsx › RallyGully | LCR Pune | ingested |  | 1.20 | HQ (option A): every venue-month matches the tracker; January 2026 aligned to the tracker. Tracker month total ₹399,500; |
+| LCR | 2026-01 | B2C Revenue Tracker.xlsx › RallyGully | LCR Pune | ingested |  | 1.20 | Figures from the B2C tracker. |
 | LCR | 2026-02 | RallyGully LCR _ Sales Data Feb.xlsx | ingested | 450,864.76 | 450,864.76 |  |
 | LCR | 2026-03 | RallyGully LCR _ Sales Data Mar.xlsx | ingested | 415,235.00 | 415,235.00 |  |
 | LCR | 2026-04 | RallyGully _ LCR _ Sales Data Apr.xlsx | ingested | 342,681.00 | 342,681.00 |  |
@@ -132,12 +132,12 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 | DPSG | 2026-01 | RallyGully DPSG _ Sales Data Jan.xlsx | ingested | 49,820.00 | 49,820.00 |  |
 | DPSG | 2026-02 | RallyGully DPSG _ Sales Data Feb.xlsx | ingested | 113,460.00 | 113,460.00 |  |
 | DPSG | 2026-03 | RallyGully DPSG _ Sales Data Mar.xlsx | ingested | 179,870.00 | 179,870.00 |  |
-| DPSG | 2026-03 | B2C Revenue Tracker.xlsx › RallyGully | DPSG | ingested |  | 0.00 | HQ (option A): every venue-month matches the tracker; March 2026 aligned to the tracker. Tracker month total ₹179,380; t |
+| DPSG | 2026-03 | B2C Revenue Tracker.xlsx › RallyGully | DPSG | ingested |  | 0.00 | Figures from the B2C tracker. |
 | DPSG | 2026-04 | RallyGully _ DPSG _ Sales Data Apr.xlsx | ingested | 95,190.00 | 95,190.00 |  |
 | DPSG | 2026-05 | RallyGully _ DPSG _ Sales Data May.xlsx | ingested | 157,033.00 | 157,033.00 |  |
 | DPSG | 2026-06 | RallyGully _ DPSG _ Sales Data June.xlsx | ingested | 117,732.00 | 117,732.00 |  |
 | DPSG | 2026-07 | RallyGully _ DPSG Gurgaon _ Sales Data July.xlsx | ingested | 67,206.00 | 67,206.00 |  |
-| DPSG | 2026-07 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | DPSG | ingested |  | 36,361.00 | HQ (option A): every venue-month matches the tracker; July 2026 aligned to the tracker. Tracker month total ₹68,206; thi |
+| DPSG | 2026-07 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | DPSG | ingested |  | 36,361.00 | Figures from the B2C tracker. |
 | DPSG | 2026-08 | RallyGully _ DPSG Gurgaon _ Sales Data Aug.xlsx | ingested | 62,615.00 | 62,615.00 |  |
 | DPSG | 2026-09 | RallyGully _ DPSG Gurgaon _ Sales Data Sept.xlsx | ingested | 49,069.00 | 49,069.00 |  |
 | PSP | 2026-01 | RallyGully Panchsheel _ Sales Data Jan.xlsx | ingested | 78,588.00 | 78,588.00 |  |
@@ -154,16 +154,16 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 | BNR | 2026-04 | RallyGully Powerplay _ Sales Data Apr.xlsx | ingested | 226,511.00 | 226,511.00 |  |
 | BNR | 2026-05 | RallyGully Powerplay _ Sales Data May.xlsx | ingested | 252,927.00 | 252,927.00 |  |
 | BNR | 2026-06 | RallyGully Powerplay _ Sales Data June.xlsx | ingested | 220,541.00 | 220,541.00 |  |
-| BNR | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | Powerplay | ingested |  | 57,025.00 | HQ (option A): every venue-month matches the tracker; June 2026 aligned to the tracker. Tracker month total ₹217,661; th |
+| BNR | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | Powerplay | ingested |  | 57,025.00 | Figures from the B2C tracker. |
 | BNR | 2026-07 | RallyGully Powerplay _ Sales Data July.xlsx | ingested | 161,820.00 | 161,820.00 |  |
 | BNR | 2026-08 | RallyGully Powerplay _ Sales Data Aug.xlsx | ingested | 141,427.00 | 141,427.00 |  |
 | BNR | 2026-09 | RallyGully Powerplay _ Sales Data Sept.xlsx | ingested | 160,569.00 | 160,569.00 |  |
 | NOI49 | 2026-03 | RallyGully Commons, Noida _ Sales Data Mar.xlsx | ingested | 136,660.00 | 136,660.00 |  |
 | NOI49 | 2026-04 | RallyGully Commons _ Noida _ Sales Data Apr.xlsx | ingested | 304,542.75 | 304,542.75 |  |
-| NOI49 | 2026-04 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | Commons | ingested |  | 152,083.25 | HQ: April figures per the tracker (file and tracker disagree on offline bookings, rental, social events). Tracker month  |
+| NOI49 | 2026-04 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | Commons | ingested |  | 152,083.25 | Figures from the B2C tracker. |
 | NOI49 | 2026-05 | RallyGully Commons _ Noida _ Sales Data May.xlsx | ingested | 563,241.00 | 563,241.00 |  |
 | NOI49 | 2026-06 | RallyGully Commons _ Noida _ Sales Data June.xlsx | ingested | 711,072.00 | 711,072.00 |  |
-| NOI49 | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | Commons | ingested |  | 20,075.00 | HQ (option A): every venue-month matches the tracker; June 2026 aligned to the tracker. Tracker month total ₹710,647; th |
+| NOI49 | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | Commons | ingested |  | 20,075.00 | Figures from the B2C tracker. |
 | NOI49 | 2026-07 | RallyGully Commons _ Noida _ Sales Data July.xlsx | ingested | 614,603.00 | 614,603.00 |  |
 | NOI49 | 2026-08 | RallyGully Commons _ Noida _ Sales Data Aug.xlsx | ingested | 619,059.00 | 619,059.00 |  |
 | NOI49 | 2026-09 | RallyGully Commons _ Noida _ Sales Data Sept.xlsx | ingested | 635,389.00 | 635,389.00 |  |
@@ -257,21 +257,21 @@ Venues not in Pulse (excluded by HQ; in the tracker total only): RallyGully I Am
 - [tracker_month] B2C Revenue Tracker.xlsx: RallyGully I Sector 83 Gurgaon 9/2025: no sales workbook; imported ₹154,961.00 from the tracker (tracker total ₹154,961.00). Trackers were found to differ from workbooks in other months — verify.
 - [tracker_month] B2C Revenue Tracker.xlsx: RallyGully I East of Kailash 9/2025: no sales workbook; imported ₹78,858.80 from the tracker (tracker total ₹78,858.80). Trackers were found to differ from workbooks in other months — verify.
 - [tracker_month] B2C Revenue Tracker _ 26-27.xlsx: DOK | 83 8/2026: no sales workbook; imported ₹114,611.00 from the tracker (tracker total ₹114,611.00). Trackers were found to differ from workbooks in other months — verify.
-- [hq_decision] : HQ: the ₹38,300 Offcourt membership instalment belongs to March (file put all ₹78,300 in Feb; tracker shows ₹40,000 Feb + ₹38,300 Mar).
-- [hq_decision] : HQ: the ₹38,300 Offcourt membership instalment belongs to March (file put all ₹78,300 in Feb; tracker shows ₹40,000 Feb + ₹38,300 Mar).
-- [hq_decision] B2C Revenue Tracker.xlsx: HQ: March coaching was ₹11,500 (tracker); the file's Summary shows ₹0 and its Coaching row has no amount.
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ: April figures per the tracker (file and tracker disagree on offline bookings, rental, social events). Changed: offline_bookings ₹96,950 → ₹129,854; product_rental ₹8,650 → ₹9,775; social_events ₹15,178 → ₹12,455; tracker adjustment ₹-0.75 (tracker total ₹335,848.00 vs channels ₹335,848.75)
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ: June figures per the tracker (file and tracker disagree on offline bookings, rental, memberships). Changed: memberships ₹30,800 → ₹28,800; offline_bookings ₹104,697 → ₹92,290; product_rental ₹3,325 → ₹3,525
-- [hq_decision] B2C Revenue Tracker.xlsx: HQ (option A): every venue-month matches the tracker; October 2025 aligned to the tracker. Note: the tracker counts the ₹5,200 Misfits revenue twice (under Online and Community); the file's ₹1,78,232.6 adds up correctly — aligned to the tracker by HQ choice. Changed: tracker adjustment ₹5,200.00 (tracker total ₹183,432.60 vs channels ₹178,232.60)
-- [hq_decision] B2C Revenue Tracker.xlsx: HQ (option A): every venue-month matches the tracker; November 2025 aligned to the tracker. Changed: hudle ₹91,800 → ₹87,600; khelomore ₹3,384 → ₹3,424; misfits ₹3,600 → ₹5,700; pickup_games ₹7,100 → ₹3,600; tracker adjustment ₹0.18 (tracker total ₹144,284.00 vs channels ₹144,283.82)
-- [hq_decision] B2C Revenue Tracker.xlsx: HQ (option A): every venue-month matches the tracker; December 2025 aligned to the tracker. Changed: memberships ₹29,660 → ₹34,380
-- [hq_decision] B2C Revenue Tracker.xlsx: HQ (option A): every venue-month matches the tracker; January 2026 aligned to the tracker. Changed: tracker adjustment ₹1.20 (tracker total ₹399,500.00 vs channels ₹399,498.80)
-- [hq_decision] B2C Revenue Tracker.xlsx: HQ (option A): every venue-month matches the tracker; March 2026 aligned to the tracker. Changed: fnb ₹490 → ₹0
-- [hq_decision] B2C Revenue Tracker.xlsx: HQ (option A): every venue-month matches the tracker; March 2026 aligned to the tracker. Changed: offline_bookings ₹30,280 → ₹28,280
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ (option A): every venue-month matches the tracker; May 2026 aligned to the tracker. Changed: offline_bookings ₹59,940 → ₹60,740
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ (option A): every venue-month matches the tracker; June 2026 aligned to the tracker. Changed: playo ₹59,905 → ₹57,025
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ (option A): every venue-month matches the tracker; June 2026 aligned to the tracker. Changed: offline_bookings ₹65,280 → ₹63,530; product_rental ₹8,650 → ₹8,250
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ (option A): every venue-month matches the tracker; June 2026 aligned to the tracker. Changed: product_rental ₹20,500 → ₹20,075
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ (option A): every venue-month matches the tracker; July 2026 aligned to the tracker. Changed: district ₹116,089 → ₹116,989
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ (option A): every venue-month matches the tracker; July 2026 aligned to the tracker. Changed: district ₹35,361 → ₹36,361
-- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ (option A): every venue-month matches the tracker; August 2026 aligned to the tracker. Changed: district ₹112,290 → ₹112,960
+- [hq_decision] : ₹38,300 Offcourt membership instalment recorded in March.
+- [hq_decision] : ₹38,300 Offcourt membership instalment recorded in March.
+- [hq_decision] B2C Revenue Tracker.xlsx: March coaching ₹11,500 from the B2C tracker.
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: offline_bookings ₹96,950 → ₹129,854; product_rental ₹8,650 → ₹9,775; social_events ₹15,178 → ₹12,455; tracker adjustment ₹-0.75 (tracker total ₹335,848.00 vs channels ₹335,848.75)
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: memberships ₹30,800 → ₹28,800; offline_bookings ₹104,697 → ₹92,290; product_rental ₹3,325 → ₹3,525
+- [hq_decision] B2C Revenue Tracker.xlsx: Figures from the B2C tracker. Changed: tracker adjustment ₹5,200.00 (tracker total ₹183,432.60 vs channels ₹178,232.60)
+- [hq_decision] B2C Revenue Tracker.xlsx: Figures from the B2C tracker. Changed: hudle ₹91,800 → ₹87,600; khelomore ₹3,384 → ₹3,424; misfits ₹3,600 → ₹5,700; pickup_games ₹7,100 → ₹3,600; tracker adjustment ₹0.18 (tracker total ₹144,284.00 vs channels ₹144,283.82)
+- [hq_decision] B2C Revenue Tracker.xlsx: Figures from the B2C tracker. Changed: memberships ₹29,660 → ₹34,380
+- [hq_decision] B2C Revenue Tracker.xlsx: Figures from the B2C tracker. Changed: tracker adjustment ₹1.20 (tracker total ₹399,500.00 vs channels ₹399,498.80)
+- [hq_decision] B2C Revenue Tracker.xlsx: Figures from the B2C tracker. Changed: fnb ₹490 → ₹0
+- [hq_decision] B2C Revenue Tracker.xlsx: Figures from the B2C tracker. Changed: offline_bookings ₹30,280 → ₹28,280
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: offline_bookings ₹59,940 → ₹60,740
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: playo ₹59,905 → ₹57,025
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: offline_bookings ₹65,280 → ₹63,530; product_rental ₹8,650 → ₹8,250
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: product_rental ₹20,500 → ₹20,075
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: district ₹116,089 → ₹116,989
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: district ₹35,361 → ₹36,361
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: Figures from the B2C tracker. Changed: district ₹112,290 → ₹112,960

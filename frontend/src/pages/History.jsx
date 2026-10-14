@@ -1,6 +1,6 @@
 /** Sales history imported from the pre-Pulse monthly workbooks (read-only). */
 import { Fragment, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Info, XCircle } from 'lucide-react'
+import { FileSpreadsheet } from 'lucide-react'
 import { useApi } from '../lib/hooks'
 import { money, moneyShort, num, shortDate } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Kpi, PageSkeleton, Seg, Tabs } from '../components/ui'
@@ -11,23 +11,16 @@ const FY = (k) => { const [y, m] = k.split('-').map(Number); const s = m >= 4 ? 
 const VCOLOR = {
   online: '#3b6fd8', offline: '#e2783a', community: '#2f9e6b', academy: '#d9a21b', b2b: '#c94f86', commerce: '#7a5fc0', other: '#7d8590',
 }
-const SEV = { error: { tone: 'bad', icon: XCircle }, warn: { tone: 'warn', icon: AlertTriangle }, info: { tone: 'info', icon: Info } }
 
 export default function History() {
-  const [tab, setTab] = useState('overview')
   return (
     <div className="stack rise">
       <div className="page-head">
         <div>
           <h1>Sales history</h1>
-          <p>Imported from the monthly venue sales workbooks — gross revenue as recorded, before GST and commissions.</p>
         </div>
       </div>
-      <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'overview', label: 'Overview' }, { value: 'recon', label: 'Tracker reconciliation' },
-        { value: 'notes', label: 'Data notes & sources' },
-      ]} />
-      {tab === 'overview' ? <Overview /> : tab === 'recon' ? <Reconciliation /> : <Notes />}
+      <Overview />
     </div>
   )
 }
@@ -39,7 +32,7 @@ function Overview() {
   const months = useMemo(() => (data?.months || []).filter((k) => fy === 'all' || FY(k) === fy), [data, fy])
   if (error && !data) return <ErrorState error={error} onRetry={reload} />
   if (!data) return <PageSkeleton />
-  if (!data.months.length) return <Empty icon={FileSpreadsheet} title="No history imported yet">Run <code>python -m app.history.ingest</code> with the sales workbooks folder.</Empty>
+  if (!data.months.length) return <Empty icon={FileSpreadsheet} title="No history imported yet" />
   const fys = [...new Set(data.months.map(FY))]
   const sum = (obj) => months.reduce((a, k) => a + (obj?.[k] || 0), 0)
   const total = sum(data.per_month)
@@ -64,19 +57,19 @@ function Overview() {
           <Kpi key={v} label={data.vertical_labels[v]} value={money(sum(data.by_vertical[v]))}
             foot={<span>{total ? `${((sum(data.by_vertical[v]) / total) * 100).toFixed(1)}% of gross` : ''}</span>} />
         ))}
-        <Kpi label="Net profit (stated)" value={money(sum(pnl.profit))} foot={<span>from monthly Summaries that state it</span>} />
+        <Kpi label="Net profit (stated)" value={money(sum(pnl.profit))} />
       </div>
 
       <div className="grid g-main">
         <div className="card">
-          <div className="card-head"><h2>Monthly gross revenue</h2><span className="hint">all venues</span></div>
+          <div className="card-head"><h2>Monthly gross revenue</h2></div>
           <div className="card-body">
             <LineChart data={series} x="label" xFormat={(v) => v} format={money} yFormat={moneyShort} ariaLabel="Monthly gross revenue"
               series={[{ key: 'total', label: 'Gross revenue', color: 'var(--brand)' }]} />
           </div>
         </div>
         <div className="card">
-          <div className="card-head"><h2>Revenue mix</h2><span className="hint">by vertical</span></div>
+          <div className="card-head"><h2>Revenue mix</h2></div>
           <div className="card-body stack" style={{ gap: 10 }}>
             <div style={{ display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden' }}>
               {verts.map((v) => <div key={v} title={data.vertical_labels[v]} style={{ width: `${(sum(data.by_vertical[v]) / total) * 100}%`, background: VCOLOR[v] }} />)}
@@ -95,7 +88,7 @@ function Overview() {
       </div>
 
       <div className="card">
-        <div className="card-head"><h2>Venue × month</h2><span className="hint">gross · select a cell for the breakdown</span></div>
+        <div className="card-head"><h2>Venue × month</h2></div>
         <div className="card-body table-wrap">
           <table className="table" style={{ fontSize: 12.5 }}>
             <thead><tr><th>Venue</th>{months.map((k) => <th key={k} className="num nowrap">{MONTH(k)}</th>)}<th className="num">Total</th></tr></thead>
@@ -127,11 +120,11 @@ function Overview() {
 
       <div className="grid g-2">
         <div className="card">
-          <div className="card-head"><h2>By channel</h2><span className="hint">all months shown above</span></div>
+          <div className="card-head"><h2>By channel</h2></div>
           <div className="card-body table-wrap"><ChannelTable data={data} months={months} /></div>
         </div>
         <div className="card">
-          <div className="card-head"><h2>P&amp;L (as stated in the Summaries)</h2><span className="hint">sum of venue-months that state each line</span></div>
+          <div className="card-head"><h2>P&amp;L</h2></div>
           <div className="card-body">
             <dl className="kv" style={{ gridTemplateColumns: '1fr auto' }}>
               <dt>Gross revenue</dt><dd className="right">{money(total)}</dd>
@@ -141,7 +134,6 @@ function Overview() {
               <dt>Net profit (stated)</dt><dd className="right">{money(sum(pnl.profit))}</dd>
               <dt>Partner / school shares</dt><dd className="right">{money(sum(pnl.share))}</dd>
             </dl>
-            <p className="subtle" style={{ fontSize: 12, marginTop: 8 }}>Older Summaries don’t state every line, so these are sums of what each file records — not a recomputed P&amp;L.</p>
           </div>
         </div>
       </div>
@@ -151,18 +143,15 @@ function Overview() {
 }
 
 function ChannelTable({ data, months }) {
-  // by_channel is all-time; recompute for the visible months from cells is not possible per channel, so show all-time when filtered
-  const filtered = months.length !== data.months.length
+  const rows = data.by_channel.map((c) => ({ ...c, gross: months.reduce((a, k) => a + (c.by_month[k] || 0), 0) }))
+    .filter((c) => c.gross).sort((a, b) => b.gross - a.gross)
   return (
-    <>
-      {filtered && <p className="subtle" style={{ fontSize: 12 }}>Channel totals cover all imported months.</p>}
-      <table className="table" style={{ fontSize: 13 }}>
-        <thead><tr><th>Channel</th><th>Vertical</th><th className="num">Gross</th></tr></thead>
-        <tbody>{data.by_channel.map((c) => (
-          <tr key={c.channel}><td>{c.label}</td><td><span className="kind-dot" style={{ background: VCOLOR[c.vertical], display: 'inline-block', marginRight: 6 }} />{data.vertical_labels[c.vertical]}</td><td className="num">{money(c.gross)}</td></tr>
-        ))}</tbody>
-      </table>
-    </>
+    <table className="table" style={{ fontSize: 13 }}>
+      <thead><tr><th>Channel</th><th>Vertical</th><th className="num">Gross</th></tr></thead>
+      <tbody>{rows.map((c) => (
+        <tr key={c.channel}><td>{c.label}</td><td><span className="kind-dot" style={{ background: VCOLOR[c.vertical], display: 'inline-block', marginRight: 6 }} />{data.vertical_labels[c.vertical]}</td><td className="num">{money(c.gross)}</td></tr>
+      ))}</tbody>
+    </table>
   )
 }
 
@@ -177,7 +166,6 @@ function VenueMonth({ venue, month, onClose }) {
           <Tabs value={tab} onChange={setTab} tabs={[
             { value: 'channels', label: 'Channels' }, { value: 'daily', label: 'Daily', count: data.daily.length },
             { value: 'items', label: 'Items', count: data.lines.length }, { value: 'pnl', label: 'P&L' },
-            { value: 'notes', label: 'Notes', count: data.issues.length, alert: data.issues.some((i) => i.severity !== 'info') },
           ]} />
           {tab === 'channels' && (
             <>
@@ -199,7 +187,6 @@ function VenueMonth({ venue, month, onClose }) {
               <LineChart data={data.daily.map((d) => ({ ...d, total: Object.entries(d).filter(([k]) => VCOLOR[k]).reduce((a, [, x]) => a + x, 0) }))}
                 format={money} yFormat={moneyShort} ariaLabel="Daily takings recorded day by day"
                 series={[{ key: 'total', label: 'Recorded daily takings', color: 'var(--brand)' }]} />
-              <p className="subtle" style={{ fontSize: 12 }}>Only channels recorded day by day (offline bookings, community, rentals, F&amp;B). Platform settlements are weekly or monthly — see Items.</p>
               <table className="table" style={{ fontSize: 12.5 }}>
                 <thead><tr><th>Date</th><th className="num">Offline</th><th className="num">Community</th><th className="num">Commerce</th><th className="num">Booked hours</th></tr></thead>
                 <tbody>{data.daily.map((d) => (
@@ -226,157 +213,13 @@ function VenueMonth({ venue, month, onClose }) {
           {tab === 'pnl' && (data.pnl.length ? (
             <dl className="kv" style={{ gridTemplateColumns: '1fr auto' }}>
               {data.pnl.map((p, i) => (
-                <Fragment key={i}><dt>{p.label}{p.note && <div className="subtle" style={{ fontSize: 11.5 }}>{p.note}</div>}</dt>
+                <Fragment key={i}><dt>{p.label}</dt>
                   <dd className="right">{p.amount == null ? '—' : money(p.amount)}</dd></Fragment>
               ))}
             </dl>
           ) : <Empty title="No P&L lines stated for this month" />)}
-          {tab === 'notes' && (data.issues.length ? <IssueList items={data.issues} /> : <Empty title="No data notes for this month" />)}
         </>
       )}
     </Drawer>
-  )
-}
-
-function IssueList({ items }) {
-  return (
-    <div className="list">
-      {items.map((i, n) => {
-        const s = SEV[i.severity] || SEV.info
-        return (
-          <div key={n} className="list-item" style={{ alignItems: 'flex-start' }}>
-            <s.icon size={16} color={`var(--${s.tone})`} aria-hidden style={{ marginTop: 2, flex: 'none' }} />
-            <div className="grow">
-              <div style={{ fontSize: 13 }}>{i.message}</div>
-              <div className="meta">{[i.venue?.replace('RallyGully ', ''), i.month && MONTH(i.month), i.file, i.code].filter(Boolean).join(' · ')}</div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function Notes() {
-  const { data, error, reload } = useApi('/api/history/issues')
-  const [sev, setSev] = useState('warn')
-  if (error && !data) return <ErrorState error={error} onRetry={reload} />
-  if (!data) return <PageSkeleton />
-  const shown = data.issues.filter((i) => sev === 'all' || i.severity === sev || (sev === 'warn' && i.severity === 'error'))
-  return (
-    <div className="grid g-main">
-      <div className="card">
-        <div className="card-head">
-          <h2>Data notes</h2>
-          <Seg value={sev} onChange={setSev} label="Severity" options={[{ value: 'warn', label: 'Needs a look' }, { value: 'info', label: 'Info' }, { value: 'all', label: 'All' }]} />
-        </div>
-        <div className="card-body scroll-y" style={{ maxHeight: 640 }}>{shown.length ? <IssueList items={shown} /> : <Empty title="Nothing here" />}</div>
-      </div>
-      <div className="card">
-        <div className="card-head"><h2>Source files</h2><span className="hint">{data.sources.length}</span></div>
-        <div className="card-body scroll-y" style={{ maxHeight: 640 }}>
-          <div className="list">
-            {data.sources.map((s, n) => (
-              <div key={n} className="list-item" style={{ alignItems: 'flex-start' }}>
-                <FileSpreadsheet size={16} aria-hidden style={{ marginTop: 2, flex: 'none' }} />
-                <div className="grow">
-                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{s.file}{s.sheet ? ` › ${s.sheet}` : ''}</div>
-                  <div className="meta">{[s.venue?.replace('RallyGully ', ''), s.month && MONTH(s.month), s.ingested_total != null && money(s.ingested_total)].filter(Boolean).join(' · ')}</div>
-                  {s.reason && <div className="meta">{s.reason}</div>}
-                </div>
-                <Badge tone={s.status === 'ingested' ? 'good' : s.status === 'duplicate' ? undefined : 'warn'}>{s.status}</Badge>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const STATUS = {
-  match: { tone: 'good', label: 'Matches' }, rounding: { tone: 'info', label: 'Rounding' },
-  differs: { tone: 'bad', label: 'Differs' }, missing: { tone: 'warn', label: 'Missing' },
-}
-const signed = (x) => {
-  if (x == null) return '—'
-  if (Math.abs(x) < 0.005) return '0'
-  const a = Math.abs(x)
-  return `${x > 0 ? '+' : '−'}${a < 1 ? `₹${a.toFixed(2)}` : money(a)}`
-}
-
-function Reconciliation() {
-  const { data, error, reload } = useApi('/api/history/reconciliation')
-  const [show, setShow] = useState('all')
-  if (error && !data) return <ErrorState error={error} onRetry={reload} />
-  if (!data) return <PageSkeleton />
-  if (!data.captured) return <Empty icon={FileSpreadsheet} title="No tracker captured">Re-run the import with the folder that holds the B2C Revenue Trackers.</Empty>
-  const s = data.summary
-  const rows = data.rows.filter((r) => show === 'all' || r.status !== 'match')
-  const exTotal = data.excluded.reduce((a, e) => a + e.total, 0)
-  return (
-    <>
-      <div className="kpis">
-        <Kpi label="Venue-months compared" value={num(s.venue_months)} foot={<span>Pulse vs the trackers' Central Dashboard</span>} />
-        <Kpi label="Match exactly" value={num(s.matching)} foot={<span>to the paisa</span>} />
-        <Kpi label="Rounding only" value={num(s.rounding)} foot={<span>within ₹1 — files keep paise, the tracker whole rupees</span>} />
-        <Kpi label="Differ" value={num(s.differs + s.pulse_only + s.tracker_only)} foot={<span>{s.differs + s.pulse_only + s.tracker_only ? 'see the rows below' : 'none'}</span>} />
-      </div>
-
-      <div className="card">
-        <div className="card-head"><h2>Monthly totals</h2><span className="hint">why the tracker's grand total is higher than Pulse</span></div>
-        <div className="card-body table-wrap">
-          <table className="table" style={{ fontSize: 12.5 }}>
-            <thead><tr><th>Month</th><th className="num">Pulse</th><th className="num">Venues not in Pulse</th><th className="num">Pulse + those</th><th className="num">Tracker Total Gross</th><th className="num">Unexplained</th></tr></thead>
-            <tbody>
-              {data.monthly.map((m) => (
-                <tr key={m.month}>
-                  <td className="nowrap">{MONTH(m.month)}</td>
-                  <td className="num">{money(m.pulse)}</td>
-                  <td className="num subtle">{m.excluded ? money(m.excluded) : '—'}</td>
-                  <td className="num">{money(m.pulse + m.excluded)}</td>
-                  <td className="num">{m.tracker_total == null ? '—' : money(m.tracker_total)}</td>
-                  <td className="num" style={{ color: m.unexplained && Math.abs(m.unexplained) > 1 ? 'var(--bad)' : undefined }}>{signed(m.unexplained)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {data.excluded.length > 0 && (
-            <p className="subtle" style={{ fontSize: 12.5, marginTop: 10 }}>
-              Venues not in Pulse (excluded by HQ, counted in the tracker's total only): {data.excluded.map((e) => `${e.label.replace(/^RallyGully I /, '')} ${money(e.total)}`).join(' · ')} — {money(exTotal)} in all.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head">
-          <h2>Venue × month</h2>
-          <Seg value={show} onChange={setShow} label="Show" options={[{ value: 'all', label: 'All' }, { value: 'notexact', label: 'Not exact' }]} />
-        </div>
-        <div className="card-body table-wrap scroll-y" style={{ maxHeight: 640 }}>
-          {rows.length ? (
-            <table className="table" style={{ fontSize: 12.5 }}>
-              <thead><tr><th>Venue</th><th>Month</th><th className="num">Pulse</th><th className="num">Tracker</th><th className="num">Difference</th><th /></tr></thead>
-              <tbody>
-                {rows.map((r) => {
-                  const st = STATUS[r.status] || STATUS.differs
-                  return (
-                    <tr key={`${r.venue_id}|${r.month}`}>
-                      <td>{r.venue.replace('RallyGully ', '')}</td>
-                      <td className="nowrap">{MONTH(r.month)}</td>
-                      <td className="num">{r.pulse == null ? '—' : money(r.pulse)}</td>
-                      <td className="num">{r.tracker == null ? '—' : money(r.tracker)}</td>
-                      <td className="num">{signed(r.diff)}</td>
-                      <td>{r.status === 'match' ? <CheckCircle2 size={15} color="var(--good)" aria-label="Matches" /> : <Badge tone={st.tone}>{st.label}</Badge>}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          ) : <Empty title="Every venue-month matches exactly" />}
-        </div>
-      </div>
-    </>
   )
 }

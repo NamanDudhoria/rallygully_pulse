@@ -70,7 +70,9 @@ export default function VenueDay() {
         { value: 'close', label: 'Day close', icon: ClipboardCheck, count: d.day_close.missing.filter((x) => x.due !== false).length, alert: d.day_close.missing.some((x) => x.due !== false) },
       ]} />
 
-      {tab === 'summary' && (d.show_performance
+      {tab === 'summary' && (d.show_performance && !d.metrics
+        ? <Empty title="Not operating on this date" />
+        : d.show_performance
         ? <Summary d={d} baseline={baseline} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />
         : <OpsSummary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />)}
       {tab === 'grid' && (
@@ -393,7 +395,6 @@ function GridTab({ d, grid, canOperate, onFree, onOpen, onBlock, onAssign }) {
         </div>
       )}
       <AvailabilityGrid grid={grid} onFree={onFree} onOpen={onOpen} readOnly={readOnly} />
-      <p className="subtle" style={{ fontSize: 12.5 }}>{readOnly ? 'View only. ' : 'Tap any free slot to create a Direct booking. '}Availability is derived from operating hours and live allocations.</p>
     </div>
   )
 }

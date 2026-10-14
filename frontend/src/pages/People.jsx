@@ -217,7 +217,7 @@ export function RosterPage() {
           <button className="btn btn-icon btn-sm" onClick={() => setStart(addDays(start, 7))} aria-label="Next week"><ChevronRight /></button>
           {start !== mondayOf(today) && <button className="btn btn-sm" onClick={() => setStart(mondayOf(today))}>This week</button>}
           <button className="btn btn-sm" disabled={busy} onClick={() => act(() => post('/api/roster/copy', { from_date: addDays(start, -7), to_date: start, days: 7 }),
-            'Copied last week')} title="Copy the previous week's roster into this week (keeps existing entries)"><Copy /> Copy last week</button>
+            'Copied last week')}><Copy /> Copy last week</button>
         </div>
       </div>
       <div className="spread" style={{ gap: 12, flexWrap: 'wrap' }}>
@@ -297,7 +297,7 @@ function RosterByVenue({ data, today, shown, filtered, busy, onAdd, onShift, onR
                           <ShiftChip e={e} label={e.name.split(' ')[0]} onShift={onShift} onRemove={onRemove} busy={busy} />
                         </div>
                       ))}
-                      {!on.length && <span className="badge bad" title="No VM can open this venue in Pulse on this day"><Lock /> No VM</span>}
+                      {!on.length && <span className="badge bad"><Lock /> No VM</span>}
                       {free.length + others.length > 0 && (
                         <select className="select" value="" style={{ minHeight: 28, padding: '2px 6px', fontSize: 12.5 }}
                           aria-label={`Add VM to ${v.name} on ${d}`} disabled={busy}

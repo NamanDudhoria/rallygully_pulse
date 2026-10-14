@@ -157,7 +157,7 @@ export default function Analytics() {
       <div className="card">
         <div className="card-head">
           <h2>By {data.level}</h2>
-          <span className="hint">{data.level !== 'facility' ? 'Select a row to drill down' : 'Facility-level'}{!data.previous_available && ' · previous period predates Pulse'}</span>
+          <span className="hint">{!data.previous_available && 'previous period predates Pulse'}</span>
         </div>
         <div className="card-body table-wrap">
           {data.rows.length === 0 ? <Empty title="No data in this range" /> : (

@@ -93,7 +93,7 @@ function GameCreate({ venues, onClose, onDone }) {
   const sport = f.sport || sports[0]
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e?.target ? e.target.value : e }))
   return (
-    <Drawer open onClose={onClose} title="Set up Community Game" subtitle="Reserves the selected courts; add the players next">
+    <Drawer open onClose={onClose} title="Set up Community Game">
       {(close) => (
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()

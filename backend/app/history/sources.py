@@ -35,8 +35,8 @@ EVIDENCE = {
             "Apr–Sep equal FY26-27 'Drive or Kick | Dwarka'.",
     "S83": "Drive or Kick 83 Jun/Jul/Sep equal FY26-27 'Drive or Kick | Sec 83' (Turf + Padel = venue list 'Sec 83').",
     "NOI49": "Profit split lines name 'SD Vidya School's Share' — The SD Vidya School is Noida Sec 49 in the venue list.",
-    "BNR": "Confirmed by HQ (14 Oct 2026): Powerplay Park, Pune is Baner Pune.",
-    "CHD37": "New venue (HQ, 14 Oct 2026): Chandigarh Sec 37, created on import.",
+    "BNR": "Powerplay Park, Pune is Baner Pune.",
+    "CHD37": "Chandigarh Sec 37, created on import.",
 }
 
 MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_abbr) if m}

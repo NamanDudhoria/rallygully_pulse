@@ -26,7 +26,7 @@ export default function TodayBand({ full: fullIn, now: nowIn, cmp, win, live, da
           <Delta win={cmp?.net_revenue?.windows?.[win]} />
           <span>{WINDOW_LABEL[win]}{live ? ', same time of day' : ''}</span>
         </div>
-        <div className="subtle" style={{ fontSize: 12 }}>{money(full.booking_value)} booked value · net of refunds, as collected</div>
+        <div className="subtle" style={{ fontSize: 12 }}>{money(full.booking_value)} booked value</div>
       </div>
       <div className="today-cells">
         {cells.map((c) => (

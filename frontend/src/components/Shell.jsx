@@ -79,7 +79,7 @@ export default function Shell() {
           <>
             {section('My roster', (user.roster || []).filter((r) => r.date >= today).slice(0, 8).map(shiftLink))}
             {!(user.roster || []).some((r) => r.date >= today) && (
-              <p className="subtle" style={{ fontSize: 12.5, padding: '8px 10px' }}>You&apos;re not on the roster yet. HQ assigns venues the day before.</p>
+              <p className="subtle" style={{ fontSize: 12.5, padding: '8px 10px' }}>Not on the roster yet.</p>
             )}
             {section('Records', [link('/bookings', BookOpen, 'Bookings')])}
           </>
@@ -169,7 +169,6 @@ function AccountDrawer({ onClose }) {
           <div className="divider" />
           <div>
             <div className="section-title">Sessions</div>
-            <p className="subtle" style={{ fontSize: 13, marginBottom: 8 }}>Lost a phone or used a shared device? Sign out of Pulse everywhere.</p>
             <button className="btn" disabled={busy} onClick={async () => {
               if (await run(() => post('/api/auth/logout-everywhere'), 'Signed out everywhere')) logout()
             }}><LogOut /> Sign out everywhere</button>

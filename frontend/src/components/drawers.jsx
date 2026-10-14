@@ -49,7 +49,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
       title={<span className="row" style={{ gap: 10 }}><KindLabel kind={b.source} />{b.customer.name || phoneFmt(b.customer.phone)}</span>}
       subtitle={`${range12(b.start_min, b.end_min)} · ${b.date}${b.external_ref ? ` · ${b.external_ref}` : ''}`}>
       <div className="row">{attendBadge(b)}{b.status === 'confirmed' && b.attendance !== 'no_show' && payBadge(b.payment_status)}</div>
-      {!operate && <div className="callout info">View-only: your role can see this booking but not change it.</div>}
+      {!operate && <div className="callout info">View only.</div>}
 
       <dl className="kv">
         <dt>Customer</dt><dd>{b.customer.name || <span className="subtle">Name not captured</span>} · {phoneFmt(b.customer.phone)}</dd>
@@ -136,11 +136,6 @@ export function BookingDrawer({ id, onClose, onChanged }) {
       {live && (b.attendance !== 'attended' || isHQ) && (
         <section>
           <div className="section-title">Cancel</div>
-          {b.payment_status === 'overdue' ? (
-            <p className="subtle" style={{ fontSize: 13, marginBottom: 8 }}>Payment is overdue — cancelling releases the court; no reason needed.</p>
-          ) : (
-            <p className="subtle" style={{ fontSize: 13, marginBottom: 8 }}>Only for issues attributable to RallyGully. To reschedule, cancel and create a new booking.</p>
-          )}
           <div className="form">
             {b.payment_status !== 'overdue' && (
               <select className="select" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} aria-label="Cancellation reason">
@@ -276,7 +271,6 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
           </Field>
           <label className="check"><input type="checkbox" checked={form.pay_now} onChange={set('pay_now')} /> Paid now</label>
           {form.pay_now && <Seg value={form.method} onChange={set('method')} options={METHODS} label="Payment method" />}
-          {!form.pay_now && <p className="subtle" style={{ fontSize: 12.5 }}>Reserve now — collect between 30 min before start and 30 min after end.</p>}
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={close}>Cancel</button>
             <button className="btn btn-primary" disabled={busy || (quote && !quote.available)}>Create booking</button>
@@ -310,7 +304,6 @@ export function BlockDrawer({ venue, date, facilityId, start, blockId, onClose, 
               <dt>Created</dt><dd>{dateTime(blk.created_at)}</dd>
               <dt>Status</dt><dd>{blk.released_at ? `Released ${dateTime(blk.released_at)}` : 'Active'}</dd>
             </dl>
-            <p className="subtle" style={{ fontSize: 13 }}>Blocked time is excluded from sellable inventory and earns no revenue.</p>
             {!blk.released_at && (
               <div><button className="btn" disabled={busy} onClick={async () => {
                 const r = await run(() => post(`/api/blocks/${blk.id}/release`), 'Block released — court available again')
@@ -437,9 +430,6 @@ export function GameDrawer({ id, onClose, onChanged }) {
       {canAdd && bulk && (
         <ImportPlayers game={g} levels={levels} onCancel={() => setBulk(false)}
           onAdded={async () => { setBulk(false); await reload(); onChanged?.() }} />
-      )}
-      {open && !manage && operate && (
-        <p className="subtle" style={{ fontSize: 12.5 }}>Players are added by the Community team before the game. Mark who turned up and collect from anyone not yet paid.</p>
       )}
 
       <section>
@@ -658,9 +648,6 @@ export function AllocationInfoDrawer({ cell, onClose }) {
         {cell.amount != null && <><dt>Value</dt><dd>{money(cell.amount)}</dd></>}
         {cell.payment_status && <><dt>Payment</dt><dd>{payBadge(cell.payment_status)}</dd></>}
       </dl>
-      <p className="subtle" style={{ fontSize: 13 }}>
-        {cell.kind === 'academy' ? 'Academy allocations are managed by HQ. Collected revenue is reconciled at month-end.' : 'Corporate/private events are managed by HQ.'}
-      </p>
       {isHQ && <Link className="btn" to={cell.kind === 'academy' ? '/academy' : '/events'}>Open in {cell.kind === 'academy' ? 'Academy' : 'Events'}</Link>}
     </Drawer>
   )

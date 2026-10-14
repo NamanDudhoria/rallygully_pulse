@@ -102,7 +102,7 @@ export default function Portfolio() {
           </div>
         </div>
         <div className="card">
-          <div className="card-head"><h2>Statistical insights</h2><span className="hint">vs each venue&apos;s own history</span></div>
+          <div className="card-head"><h2>Statistical insights</h2></div>
           <div className="card-body scroll-y"><Insights items={data.insights} historyDays={data.history_days} /></div>
         </div>
       </div>
