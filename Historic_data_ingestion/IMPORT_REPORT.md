@@ -1,6 +1,6 @@
 # Historical sales import — report
 
-Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242 · gross imported: ₹20,666,514.01 · issues: {'info': 54, 'warn': 25, 'error': 2}
+Sources: {'ingested': 107, 'duplicate': 4} · revenue lines: 5164 · gross imported: ₹20,715,511.01 · issues: {'info': 60, 'warn': 20, 'error': 2}
 
 ## Venue matching
 
@@ -9,13 +9,13 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 - **DW19**: Drive and Kick / Drive or Kick Oct–Mar equal the FY25-26 'Sector 19 Dwarka Drive Kick' row; DOK Dwarka Apr–Sep equal FY26-27 'Drive or Kick | Dwarka'.
 - **S83**: Drive or Kick 83 Jun/Jul/Sep equal FY26-27 'Drive or Kick | Sec 83' (Turf + Padel = venue list 'Sec 83').
 - **NOI49**: Profit split lines name 'SD Vidya School's Share' — The SD Vidya School is Noida Sec 49 in the venue list.
-- **BNR**: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune starts the next month with Pickleball + Turf + Padel (the venue list's Baner sports) and Baner never appears again.
+- **BNR**: Confirmed by HQ (14 Oct 2026): Powerplay Park, Pune is Baner Pune.
+- **CHD37**: New venue (HQ, 14 Oct 2026): Chandigarh Sec 37, created on import.
 
 ## Sources
 
 | Venue | Month | File | Status | Summary total | Imported | Note |
 |---|---|---|---|---:|---:|---|
-| Chandigarh Sec 37 | 2026-09 | RallyGully _ Chandigarh Sec 37.xlsx | excluded | 20,398.00 |  | venue not in Pulse |
 | DW10 | 2025-07 | B2C Revenue Tracker.xlsx › RallyGully I Sector 10 Dwarka | ingested | 103,615.00 | 103,615.00 | no sales workbook for this month — figures from the B2C tracker's venue tab |
 | DW10 | 2025-08 | B2C Revenue Tracker.xlsx › RallyGully I Sector 10 Dwarka | ingested | 298,839.00 | 298,839.00 | no sales workbook for this month — figures from the B2C tracker's venue tab |
 | DW10 | 2025-09 | B2C Revenue Tracker.xlsx › RallyGully I Sector 10 Dwarka | ingested | 245,054.00 | 245,054.00 | no sales workbook for this month — figures from the B2C tracker's venue tab |
@@ -25,6 +25,7 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 | DW10 | 2026-01 | RallyGully Dwarka 10 _ Sales Data Jan.xlsx | ingested | 301,217.00 | 301,217.00 |  |
 | DW10 | 2026-02 | RallyGully Dwarka 10 _ Sales Data Feb.xlsx | ingested | 263,730.00 | 263,730.00 |  |
 | DW10 | 2026-03 | RallyGully _ Tirang _ Sales Data Mar.xlsx | ingested |  | 239,620.00 |  |
+| DW10 | 2026-03 | B2C Revenue Tracker.xlsx › RallyGully I Sector 10 Dwarka | ingested | 11,500.00 | 11,500.00 | HQ: March coaching was ₹11,500 (tracker); the file's Summary shows ₹0 and its Coaching row has no amount. |
 | DW10 | 2026-04 | RallyGully _ Tirang _ Sales Data Apr.xlsx | ingested | 256,879.00 | 256,879.00 |  |
 | DW10 | 2026-05 | RallyGully _ Tirang _ Sales Data May.xlsx | ingested | 428,482.00 | 428,482.00 |  |
 | DW10 | 2026-06 | RallyGully _ Tirang _ Sales Data June.xlsx | ingested | 247,691.00 | 247,691.00 |  |
@@ -43,6 +44,7 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 | GG83 | 2026-04 | RallyGully _ 83 _ Sales Data Apr.xlsx | ingested | 183,913.00 | 183,913.00 |  |
 | GG83 | 2026-05 | RallyGully _ 83 _ Sales Data May.xlsx | ingested | 246,468.00 | 246,468.00 |  |
 | GG83 | 2026-06 | RallyGully _ 83 _ Sales Data June.xlsx | ingested | 213,492.00 | 213,492.00 |  |
+| GG83 | 2026-06 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | KLJ 83 | ingested |  | 124,615.00 | HQ: June figures per the tracker (file and tracker disagree on offline bookings, rental, memberships). Tracker month tot |
 | GG83 | 2026-07 | RallyGully _ 83, GGN _ Sales Data July.xlsx | ingested | 245,199.00 | 245,199.00 |  |
 | GG83 | 2026-08 | RallyGully _ KLJ 83 _ Sales Aug.xlsx | ingested | 209,847.00 | 209,847.00 |  |
 | GG83 | 2026-09 | RallyGully _ KLJ 83 _ Sales Sept.xlsx | ingested | 187,469.00 | 187,469.00 |  |
@@ -104,16 +106,17 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 | PSP | 2026-07 | RallyGully _ Panchsheel _ Sales Data July.xlsx | ingested | 65,801.00 | 65,801.00 |  |
 | PSP | 2026-08 | RallyGully _ Panchsheel _ Sales Data Aug.xlsx | ingested | 38,408.00 | 38,408.00 |  |
 | PSP | 2026-09 | RallyGully _ Panchsheel _ Sales Data Sept.xlsx | ingested | 56,821.00 | 56,821.00 |  |
-| BNR | 2026-02 | RallyGully Powerplay _ Sales Data Feb.xlsx | ingested | 59,161.00 | 59,161.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
-| BNR | 2026-03 | RallyGully Powerplay _ Sales Data Mar.xlsx | ingested | 186,760.00 | 186,760.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
-| BNR | 2026-04 | RallyGully Powerplay _ Sales Data Apr.xlsx | ingested | 226,511.00 | 226,511.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
-| BNR | 2026-05 | RallyGully Powerplay _ Sales Data May.xlsx | ingested | 252,927.00 | 252,927.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
-| BNR | 2026-06 | RallyGully Powerplay _ Sales Data June.xlsx | ingested | 220,541.00 | 220,541.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
-| BNR | 2026-07 | RallyGully Powerplay _ Sales Data July.xlsx | ingested | 161,820.00 | 161,820.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
-| BNR | 2026-08 | RallyGully Powerplay _ Sales Data Aug.xlsx | ingested | 141,427.00 | 141,427.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
-| BNR | 2026-09 | RallyGully Powerplay _ Sales Data Sept.xlsx | ingested | 160,569.00 | 160,569.00 | venue match assumed: ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune start |
+| BNR | 2026-02 | RallyGully Powerplay _ Sales Data Feb.xlsx | ingested | 59,161.00 | 59,161.00 |  |
+| BNR | 2026-03 | RallyGully Powerplay _ Sales Data Mar.xlsx | ingested | 186,760.00 | 186,760.00 |  |
+| BNR | 2026-04 | RallyGully Powerplay _ Sales Data Apr.xlsx | ingested | 226,511.00 | 226,511.00 |  |
+| BNR | 2026-05 | RallyGully Powerplay _ Sales Data May.xlsx | ingested | 252,927.00 | 252,927.00 |  |
+| BNR | 2026-06 | RallyGully Powerplay _ Sales Data June.xlsx | ingested | 220,541.00 | 220,541.00 |  |
+| BNR | 2026-07 | RallyGully Powerplay _ Sales Data July.xlsx | ingested | 161,820.00 | 161,820.00 |  |
+| BNR | 2026-08 | RallyGully Powerplay _ Sales Data Aug.xlsx | ingested | 141,427.00 | 141,427.00 |  |
+| BNR | 2026-09 | RallyGully Powerplay _ Sales Data Sept.xlsx | ingested | 160,569.00 | 160,569.00 |  |
 | NOI49 | 2026-03 | RallyGully Commons, Noida _ Sales Data Mar.xlsx | ingested | 136,660.00 | 136,660.00 |  |
 | NOI49 | 2026-04 | RallyGully Commons _ Noida _ Sales Data Apr.xlsx | ingested | 304,542.75 | 304,542.75 |  |
+| NOI49 | 2026-04 | B2C Revenue Tracker _ 26-27.xlsx › RallyGully | Commons | ingested |  | 152,084.00 | HQ: April figures per the tracker (file and tracker disagree on offline bookings, rental, social events). Tracker month  |
 | NOI49 | 2026-05 | RallyGully Commons _ Noida _ Sales Data May.xlsx | ingested | 563,241.00 | 563,241.00 |  |
 | NOI49 | 2026-06 | RallyGully Commons _ Noida _ Sales Data June.xlsx | ingested | 711,072.00 | 711,072.00 |  |
 | NOI49 | 2026-07 | RallyGully Commons _ Noida _ Sales Data July.xlsx | ingested | 614,603.00 | 614,603.00 |  |
@@ -123,6 +126,7 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 | S83 | 2026-07 | RallyGully _ Drive or kick 83 GGN _ Sales Data July.xlsx | ingested | 91,850.00 | 91,850.00 |  |
 | S83 | 2026-08 | B2C Revenue Tracker _ 26-27.xlsx › DOK | 83 | ingested | 114,611.00 | 114,611.00 | no sales workbook for this month — figures from the B2C tracker's venue tab |
 | S83 | 2026-09 | RallyGully _ DOK 83 GGN _ Sales Data Sept.xlsx | ingested | 47,651.00 | 47,651.00 |  |
+| CHD37 | 2026-09 | RallyGully _ Chandigarh Sec 37.xlsx | ingested | 20,398.00 | 20,398.00 |  |
 
 ## Issues
 
@@ -130,7 +134,7 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 - [summary_cell] RallyGully _ Tirang _ Sales Data Mar.xlsx: Summary row 'Sportomic (Organized by RallyGully)' = '#REF!' (broken formula or unknown label)
 - [file_total] RallyGully _ Tirang _ Sales Data Mar.xlsx: Summary Total Gross is broken; imported ₹239,620.00 from leaf rows and detail
 
-### warn (25)
+### warn (20)
 - [detail_mismatch] RallyGully Commons _ Noida _ Sales Data May.xlsx: Product rental: Summary ₹17,950.00 vs 'daily' ₹19,150.00 — used the Summary figure
 - [detail_mismatch] RallyGully Commons _ Noida _ Sales Data Sept.xlsx: Corporate events: Summary ₹125,890.00 vs 'B2B' ₹142,005.00 — used the Summary figure
 - [detail_mismatch] RallyGully Commons _ Noida _ Sales Data Sept.xlsx: All B2B partnerships: Summary ₹16,115.00 vs 'B2B' ₹142,005.00 — used the Summary figure
@@ -142,7 +146,6 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 - [sport_sum] RallyGully Powerplay _ Sales Data May.xlsx: Playo: sport columns add to ₹63,338.00 but its total is ₹60,245.00 — sport split not used
 - [detail_mismatch] RallyGully Sec 83 _ Sales Data Mar.xlsx: Corporate Events: Summary ₹5,520.00 vs 'Corporate Events' ₹5,120.00 — used the Summary figure
 - [detail_mismatch] RallyGully Sec 83_ Sales Data Oct .xlsx: Bookings: Summary ₹29,700.00 vs 'daily' ₹32,950.00 — used the Summary figure
-- [venue_missing] RallyGully _ Chandigarh Sec 37.xlsx: RallyGully _ Chandigarh Sec 37.xlsx: venue not in Pulse — not imported (Chandigarh Sec 37, total ₹20,398)
 - [detail_mismatch] RallyGully _ DPSG Gurgaon _ Sales Data July.xlsx: Pickup games: Summary ₹6,080.00 vs 'daily' ₹4,120.00 — used the Summary figure
 - [detail_mismatch] RallyGully _ EOK _ Sales Data Apr.xlsx: Pickup games: Summary ₹60,338.00 vs 'daily' ₹51,950.00 — used the Summary figure
 - [detail_mismatch] RallyGully _ EOK _ Sales Data June.xlsx: All B2B partnerships: Summary ₹20,000.00 vs 'B2B' ₹22,399.00 — used the Summary figure
@@ -152,12 +155,9 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 - [daily_wrong_month] RallyGully _ Panchsheel _ Sales Data July.xlsx: 'Offline & RG Community': 19 rows with takings are dated outside the month (2026-06-01 – 2026-06-22) — excluded — this daily sheet looks copied from another month; the Summary figures are used instead
 - [detail_mismatch] RallyGully _ Tirang _ Sales Data Apr.xlsx: Social Events/Tournaments: Summary ₹68,960.00 vs 'Courtly' ₹45,600.00 — used the Summary figure
 - [summary_broken] RallyGully _ Tirang _ Sales Data Mar.xlsx: Sportomic (Organized by RallyGully): Summary cell is broken and the file has no detail for it; ₹11,800.00 taken from the tracker tab 'RallyGully I Sector 10 Dwarka' (the only record)
-- [venue_missing] : Tracker shows revenue for 'Gandhipath (Jaipur)', which is not a Pulse venue — not imported
-- [venue_missing] : Tracker shows revenue for 'Ambala', which is not a Pulse venue — not imported
-- [venue_missing] : Tracker shows revenue for 'Zirakpur', which is not a Pulse venue — not imported
-- [venue_missing] : Tracker shows revenue for 'Golf Course EXT. (₹0 every month)', which is not a Pulse venue — not imported
 
-### info (54)
+### info (60)
+- [venue_created] : Created venue CHD37 (RallyGully Chandigarh Sec 37) — add its courts, hours and prices under Configuration
 - [sport_split] RallyGully Commons _ Noida _ Sales Data Apr.xlsx: district: dated detail in 'District' has no sport; stored as the stated monthly sport split
 - [sport_split] RallyGully Commons _ Noida _ Sales Data Apr.xlsx: hudle: dated detail in 'Hudle' has no sport; stored as the stated monthly sport split
 - [sport_split] RallyGully Commons _ Noida _ Sales Data Apr.xlsx: playo: dated detail in 'Playo' has no sport; stored as the stated monthly sport split
@@ -212,3 +212,8 @@ Sources: {'ingested': 103, 'excluded': 1, 'duplicate': 4} · revenue lines: 5242
 - [tracker_month] B2C Revenue Tracker.xlsx: RallyGully I Sector 83 Gurgaon 9/2025: no sales workbook; imported ₹154,961.00 from the tracker (tracker total ₹154,961.00). Trackers were found to differ from workbooks in other months — verify.
 - [tracker_month] B2C Revenue Tracker.xlsx: RallyGully I East of Kailash 9/2025: no sales workbook; imported ₹78,858.80 from the tracker (tracker total ₹78,858.80). Trackers were found to differ from workbooks in other months — verify.
 - [tracker_month] B2C Revenue Tracker _ 26-27.xlsx: DOK | 83 8/2026: no sales workbook; imported ₹114,611.00 from the tracker (tracker total ₹114,611.00). Trackers were found to differ from workbooks in other months — verify.
+- [hq_decision] : HQ: the ₹38,300 Offcourt membership instalment belongs to March (file put all ₹78,300 in Feb; tracker shows ₹40,000 Feb + ₹38,300 Mar).
+- [hq_decision] : HQ: the ₹38,300 Offcourt membership instalment belongs to March (file put all ₹78,300 in Feb; tracker shows ₹40,000 Feb + ₹38,300 Mar).
+- [hq_decision] B2C Revenue Tracker.xlsx: HQ: March coaching was ₹11,500 (tracker); the file's Summary shows ₹0 and its Coaching row has no amount.
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ: April figures per the tracker (file and tracker disagree on offline bookings, rental, social events). Changed: offline_bookings ₹96,950 → ₹129,854; product_rental ₹8,650 → ₹9,775; social_events ₹15,178 → ₹12,455
+- [hq_decision] B2C Revenue Tracker _ 26-27.xlsx: HQ: June figures per the tracker (file and tracker disagree on offline bookings, rental, memberships). Changed: memberships ₹30,800 → ₹28,800; offline_bookings ₹104,697 → ₹92,290; product_rental ₹3,325 → ₹3,525

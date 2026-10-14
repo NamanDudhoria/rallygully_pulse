@@ -23,7 +23,7 @@ FILE_VENUES = [
     (r"panchsheel", "PSP", "Panchsheel Enclave"),
     (r"commons", "NOI49", "Commons x Delhi Padel Collective, Noida"),
     (r"powerplay", "BNR", "Powerplay Park, Pune"),
-    (r"chandigarh", None, "Chandigarh Sec 37"),
+    (r"chandigarh", "CHD37", "Chandigarh Sec 37"),
 ]
 
 EVIDENCE = {
@@ -35,8 +35,8 @@ EVIDENCE = {
             "Apr–Sep equal FY26-27 'Drive or Kick | Dwarka'.",
     "S83": "Drive or Kick 83 Jun/Jul/Sep equal FY26-27 'Drive or Kick | Sec 83' (Turf + Padel = venue list 'Sec 83').",
     "NOI49": "Profit split lines name 'SD Vidya School's Share' — The SD Vidya School is Noida Sec 49 in the venue list.",
-    "BNR": "ASSUMED: FY25-26 'Jan Target' lists 'Baner Pune' (5 courts) as upcoming; Powerplay Park, Pune starts the "
-           "next month with Pickleball + Turf + Padel (the venue list's Baner sports) and Baner never appears again.",
+    "BNR": "Confirmed by HQ (14 Oct 2026): Powerplay Park, Pune is Baner Pune.",
+    "CHD37": "New venue (HQ, 14 Oct 2026): Chandigarh Sec 37, created on import.",
 }
 
 MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_abbr) if m}

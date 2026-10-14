@@ -63,8 +63,8 @@ TRACKER_FILLS = {
     ("RallyGully _ Tirang _ Sales Data Mar.xlsx", "sportomic"):
         ("B2C Revenue Tracker.xlsx", "RallyGully I Sector 10 Dwarka", "march", "Sportomic (Organized by RallyGully)"),
 }
-# Tracker-only venues that are not Pulse venues (reported, not imported).
-TRACKER_ONLY_VENUES = ["Gandhipath (Jaipur)", "Ambala", "Zirakpur", "Golf Course EXT. (₹0 every month)"]
+# Gandhipath (Jaipur), Ambala, Zirakpur and Golf Course EXT appear only in the trackers and are
+# excluded from history by HQ decision (14 Oct 2026) — not imported, not reported.
 
 
 class Run:
@@ -341,8 +341,6 @@ def ingest_tracker_gaps(run: Run, folder: str):
         sev = "warn" if total is None or abs(total - tot_in) > TOL else "info"
         run.issue(src, sev, "tracker_month", f"{tab} {m}/{y}: no sales workbook; imported ₹{tot_in:,.2f} from the tracker "
                   f"(tracker total ₹{(total or 0):,.2f}). Trackers were found to differ from workbooks in other months — verify.")
-    for v in TRACKER_ONLY_VENUES:
-        run.issue(None, "warn", "venue_missing", f"Tracker shows revenue for '{v}', which is not a Pulse venue — not imported")
 
 
 def run_ingest(folder: str, report_path: str | None = None) -> dict:
@@ -351,7 +349,12 @@ def run_ingest(folder: str, report_path: str | None = None) -> dict:
     try:
         for model in (HistIssue, HistPnl, HistRevenue, HistSource):
             db.execute(delete(model))
+        from . import decisions
+        created = decisions.ensure_venues(db)
         run = Run(db)
+        for code in created:
+            run.issue(None, "info", "venue_created", f"Created venue {code} ({decisions.NEW_VENUES[code]['name']}) — "
+                      f"add its courts, hours and prices under Configuration")
         seen: dict = {}
         files = sorted(f for f in glob.glob(os.path.join(folder, "*.xlsx")) if not os.path.basename(f).startswith(("B2C", "~$")))
         # originals before their '(1)' copies so the copy is the one marked duplicate
@@ -359,6 +362,7 @@ def run_ingest(folder: str, report_path: str | None = None) -> dict:
         for f in files:
             ingest_file(run, f, seen)
         ingest_tracker_gaps(run, folder)
+        decisions.apply(run, folder)
         db.commit()
         out = summarize(db)
         if report_path:
