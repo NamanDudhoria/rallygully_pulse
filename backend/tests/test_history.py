@@ -104,3 +104,23 @@ def test_rerun_replaces_rather_than_appends(folder):
     run_ingest(str(folder))
     out = run_ingest(str(folder))
     assert out["gross"] == 7500
+
+
+def test_tracker_reconciliation_sets_excluded_venues_apart(folder):
+    wb = Workbook()
+    s = wb.active
+    s.title = "Central Dashboard"
+    s.append(["Sno. ", "Venues", "April", "May", "June", "July", "August", "Sept"])
+    s.append([1, "RallyGully I East of Kailash", 0, 0, 0, 0, 0, 7500.4])
+    s.append([None, "Pickleball", 0, 0, 0, 0, 0, 7500])  # sport sub-row: not a venue
+    s.append([2, "RallyGully I Gandhipath", 0, 0, 0, 0, 0, 900])
+    s.append([None, "Total Gross Revenue", 0, 0, 0, 0, 0, 8400.4])
+    wb.save(folder / "B2C Revenue Tracker _ 26-27.xlsx")
+    run_ingest(str(folder))
+    from app.routers.history_routes import reconciliation
+    with SessionLocal() as db:
+        r = reconciliation(user=None, db=db)
+    assert r["summary"] == {"venue_months": 1, "matching": 0, "rounding": 1, "differs": 0, "pulse_only": 0, "tracker_only": 0}
+    assert r["rows"][0]["pulse"] == 7500 and r["rows"][0]["tracker"] == 7500.4
+    assert r["excluded"] == [{"label": "RallyGully I Gandhipath", "by_month": {"2026-09": 900}, "total": 900}]
+    assert r["monthly"] == [{"month": "2026-09", "pulse": 7500, "excluded": 900, "tracker_total": 8400.4, "unexplained": 0.4}]

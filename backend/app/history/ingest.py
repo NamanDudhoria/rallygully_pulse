@@ -24,7 +24,7 @@ from openpyxl import load_workbook
 from sqlalchemy import delete, select
 
 from ..db import SessionLocal, ensure_schema
-from ..models import HistIssue, HistPnl, HistRevenue, HistSource, Venue
+from ..models import HistIssue, HistPnl, HistRevenue, HistSource, HistTracker, Venue
 from . import parse
 from .parse import VERTICAL, Line, norm
 from .sources import EVIDENCE, fingerprint, month_bounds, month_from_text, venue_for_file, year_for
@@ -347,7 +347,7 @@ def run_ingest(folder: str, report_path: str | None = None) -> dict:
     ensure_schema()
     db = SessionLocal()
     try:
-        for model in (HistIssue, HistPnl, HistRevenue, HistSource):
+        for model in (HistTracker, HistIssue, HistPnl, HistRevenue, HistSource):
             db.execute(delete(model))
         from . import decisions
         created = decisions.ensure_venues(db)
@@ -363,6 +363,8 @@ def run_ingest(folder: str, report_path: str | None = None) -> dict:
             ingest_file(run, f, seen)
         ingest_tracker_gaps(run, folder)
         decisions.apply(run, folder)
+        from . import reconcile
+        reconcile.capture(db, folder)
         db.commit()
         out = summarize(db)
         if report_path:
@@ -393,6 +395,25 @@ def write_report(db, path, out):
          "## Venue matching", ""]
     for code, ev in EVIDENCE.items():
         L.append(f"- **{code}**: {ev}")
+    from ..routers.history_routes import reconciliation
+    rec = reconciliation(user=None, db=db)
+    if rec["captured"]:
+        sm = rec["summary"]
+        L += ["", "## Reconciliation with the B2C trackers (Central Dashboard)", "",
+              f"{sm['venue_months']} venue-months compared: {sm['matching']} match exactly, {sm['rounding']} within ₹1 "
+              f"(files keep paise, the tracker whole rupees), {sm['differs']} differ, {sm['pulse_only']} only in Pulse, "
+              f"{sm['tracker_only']} only in the tracker.", ""]
+        for r in rec["rows"]:
+            if r["status"] != "match":
+                L.append(f"- {r['venue']} {r['month']}: Pulse ₹{r['pulse'] or 0:,.2f} vs tracker ₹{r['tracker'] or 0:,.2f} ({r['status']})")
+        L += ["", "| Month | Pulse | Venues not in Pulse | Tracker Total Gross | Unexplained |", "|---|---:|---:|---:|---:|"]
+        for m in rec["monthly"]:
+            t = "" if m["tracker_total"] is None else f"{m['tracker_total']:,.2f}"
+            u = "" if m["unexplained"] is None else f"{m['unexplained']:,.2f}"
+            L.append(f"| {m['month']} | {m['pulse']:,.2f} | {m['excluded']:,.2f} | {t} | {u} |")
+        if rec["excluded"]:
+            L += ["", "Venues not in Pulse (excluded by HQ; in the tracker total only): " +
+                  ", ".join(f"{e['label']} ₹{e['total']:,.0f}" for e in rec["excluded"])]
     L += ["", "## Sources", "", "| Venue | Month | File | Status | Summary total | Imported | Note |", "|---|---|---|---|---:|---:|---|"]
     for s in srcs:
         v = venues.get(s.venue_id)

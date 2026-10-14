@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..history.parse import VERTICAL
-from ..models import HistIssue, HistPnl, HistRevenue, HistSource, User, Venue
+from ..models import HistIssue, HistPnl, HistRevenue, HistSource, HistTracker, User, Venue
 from ..permissions import require
 
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -19,6 +19,7 @@ CHANNEL_LABEL = {
     "courtly": "Courtly", "sportomic": "Sportomic", "misfits": "Misfits", "academy": "Academy", "coaching": "Coaching",
     "corporate_events": "Corporate events", "b2b_partnerships": "B2B partnerships", "brand_activation": "Brand activation",
     "product_rental": "Product rental", "product_sales": "Product sales", "fnb": "F&B", "other_income": "Other income",
+    "tracker_adjustment": "Tracker adjustment",
 }
 VERTICAL_LABEL = {"online": "Online platforms", "offline": "Offline & memberships", "community": "Community",
                   "academy": "Academy & coaching", "b2b": "B2B & events", "commerce": "Commerce", "other": "Other income"}
@@ -130,6 +131,53 @@ def venue_month(venue_id: int, month: str, user: User = Depends(require("portfol
         "issues": [{"severity": i.severity, "code": i.code, "message": i.message}
                    for i in db.scalars(select(HistIssue).where(HistIssue.source_id.in_(sids)))] if sids else [],
     }
+
+
+@router.get("/reconciliation")
+def reconciliation(user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
+    """Pulse vs the B2C trackers' Central Dashboard, venue by month, with the tracker-only venues set apart."""
+    pulse = defaultdict(float)
+    for vid, y, m, g in db.execute(select(HistRevenue.venue_id, HistRevenue.year, HistRevenue.month, HistRevenue.gross)):
+        pulse[(vid, _key(y, m))] += g
+    tracker, excluded, totals = defaultdict(float), defaultdict(lambda: defaultdict(float)), {}
+    for t in db.scalars(select(HistTracker)):
+        k = _key(t.year, t.month)
+        if t.kind == "total":
+            totals[k] = t.amount
+        elif t.venue_id is None:
+            excluded[t.label][k] += t.amount
+        else:
+            tracker[(t.venue_id, k)] += t.amount
+    if not tracker and not totals:
+        return {"captured": False, "months": [], "rows": [], "excluded": [], "monthly": []}
+    venues = {v.id: v for v in db.scalars(select(Venue))}
+    months = sorted({k for _, k in pulse} | {k for _, k in tracker} | set(totals))
+    rows = []
+    for vid, k in sorted(set(pulse) | set(tracker), key=lambda x: (venues[x[0]].name if x[0] in venues else "", x[1])):
+        p, t = pulse.get((vid, k)), tracker.get((vid, k))
+        diff = None if p is None or t is None else round(p - t, 2)
+        rows.append({"venue_id": vid, "venue": venues[vid].name if vid in venues else str(vid), "month": k,
+                     "pulse": None if p is None else round(p, 2), "tracker": None if t is None else round(t, 2),
+                     "diff": diff, "match": diff is not None and abs(diff) <= 1,
+                     # files carry paise, the tracker whole rupees: within ₹1 is rounding, not a disagreement
+                     "status": "missing" if diff is None else "match" if abs(diff) < 0.01
+                     else "rounding" if abs(diff) <= 1 else "differs"})
+    monthly = []
+    for k in months:
+        p = sum(x for (_, mk), x in pulse.items() if mk == k)
+        ex = sum(d.get(k, 0) for d in excluded.values())
+        t = totals.get(k)
+        monthly.append({"month": k, "pulse": round(p, 2), "excluded": round(ex, 2),
+                        "tracker_total": None if t is None else round(t, 2),
+                        "unexplained": None if t is None else round(t - p - ex, 2)})
+    return {"captured": True, "months": months, "rows": rows, "monthly": monthly,
+            "excluded": [{"label": lab, "by_month": {k: round(x, 2) for k, x in d.items()}, "total": round(sum(d.values()), 2)}
+                         for lab, d in sorted(excluded.items()) if sum(d.values())],
+            "summary": {"venue_months": len(rows), "matching": sum(r["status"] == "match" for r in rows),
+                        "rounding": sum(r["status"] == "rounding" for r in rows),
+                        "differs": sum(r["status"] == "differs" for r in rows),
+                        "pulse_only": sum(r["tracker"] is None for r in rows),
+                        "tracker_only": sum(r["pulse"] is None for r in rows)}}
 
 
 @router.get("/issues")

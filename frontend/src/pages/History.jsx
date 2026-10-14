@@ -1,6 +1,6 @@
 /** Sales history imported from the pre-Pulse monthly workbooks (read-only). */
 import { Fragment, useMemo, useState } from 'react'
-import { AlertTriangle, FileSpreadsheet, Info, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, Info, XCircle } from 'lucide-react'
 import { useApi } from '../lib/hooks'
 import { money, moneyShort, num, shortDate } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Kpi, PageSkeleton, Seg, Tabs } from '../components/ui'
@@ -24,9 +24,10 @@ export default function History() {
         </div>
       </div>
       <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'overview', label: 'Overview' }, { value: 'notes', label: 'Data notes & sources' },
+        { value: 'overview', label: 'Overview' }, { value: 'recon', label: 'Tracker reconciliation' },
+        { value: 'notes', label: 'Data notes & sources' },
       ]} />
-      {tab === 'overview' ? <Overview /> : <Notes />}
+      {tab === 'overview' ? <Overview /> : tab === 'recon' ? <Reconciliation /> : <Notes />}
     </div>
   )
 }
@@ -290,5 +291,92 @@ function Notes() {
         </div>
       </div>
     </div>
+  )
+}
+
+const STATUS = {
+  match: { tone: 'good', label: 'Matches' }, rounding: { tone: 'info', label: 'Rounding' },
+  differs: { tone: 'bad', label: 'Differs' }, missing: { tone: 'warn', label: 'Missing' },
+}
+const signed = (x) => {
+  if (x == null) return '—'
+  if (Math.abs(x) < 0.005) return '0'
+  const a = Math.abs(x)
+  return `${x > 0 ? '+' : '−'}${a < 1 ? `₹${a.toFixed(2)}` : money(a)}`
+}
+
+function Reconciliation() {
+  const { data, error, reload } = useApi('/api/history/reconciliation')
+  const [show, setShow] = useState('all')
+  if (error && !data) return <ErrorState error={error} onRetry={reload} />
+  if (!data) return <PageSkeleton />
+  if (!data.captured) return <Empty icon={FileSpreadsheet} title="No tracker captured">Re-run the import with the folder that holds the B2C Revenue Trackers.</Empty>
+  const s = data.summary
+  const rows = data.rows.filter((r) => show === 'all' || r.status !== 'match')
+  const exTotal = data.excluded.reduce((a, e) => a + e.total, 0)
+  return (
+    <>
+      <div className="kpis">
+        <Kpi label="Venue-months compared" value={num(s.venue_months)} foot={<span>Pulse vs the trackers' Central Dashboard</span>} />
+        <Kpi label="Match exactly" value={num(s.matching)} foot={<span>to the paisa</span>} />
+        <Kpi label="Rounding only" value={num(s.rounding)} foot={<span>within ₹1 — files keep paise, the tracker whole rupees</span>} />
+        <Kpi label="Differ" value={num(s.differs + s.pulse_only + s.tracker_only)} foot={<span>{s.differs + s.pulse_only + s.tracker_only ? 'see the rows below' : 'none'}</span>} />
+      </div>
+
+      <div className="card">
+        <div className="card-head"><h2>Monthly totals</h2><span className="hint">why the tracker's grand total is higher than Pulse</span></div>
+        <div className="card-body table-wrap">
+          <table className="table" style={{ fontSize: 12.5 }}>
+            <thead><tr><th>Month</th><th className="num">Pulse</th><th className="num">Venues not in Pulse</th><th className="num">Pulse + those</th><th className="num">Tracker Total Gross</th><th className="num">Unexplained</th></tr></thead>
+            <tbody>
+              {data.monthly.map((m) => (
+                <tr key={m.month}>
+                  <td className="nowrap">{MONTH(m.month)}</td>
+                  <td className="num">{money(m.pulse)}</td>
+                  <td className="num subtle">{m.excluded ? money(m.excluded) : '—'}</td>
+                  <td className="num">{money(m.pulse + m.excluded)}</td>
+                  <td className="num">{m.tracker_total == null ? '—' : money(m.tracker_total)}</td>
+                  <td className="num" style={{ color: m.unexplained && Math.abs(m.unexplained) > 1 ? 'var(--bad)' : undefined }}>{signed(m.unexplained)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data.excluded.length > 0 && (
+            <p className="subtle" style={{ fontSize: 12.5, marginTop: 10 }}>
+              Venues not in Pulse (excluded by HQ, counted in the tracker's total only): {data.excluded.map((e) => `${e.label.replace(/^RallyGully I /, '')} ${money(e.total)}`).join(' · ')} — {money(exTotal)} in all.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h2>Venue × month</h2>
+          <Seg value={show} onChange={setShow} label="Show" options={[{ value: 'all', label: 'All' }, { value: 'notexact', label: 'Not exact' }]} />
+        </div>
+        <div className="card-body table-wrap scroll-y" style={{ maxHeight: 640 }}>
+          {rows.length ? (
+            <table className="table" style={{ fontSize: 12.5 }}>
+              <thead><tr><th>Venue</th><th>Month</th><th className="num">Pulse</th><th className="num">Tracker</th><th className="num">Difference</th><th /></tr></thead>
+              <tbody>
+                {rows.map((r) => {
+                  const st = STATUS[r.status] || STATUS.differs
+                  return (
+                    <tr key={`${r.venue_id}|${r.month}`}>
+                      <td>{r.venue.replace('RallyGully ', '')}</td>
+                      <td className="nowrap">{MONTH(r.month)}</td>
+                      <td className="num">{r.pulse == null ? '—' : money(r.pulse)}</td>
+                      <td className="num">{r.tracker == null ? '—' : money(r.tracker)}</td>
+                      <td className="num">{signed(r.diff)}</td>
+                      <td>{r.status === 'match' ? <CheckCircle2 size={15} color="var(--good)" aria-label="Matches" /> : <Badge tone={st.tone}>{st.label}</Badge>}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : <Empty title="Every venue-month matches exactly" />}
+        </div>
+      </div>
+    </>
   )
 }

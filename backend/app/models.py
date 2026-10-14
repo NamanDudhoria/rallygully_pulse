@@ -473,6 +473,19 @@ class HistPnl(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class HistTracker(Base):
+    """The B2C trackers' Central Dashboard figures, captured at import so Pulse can be reconciled against them."""
+    __tablename__ = "hist_tracker"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    file: Mapped[str] = mapped_column(String(200))
+    label: Mapped[str] = mapped_column(String(200))  # dashboard row, e.g. "RallyGully I Gandhipath"
+    venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"), nullable=True)  # None: not a Pulse venue
+    kind: Mapped[str] = mapped_column(String(10))  # venue | total
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[float] = mapped_column(Float)
+
+
 class HistIssue(Base):
     """Everything the import noticed: mismatches, fallbacks, exclusions — kept for audit."""
     __tablename__ = "hist_issues"
