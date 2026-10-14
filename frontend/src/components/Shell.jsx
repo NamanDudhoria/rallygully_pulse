@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity, BarChart3, BookOpen, Building2, CalendarDays, CalendarRange, ClipboardList, GraduationCap, KeyRound,
-  LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, Sun, Users, UsersRound, Briefcase, Plug,
+  History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, Sun, Users, UsersRound, Briefcase, Plug,
 } from 'lucide-react'
 import logo from '../assets/logo.svg'
 import { post } from '../lib/api'
@@ -79,7 +79,7 @@ export default function Shell() {
           <>
             {section('My roster', (user.roster || []).filter((r) => r.date >= today).slice(0, 8).map(shiftLink))}
             {!(user.roster || []).some((r) => r.date >= today) && (
-              <p className="subtle" style={{ fontSize: 12.5, padding: '8px 10px' }}>You&apos;re not on the roster yet. HQ assigns venues the day before.</p>
+              <p className="subtle" style={{ fontSize: 12.5, padding: '8px 10px' }}>Not on the roster yet.</p>
             )}
             {section('Records', [link('/bookings', BookOpen, 'Bookings')])}
           </>
@@ -88,6 +88,7 @@ export default function Shell() {
             {section('Overview', [
               can('portfolio.view') && link('/', LayoutDashboard, 'Portfolio', true),
               can('portfolio.view') && link('/analytics', BarChart3, 'Performance'),
+              can('portfolio.view') && link('/history', History, 'Sales history'),
             ])}
             {section('Venues', can('venue.view', 'venue.operate')
               ? (venues || []).map((v) => link(`/venues/${v.id}`, Building2, v.name.replace('RallyGully ', '')))
@@ -168,7 +169,6 @@ function AccountDrawer({ onClose }) {
           <div className="divider" />
           <div>
             <div className="section-title">Sessions</div>
-            <p className="subtle" style={{ fontSize: 13, marginBottom: 8 }}>Lost a phone or used a shared device? Sign out of Pulse everywhere.</p>
             <button className="btn" disabled={busy} onClick={async () => {
               if (await run(() => post('/api/auth/logout-everywhere'), 'Signed out everywhere')) logout()
             }}><LogOut /> Sign out everywhere</button>

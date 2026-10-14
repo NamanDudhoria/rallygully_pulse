@@ -7,6 +7,7 @@ import Portfolio from './pages/Portfolio'
 import VenueDay from './pages/VenueDay'
 import Analytics from './pages/Analytics'
 import Bookings from './pages/Bookings'
+import History from './pages/History'
 import { AcademyPage, CommunityPage, EventsPage } from './pages/Programs'
 import { AuditPage, ConfigPage, CustomersPage, SystemPage } from './pages/Admin'
 import { PeoplePage, RosterPage } from './pages/People'
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="venues/:id" element={guard(['venue.view', 'venue.operate'], <VenueDay />)} />
         <Route path="bookings" element={guard(['bookings.view', 'venue.operate'], <Bookings />)} />
         <Route path="analytics" element={guard(['portfolio.view'], <Analytics />)} />
+        <Route path="history" element={guard(['portfolio.view'], <History />)} />
         <Route path="community" element={guard(['community.manage'], <CommunityPage />)} />
         <Route path="academy" element={guard(['academy.manage'], <AcademyPage />)} />
         <Route path="events" element={guard(['events.manage'], <EventsPage />)} />

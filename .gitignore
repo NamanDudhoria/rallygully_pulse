@@ -12,3 +12,5 @@ backend/inbox/*
 !backend/inbox/.gitkeep
 backend/*.db-shm
 backend/*.db-wal
+backend/history_report.md
+backend/*.db.backup-*

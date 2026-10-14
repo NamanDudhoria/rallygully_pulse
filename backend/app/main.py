@@ -12,7 +12,7 @@ from . import config, scheduler
 from .audit import DomainError
 from .db import ensure_schema
 from .services import analytics
-from .routers import admin, analytics_routes, auth_routes, operations, people, venues
+from .routers import admin, analytics_routes, auth_routes, history_routes, operations, people, venues
 
 
 @contextlib.asynccontextmanager
@@ -42,7 +42,7 @@ async def domain_error(_req: Request, exc: DomainError):
 
 
 for r in (auth_routes.router, venues.router, operations.router, analytics_routes.router, admin.router,
-          people.router):
+          people.router, history_routes.router):
     app.include_router(r)
 
 

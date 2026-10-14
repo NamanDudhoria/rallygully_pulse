@@ -55,7 +55,6 @@ function CustomerDrawer({ id, onClose }) {
             <Badge>{c.completed} completed</Badge>
             <Badge tone="good">{money(c.net_spend)} spent</Badge>
           </div>
-          <p className="subtle" style={{ fontSize: 12.5 }}>Only attended consumer activity counts toward repeat status — cancellations and no-shows are excluded.</p>
           <div className="list">
             {c.history.map((h, i) => (
               <div key={i} className="list-item">
@@ -127,9 +126,9 @@ function VenuesConfig() {
           </div>
         </div>
         <div className="card">
-          <div className="card-head"><h2>Facilities</h2><span className="hint">sport is derived from the facility</span></div>
+          <div className="card-head"><h2>Facilities</h2></div>
           <div className="card-body">
-            {!v.facilities.length && <p className="subtle" style={{ marginBottom: 8 }}>No facilities yet — add the courts/turfs this venue sells.</p>}
+            {!v.facilities.length && <p className="subtle" style={{ marginBottom: 8 }}>No facilities yet.</p>}
             {v.facilities.length > 0 && (
               <table className="table">
                 <thead><tr><th>Name</th><th>Type</th><th>Sport</th><th>Status</th><th /></tr></thead>
@@ -244,7 +243,7 @@ function HoursEditor({ venue, onSaved }) {
   const update = (i, k, val) => setRows({ venue: venue.id, data: cur.map((r, j) => (j === i ? { ...r, [k]: val } : r)) })
   return (
     <div className="card">
-      <div className="card-head"><h2>Weekly operating hours</h2><span className="hint">30-minute boundaries</span></div>
+      <div className="card-head"><h2>Weekly operating hours</h2></div>
       <div className="card-body">
         <table className="table">
           <tbody>{cur.map((r, i) => (
@@ -268,7 +267,7 @@ function SpecialDates({ venue }) {
   const [f, setF] = useState({ date: todayISO(), open: '17:00', close: '23:00', closed: false, note: '' })
   return (
     <div className="card" style={{ alignSelf: 'start' }}>
-      <div className="card-head"><h2>Special dates</h2><span className="hint">override weekly hours</span></div>
+      <div className="card-head"><h2>Special dates</h2></div>
       <div className="card-body stack">
         <form className="form" onSubmit={async (e) => { e.preventDefault(); if (await run(() => post(`/api/venues/${venue.id}/special-dates`, f), 'Override saved')) reload() }}>
           <div className="form-row">
@@ -480,11 +479,10 @@ export function SystemPage() {
             </div>
           </div>
           <div className="card" style={{ alignSelf: 'start' }}>
-            <div className="card-head"><h2>Test an email</h2><span className="hint">real parser, idempotent</span></div>
+            <div className="card-head"><h2>Test an email</h2></div>
             <div className="card-body form">
               <textarea className="textarea mono" rows={12} value={raw} onChange={(e) => setRaw(e.target.value)} aria-label="Raw email" />
               <button className="btn btn-primary" disabled={busy} onClick={() => run(() => post('/api/system/district/simulate', { raw }), (r) => r.result === 'created' ? `Booking #${r.booking_id} created` : `Duplicate — already booking #${r.booking_id}`)}>Ingest</button>
-              <p className="subtle" style={{ fontSize: 12.5 }}>Parse failures are engineering issues: they are logged on the run, never shown to VMs.</p>
             </div>
           </div>
         </div>

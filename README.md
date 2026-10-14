@@ -69,6 +69,28 @@ cd backend && .venv/bin/pytest                             # acceptance tests (P
 cd backend && .venv/bin/python -m app.seed --reset         # rebuild demo data
 ```
 
+## Going live and sales history
+
+```bash
+cd backend
+python -m app.golive                                             # dry run: what would be removed
+python -m app.golive --confirm --history ../Historic_data_ingestion
+```
+
+`golive` backs up the database, then removes all demo data (bookings, customers, payments, games, academy,
+events, blocks, roster, day closes, notifications, audit) and the placeholder hours, special dates and prices.
+Users, logins and venue teams, venues and facilities are kept. Set real hours and prices under Configuration
+before taking bookings.
+
+`--history` (or `python -m app.history.ingest <folder>`) imports the monthly sales workbooks into a separate
+history ledger shown under **Sales history** (HQ and verticals; not VMs). These are financial records, not
+slot bookings, so they never touch inventory or occupancy. Rules: each workbook's Summary leaf rows are the
+monthly figure per channel (parent rows are subtotals and are not counted); a detail sheet is used for dates,
+sport, fees and counterparties only when it adds up to that figure; content-identical copies are skipped;
+rows dated outside the file's month are excluded. Every line keeps its file, sheet and row, and every
+discrepancy is listed under *Data notes*. Re-running replaces the ledger. The last run's report is in
+`Historic_data_ingestion/IMPORT_REPORT.md`.
+
 ## Architecture
 
 | Layer | Choice | Why |
