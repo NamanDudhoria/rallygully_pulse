@@ -126,7 +126,7 @@ export default function Analytics() {
       )}
 
       <div className="kpis">
-        <Kpi label="Net revenue" value={money(t.net_revenue)}
+        <Kpi label="Gross revenue" value={money(t.net_revenue)}
           foot={<><Delta win={change(t.net_revenue, p.net_revenue)} />{vs}</>} />
         <Kpi label="Occupancy" value={pct(t.occupancy, 1)}
           foot={<><Pts cur={t.occupancy} prev={p.occupancy} /><span>{hours(t.occupied_units)} of {hours(t.sellable_units)}</span></>} />
@@ -142,14 +142,14 @@ export default function Analytics() {
 
       <div className="grid g-main">
         <div className="card">
-          <div className="card-head"><h2>Daily net revenue</h2><span className="hint">{venueId ? venueName : 'All venues'}</span></div>
+          <div className="card-head"><h2>Daily gross revenue</h2><span className="hint">{venueId ? venueName : 'All venues'}</span></div>
           <div className="card-body">
-            <LineChart data={data.series} format={money} yFormat={moneyShort} ariaLabel="Daily net revenue"
-              series={[{ key: 'net_revenue', label: 'Net revenue', color: 'var(--brand)' }]} />
+            <LineChart data={data.series} format={money} yFormat={moneyShort} ariaLabel="Daily gross revenue"
+              series={[{ key: 'net_revenue', label: 'Gross revenue', color: 'var(--brand)' }]} />
           </div>
         </div>
         <div className="card">
-          <div className="card-head"><h2>Channel mix</h2><span className="hint">net revenue</span></div>
+          <div className="card-head"><h2>Channel mix</h2><span className="hint">gross revenue</span></div>
           <div className="card-body"><ChannelMix values={t.net_by_kind} title="Channel mix" /></div>
         </div>
       </div>
@@ -165,7 +165,7 @@ export default function Analytics() {
               <thead>
                 <tr>
                   <th>{data.level[0].toUpperCase() + data.level.slice(1)}</th>
-                  <th className="num">Net revenue</th><th className="num">Δ prev</th>
+                  <th className="num">Gross revenue</th><th className="num">Δ prev</th>
                   <th className="num">Occupancy</th><th className="num">Δ prev (pts)</th>
                   <th className="num">Activity</th><th className="num">Opportunity</th>
                   {data.level !== 'facility' && <th aria-label="Drill" />}

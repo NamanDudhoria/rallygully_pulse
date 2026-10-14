@@ -22,7 +22,7 @@ LIVE_CHECKS = ("net_revenue", "occupancy", "total_activity")
 
 CHECKS = {
     # metric: (label, format, min_abs_change)
-    "net_revenue": ("Net revenue", "inr", 500.0),
+    "net_revenue": ("Gross revenue", "inr", 500.0),
     "occupancy": ("Occupancy", "pct", 0.05),
     "utilization": ("Utilization", "pct", 0.05),
     "total_activity": ("Booking volume", "int", 3),

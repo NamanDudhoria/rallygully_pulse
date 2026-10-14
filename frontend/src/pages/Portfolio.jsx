@@ -57,7 +57,7 @@ export default function Portfolio() {
       </div>
 
       <div className="kpis">
-        <Kpi label="Net revenue" icon={IndianRupee} value={money(m.net_revenue)} cmp={c.net_revenue} windowKey={win}
+        <Kpi label="Gross revenue" icon={IndianRupee} value={money(m.net_revenue)} cmp={c.net_revenue} windowKey={win}
           foot={m.refunds > 0 && <span>· {money(m.refunds)} refunded</span>} />
         <Kpi label="Occupancy" icon={Gauge} value={pct(m.occupancy, 1)} cmp={c.occupancy} windowKey={win}
           foot={<span>· {hours(m.occupied_units)} of {hours(m.sellable_units)}</span>} />
@@ -85,7 +85,7 @@ export default function Portfolio() {
             {live && data.intraday ? (
               <LineChart
                 data={data.intraday.points} x="label" xFormat={(v) => v} format={money} yFormat={moneyShort}
-                ariaLabel="Cumulative net revenue today versus same-weekday average"
+                ariaLabel="Cumulative gross revenue today versus same-weekday average"
                 series={[
                   { key: 'net_revenue', label: 'Today', color: 'var(--brand)' },
                   { key: 'baseline_net_revenue', label: `Same weekday avg (${data.intraday.baseline_samples} wks)`, color: 'var(--text-3)', dashed: true },
@@ -96,7 +96,7 @@ export default function Portfolio() {
                 data={trend} ariaLabel={`Portfolio ${trendMetric} over 90 days`}
                 format={trendMetric === 'occupancy' ? (v) => pct(v, 1) : trendMetric === 'net_revenue' ? money : num}
                 yFormat={trendMetric === 'occupancy' ? (v) => pct(v) : trendMetric === 'net_revenue' ? moneyShort : num}
-                series={[{ key: trendMetric, label: { net_revenue: 'Net revenue', occupancy: 'Occupancy', total_activity: 'Activity' }[trendMetric], color: 'var(--brand)' }]}
+                series={[{ key: trendMetric, label: { net_revenue: 'Gross revenue', occupancy: 'Occupancy', total_activity: 'Activity' }[trendMetric], color: 'var(--brand)' }]}
               />
             )}
           </div>
@@ -114,7 +114,7 @@ export default function Portfolio() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Venue</th><th className="num">Net revenue</th><th className="num">Occupancy</th>
+                  <th>Venue</th><th className="num">Gross revenue</th><th className="num">Occupancy</th>
                   <th className="num">Activity</th><th className="num">Opportunity</th><th>Day close</th>
                 </tr>
               </thead>
@@ -148,8 +148,8 @@ export default function Portfolio() {
         </div>
         <div className="stack">
           <div className="card">
-            <div className="card-head"><h2>Channel mix</h2><span className="hint">net revenue</span></div>
-            <div className="card-body"><ChannelMix values={m.net_by_kind} title="Net revenue by channel" /></div>
+            <div className="card-head"><h2>Channel mix</h2><span className="hint">gross revenue</span></div>
+            <div className="card-body"><ChannelMix values={m.net_by_kind} title="Gross revenue by channel" /></div>
           </div>
           <div className="card">
             <div className="card-head"><h2>Operational exceptions</h2><span className="hint">{data.exceptions.length}</span></div>
