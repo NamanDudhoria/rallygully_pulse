@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity, BarChart3, BookOpen, Building2, CalendarDays, CalendarRange, ClipboardList, GraduationCap, KeyRound,
-  LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, Sun, Users, UsersRound, Briefcase, Plug,
+  History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, Sun, Users, UsersRound, Briefcase, Plug,
 } from 'lucide-react'
 import logo from '../assets/logo.svg'
 import { post } from '../lib/api'
@@ -88,6 +88,7 @@ export default function Shell() {
             {section('Overview', [
               can('portfolio.view') && link('/', LayoutDashboard, 'Portfolio', true),
               can('portfolio.view') && link('/analytics', BarChart3, 'Performance'),
+              can('portfolio.view') && link('/history', History, 'Sales history'),
             ])}
             {section('Venues', can('venue.view', 'venue.operate')
               ? (venues || []).map((v) => link(`/venues/${v.id}`, Building2, v.name.replace('RallyGully ', '')))

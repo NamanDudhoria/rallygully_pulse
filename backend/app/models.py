@@ -406,3 +406,81 @@ class IngestionRun(Base):
     created: Mapped[int] = mapped_column(Integer, default=0)
     duplicates: Mapped[int] = mapped_column(Integer, default=0)
     errors: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+# ── Historical ledger (pre-Pulse sales workbooks) ────────────────────────────
+# Imported from the monthly venue sales files. These are financial records (monthly P&L, daily
+# offline takings, platform settlements) — not slot bookings — so they live apart from the
+# allocation ledger and never affect inventory.
+class HistSource(Base):
+    """One source workbook (or tracker tab) and how it was used."""
+    __tablename__ = "hist_sources"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    file: Mapped[str] = mapped_column(String(200))
+    sheet: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"), nullable=True)
+    venue_label: Mapped[str] = mapped_column(String(120))  # name as written in the source
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16))  # ingested | duplicate | excluded
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stated_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ingested_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class HistRevenue(Base):
+    """A revenue line. ``year``/``month`` is the accounting month of the source; dates say when it happened."""
+    __tablename__ = "hist_revenue"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("hist_sources.id"))
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    date_from: Mapped[date] = mapped_column(Date)
+    date_to: Mapped[date] = mapped_column(Date)
+    basis: Mapped[str] = mapped_column(String(8))  # day | period | month
+    vertical: Mapped[str] = mapped_column(String(16))
+    channel: Mapped[str] = mapped_column(String(32))
+    sport: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    gross: Mapped[float] = mapped_column(Float)
+    commission: Mapped[float | None] = mapped_column(Float, nullable=True)  # incl. GST on commission
+    gateway: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_costs: Mapped[float | None] = mapped_column(Float, nullable=True)  # event expenses, brand payouts
+    tds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tcs: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net: Mapped[float | None] = mapped_column(Float, nullable=True)  # realised, as stated in the source
+    hours: Mapped[float | None] = mapped_column(Float, nullable=True)  # offline booking hours (daily sheets)
+    people: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    counterparty: Mapped[str | None] = mapped_column(String(160), nullable=True)  # member, brand, organisation
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sheet: Mapped[str] = mapped_column(String(80))
+    row: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    __table_args__ = (Index("ix_hist_rev_venue_period", "venue_id", "year", "month"),)
+
+
+class HistPnl(Base):
+    """Below-the-line items from each monthly Summary: GST, commissions, expenses, profit shares."""
+    __tablename__ = "hist_pnl"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("hist_sources.id"))
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    category: Mapped[str] = mapped_column(String(24))  # gst | commissions | net | expense | expenses_total | profit | share | other
+    label: Mapped[str] = mapped_column(String(200))
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HistIssue(Base):
+    """Everything the import noticed: mismatches, fallbacks, exclusions — kept for audit."""
+    __tablename__ = "hist_issues"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(ForeignKey("hist_sources.id"), nullable=True)
+    venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    severity: Mapped[str] = mapped_column(String(8))  # info | warn | error
+    code: Mapped[str] = mapped_column(String(40))
+    message: Mapped[str] = mapped_column(Text)
