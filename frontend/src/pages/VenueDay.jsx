@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, CalendarRange, CheckCircle2, ClipboardCheck, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
+  AlertTriangle, BarChart3, CalendarRange, CheckCircle2, ClipboardCheck, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
   MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
@@ -11,6 +11,7 @@ import { KIND, KINDS, METHOD, hours, money, moneyShort, num, pct, range12, short
 import { Badge, Delta, Empty, ErrorState, Kpi, KindLabel, PageSkeleton, Tabs } from '../components/ui'
 import { ChannelMix, LineChart } from '../components/charts'
 import DateNav from '../components/DateNav'
+import Analytics from './Analytics'
 import TodayBand from '../components/TodayBand'
 import BaselinePicker from '../components/BaselinePicker'
 import AvailabilityGrid, { GridLegend } from '../components/AvailabilityGrid'
@@ -64,6 +65,7 @@ export default function VenueDay() {
 
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'summary', label: d.show_performance ? 'Daily performance' : 'Today', icon: d.show_performance ? Gauge : ListChecks },
+        ...(d.show_performance ? [{ value: 'performance', label: 'Performance', icon: BarChart3 }] : []),
         { value: 'grid', label: 'Availability', icon: LayoutGrid },
         { value: 'activity', label: 'Activity', icon: ListChecks, count: attention.length, alert: attention.length > 0 },
         { value: 'community', label: 'Community', icon: Users, count: acts.games.filter((g) => g.status !== 'cancelled').length },
@@ -77,6 +79,7 @@ export default function VenueDay() {
         : d.show_performance
         ? <Summary d={d} baseline={baseline} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />
         : <OpsSummary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />)}
+      {tab === 'performance' && d.show_performance && <Analytics venue={d.venue.id} embedded />}
       {tab === 'grid' && (
         <GridTab d={d} grid={grid.data} canOperate={canOperate} onFree={(f, m) => setDrawer({ type: 'direct', facilityId: f.id, start: m })}
           onBlock={() => setDrawer({ type: 'block' })}

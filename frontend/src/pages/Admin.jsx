@@ -235,6 +235,7 @@ function FacilityDrawer({ facility, onClose, onSaved }) {
 
 function HoursEditor({ venue, onSaved }) {
   const [rows, setRows] = useState(null)
+  const [bulk, setBulk] = useState(false)
   const [run, busy] = useAction()
   const cur = rows?.venue === venue.id ? rows.data : WD.map((_, i) => {
     const h = venue.weekly_hours.find((w) => w.weekday === i)
@@ -254,10 +255,39 @@ function HoursEditor({ venue, onSaved }) {
           </tbody>
         </table>
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+          <button className="btn" disabled={busy} onClick={() => setBulk(true)}>Apply to other venues</button>
           <button className="btn btn-primary" disabled={!rows || busy} onClick={async () => { if (await run(() => put(`/api/venues/${venue.id}/hours`, cur), 'Hours saved')) { setRows(null); onSaved() } }}>Save hours</button>
         </div>
       </div>
+      {bulk && <BulkHours from={venue} hours={cur} onClose={() => setBulk(false)} onSaved={() => { setBulk(false); setRows(null); onSaved() }} />}
     </div>
+  )
+}
+
+function BulkHours({ from, hours, onClose, onSaved }) {
+  const venues = useApi('/api/venues').data || []
+  const [chosen, setChosen] = useState(null) // null until the user changes it: every venue is ticked
+  const [run, busy] = useAction()
+  const picked = chosen || new Set(venues.map((v) => v.id))
+  const all = venues.length > 0 && picked.size === venues.length
+  const toggle = (id) => setChosen(() => { const n = new Set(picked); n.has(id) ? n.delete(id) : n.add(id); return n })
+  return (
+    <Drawer open onClose={onClose} title="Apply these hours to venues"
+      footer={<div className="row" style={{ justifyContent: 'flex-end' }}>
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-primary" disabled={busy || !picked.size}
+          onClick={async () => { if (await run(() => post('/api/hours/bulk', { venue_ids: [...picked], hours }), `Hours applied to ${picked.size} venues`)) onSaved() }}>
+          Apply to {picked.size} venue{picked.size === 1 ? '' : 's'}
+        </button></div>}>
+      <div className="stack">
+        <label className="check"><input type="checkbox" checked={all} onChange={() => setChosen(all ? new Set() : new Set(venues.map((v) => v.id)))} /> All venues</label>
+        {venues.map((v) => (
+          <label key={v.id} className="check">
+            <input type="checkbox" checked={picked.has(v.id)} onChange={() => toggle(v.id)} /> {v.name.replace('RallyGully ', '')}{v.id === from.id && <span className="subtle"> · source</span>}
+          </label>
+        ))}
+      </div>
+    </Drawer>
   )
 }
 
