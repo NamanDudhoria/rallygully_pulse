@@ -61,10 +61,10 @@ function Pts({ cur, prev }) {
 }
 
 /** Portfolio → Venue → Sport → Facility, each level against the previous equal-length period. */
-export default function Analytics() {
+export default function Analytics({ venue: fixedVenue = null, embedded = false }) {
   const [params, setParams] = useSearchParams()
   const range = RANGES.some((r) => r.value === params.get('range')) ? params.get('range') : 'mtd'
-  const venueId = params.get('venue')
+  const venueId = fixedVenue != null ? String(fixedVenue) : params.get('venue')
   const sport = params.get('sport')
   const { from, to, cmpFrom, cmpTo } = periodFor(range, params)
   const q = new URLSearchParams({ date_from: from, date_to: to })
@@ -100,12 +100,14 @@ export default function Analytics() {
     <div className="stack rise">
       <div className="page-head">
         <div>
-          <div className="crumbs">
-            <button className="btn btn-ghost btn-sm" onClick={() => set({ venue: null, sport: null })}>Portfolio</button>
-            {venueId && <><ChevronRight size={14} /><button className="btn btn-ghost btn-sm" onClick={() => set({ sport: null })}>{venueName}</button></>}
-            {sport && <><ChevronRight size={14} /><span style={{ padding: '0 10px' }}>{sport}</span></>}
-          </div>
-          <h1 style={{ marginTop: 4 }}>Performance</h1>
+          {(!embedded || sport) && (
+            <div className="crumbs">
+              {!embedded && <button className="btn btn-ghost btn-sm" onClick={() => set({ venue: null, sport: null })}>Portfolio</button>}
+              {venueId && <>{!embedded && <ChevronRight size={14} />}<button className="btn btn-ghost btn-sm" onClick={() => set({ sport: null })}>{embedded ? 'All sports' : venueName}</button></>}
+              {sport && <><ChevronRight size={14} /><span style={{ padding: '0 10px' }}>{sport}</span></>}
+            </div>
+          )}
+          {!embedded && <h1 style={{ marginTop: 4 }}>Performance</h1>}
           <p>
             {range === 'mtd' ? (from.slice(5, 7) === todayISO().slice(5, 7) ? 'Month to date' : 'Last month (no completed days yet this month)')
               : range === 'custom' ? 'Custom range' : `Last ${range} days`}

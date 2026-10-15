@@ -128,3 +128,23 @@ def test_config_permissions(c):
     comm = login(c, "comm@x.com")
     assert c.post("/api/venues", headers=comm, json={"code": "N2", "name": "N"}).status_code == 403
     assert c.put("/api/facilities/1", headers=comm, json={"venue_id": 1, "name": "x", "sport": "y"}).status_code == 403
+
+
+def test_bulk_hours_apply_to_every_chosen_venue(c):
+    h = login(c)
+    other = c.post("/api/venues", headers=h, json={"code": "DW10", "name": "Sector 10 Dwarka", "location": "Delhi"})
+    assert other.status_code == 200
+    # Clear the new venue's hours, as the go-live reset does, then apply one set to both venues.
+    db = SessionLocal()
+    db.query(WeeklyHours).filter(WeeklyHours.venue_id == other.json()["id"]).delete()
+    db.commit()
+    db.close()
+    week = [{"weekday": wd, "open": "06:00", "close": "23:00"} for wd in range(7)]
+    r = c.post("/api/hours/bulk", headers=h, json={"venue_ids": [1, other.json()["id"]], "hours": week})
+    assert r.status_code == 200 and r.json()["venues"] == 2
+    venues = {v["id"]: v for v in c.get("/api/venues", headers=h).json()}
+    for v in venues.values():
+        assert len(v["weekly_hours"]) == 7 and all(w["open_min"] == 360 and w["close_min"] == 1380 for w in v["weekly_hours"])
+    assert c.post("/api/hours/bulk", headers=h, json={"venue_ids": [], "hours": week}).status_code == 422
+    assert c.post("/api/hours/bulk", headers=h, json={"venue_ids": [1], "hours": [
+        {"weekday": 0, "open": "10:00", "close": "09:00"}]}).status_code == 422

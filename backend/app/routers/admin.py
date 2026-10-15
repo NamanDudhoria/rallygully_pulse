@@ -114,6 +114,33 @@ def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require("con
     return serialize.venue(v, full=True)
 
 
+class BulkHoursIn(BaseModel):
+    venue_ids: list[int]
+    hours: list[HoursIn]
+
+
+@router.post("/hours/bulk")
+def set_hours_bulk(body: BulkHoursIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
+    """Apply the same weekly hours to several venues at once (each venue is checked on its own)."""
+    if not body.venue_ids:
+        raise HTTPException(422, "Choose at least one venue.")
+    for vid in dict.fromkeys(body.venue_ids):
+        get_or_404(db, Venue, vid)
+        for h in body.hours:
+            o, c = minutes(h.open), minutes(h.close)
+            if not h.closed:
+                _check_hours(o, c)
+            venue_config.check_weekly_hours(db, vid, h.weekday, None if h.closed else (o, c))
+            row = db.get(WeeklyHours, (vid, h.weekday)) or WeeklyHours(venue_id=vid, weekday=h.weekday)
+            before = {"open": row.open_min, "close": row.close_min, "closed": row.closed} if row.open_min is not None else None
+            row.open_min, row.close_min, row.closed = o, c, h.closed
+            db.add(row)
+            audit.record(db, user, "venue.hours", "venue", vid, before,
+                         {"weekday": h.weekday, "open": o, "close": c, "closed": h.closed}, vid)
+    db.commit()
+    return {"venues": len(set(body.venue_ids))}
+
+
 @router.put("/venues/{venue_id}/hours")
 def set_hours(venue_id: int, body: list[HoursIn], user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     v = get_or_404(db, Venue, venue_id)
