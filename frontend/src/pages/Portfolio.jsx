@@ -1,3 +1,4 @@
+import MonthlyRevenue from '../components/MonthlyRevenue'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, IndianRupee, Gauge, Layers, Repeat, Target, Zap } from 'lucide-react'
@@ -106,6 +107,8 @@ export default function Portfolio() {
           <div className="card-body scroll-y"><Insights items={data.insights} historyDays={data.history_days} /></div>
         </div>
       </div>
+
+      <MonthlyRevenue />
 
       <div className="grid g-main">
         <div className="card">

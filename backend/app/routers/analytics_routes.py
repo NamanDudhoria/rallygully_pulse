@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..permissions import require
 from ..db import get_db
-from ..models import Booking, DayClose, Facility, User
+from ..models import Booking, DayClose, Facility, HistRevenue, User
 from ..services import analytics, anomaly, bookings, dayclose, inventory
 from ..timeutil import hhmm, now_local, today
 from .common import custom_window, day_or_today
@@ -184,6 +184,43 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
             "previous_total": _slim(prev_total) if prev_total else None,
             "series": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
                         "total_activity": m["total_activity"]} for k, m in series.items()]}
+
+
+@router.get("/monthly")
+def monthly(venue_id: int | None = None, user: User = Depends(require("portfolio.view")), db: Session = Depends(get_db)):
+    """Revenue by month: imported history where it exists, live Pulse for later months.
+
+    A venue-month takes one source only — history if it has any, otherwise live — so nothing is counted twice.
+    """
+    venues = [v for v in analytics.venues_list(db, None) if venue_id is None or v.id == venue_id]
+    if venue_id is not None and not venues:
+        raise HTTPException(404, "Venue not found")
+    ids = [v.id for v in venues]
+    cells: dict = defaultdict(float)
+    source: dict = {}
+    for vid, y, m, g in db.execute(select(HistRevenue.venue_id, HistRevenue.year, HistRevenue.month, HistRevenue.gross)
+                                   .where(HistRevenue.venue_id.in_(ids))):
+        k = (vid, f"{y:04d}-{m:02d}")
+        cells[k] += g
+        source[k] = "history"
+    first = analytics.first_data_date(db)
+    if first:
+        for (vid, d), m in analytics.raw_days(db, ids, first, today()).items():
+            k = (vid, d.strftime("%Y-%m"))
+            if source.get(k) == "history":
+                continue
+            cells[k] += m["net_revenue"]
+            source[k] = "live"
+    months = sorted({k[1] for k in cells})
+    current = today().strftime("%Y-%m")
+    return {
+        "months": [{"month": mk, "revenue": round(sum(cells.get((v.id, mk), 0) for v in venues), 2),
+                    "partial": mk == current, "live": any(source.get((v.id, mk)) == "live" for v in venues)}
+                   for mk in months],
+        "venues": [{"id": v.id, "name": v.name, "code": v.code,
+                    "months": {mk: round(cells[(v.id, mk)], 2) for mk in months if (v.id, mk) in cells}} for v in venues
+                   if any((v.id, mk) in cells for mk in months)],
+    }
 
 
 @router.get("/insights")

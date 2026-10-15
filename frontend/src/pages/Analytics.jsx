@@ -1,3 +1,4 @@
+import MonthlyRevenue from '../components/MonthlyRevenue'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { useApi } from '../lib/hooks'
@@ -153,6 +154,8 @@ export default function Analytics() {
           <div className="card-body"><ChannelMix values={t.net_by_kind} title="Channel mix" /></div>
         </div>
       </div>
+
+      <MonthlyRevenue venueId={venueId} title={venueId ? `Monthly revenue · ${venueName}` : 'Monthly revenue'} />
 
       <div className="card">
         <div className="card-head">
