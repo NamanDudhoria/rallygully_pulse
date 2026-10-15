@@ -124,3 +124,14 @@ def test_tracker_reconciliation_sets_excluded_venues_apart(folder):
     assert r["rows"][0]["pulse"] == 7500 and r["rows"][0]["tracker"] == 7500.4
     assert r["excluded"] == [{"label": "RallyGully I Gandhipath", "by_month": {"2026-09": 900}, "total": 900}]
     assert r["monthly"] == [{"month": "2026-09", "pulse": 7500, "excluded": 900, "tracker_total": 8400.4, "unexplained": 0.4}]
+
+
+def test_monthly_revenue_uses_history_once_per_venue_month(folder):
+    run_ingest(str(folder))
+    from app.routers.analytics_routes import monthly
+    with SessionLocal() as db:
+        r = monthly(venue_id=None, user=None, db=db)
+        gross = sum(l.gross for l in db.query(HistRevenue))
+    assert [m["month"] for m in r["months"]] == ["2026-09"]
+    assert round(r["months"][0]["revenue"], 2) == round(gross, 2) and not r["months"][0]["live"]
+    assert r["venues"][0]["months"]["2026-09"] == round(gross, 2)
