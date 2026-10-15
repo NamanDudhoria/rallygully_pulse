@@ -22,7 +22,7 @@ def _slim(m: dict) -> dict:
             "occupancy", "utilization", "occupied_units", "sellable_units", "operational_units", "blocked_units",
             "unused_units", "reserved_units", "total_activity", "unique_customers", "returning_customers",
             "no_shows", "cancellations", "overdue", "unassigned_district", "cash_share", "activities",
-            "net_by_kind", "occupied_by_kind", "collected_by_method", "academy_accrued")
+            "net_by_kind", "occupied_by_kind", "collected_by_method", "academy_accrued", "from_history")
     return {k: m.get(k) for k in keys}
 
 
@@ -41,17 +41,23 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
     now_total = analytics.daily_series(db, ids, d, d, cutoff).get(d) if is_today else None
     per_venue = analytics.raw_days(db, ids, d, d)
     per_venue_now = analytics.raw_days(db, ids, d, d, cutoff) if is_today else per_venue
+    hist = history_overlay.totals(db, ids, d, d)  # imported revenue for a past date Pulse didn't record
+    if hist["total"]:
+        total = history_overlay.with_revenue(total, hist["total"], hist["by_kind"])
     rows = []
     for v in venues:
         src = per_venue_now if is_today else per_venue
         m = analytics.finalize(analytics.combine([src[(v.id, d)]] if (v.id, d) in src else []))
+        if hist["by_venue"].get(v.id):
+            m = history_overlay.with_revenue(m, hist["by_venue"][v.id], hist["by_venue_kind"][v.id])
         cmp_ = analytics.comparisons(db, [v.id], d, ["net_revenue", "occupancy", "total_activity"],
                                      cutoff if is_today else None, custom)
         rows.append({"venue": {"id": v.id, "name": v.name, "code": v.code, "location": v.location},
                      "hours": _hours(db, v.id, d), "metrics": _slim(m), "comparisons": cmp_,
                      "day_close": dayclose.status(db, v.id, d)["status"]})
     trend = analytics.daily_series(db, ids, d - timedelta(days=89), d)
-    insights = anomaly.portfolio(db, venues, d, cutoff) if total else []
+    trend_hist = history_overlay.totals(db, ids, d - timedelta(days=89), d)["by_day"]
+    insights = anomaly.portfolio(db, venues, d, cutoff) if total and not hist["total"] else []
     if is_today:
         insights += anomaly.portfolio(db, venues, d - timedelta(days=1))
     hours = [h for h in (inventory.hours_for(db, v.id, d) for v in venues) if h]
@@ -65,8 +71,7 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89)),
         "repeat_lifetime": analytics.repeat_rate(db, d),
         "venues": rows,
-        "trend": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
-                   "opportunity": m["opportunity"], "total_activity": m["total_activity"]} for k, m in trend.items()],
+        "trend": history_overlay.trend_rows(trend, trend_hist, ("occupancy", "opportunity", "total_activity")),
         "intraday": intraday_curve(db, ids, d, span) if is_today else None,
         "insights": insights,
         "exceptions": _exceptions(db, ids, d),

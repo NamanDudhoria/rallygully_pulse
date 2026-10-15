@@ -170,3 +170,18 @@ def test_portfolio_custom_baseline_uses_history(folder):
     assert rev["samples"] == 30 and rev["unit"] == "inr" and round(rev["baseline"] * 30, 2) == round(gross, 2)
     assert rev["available"] is False                                   # nothing recorded today to compare with yet
     assert "baseline" not in w["occupancy"]["windows"]["custom"]       # history carries revenue only
+
+
+def test_past_date_pages_show_imported_revenue_only(folder):
+    run_ingest(str(folder))
+    from datetime import date
+    from app.models import User
+    from app.routers.analytics_routes import portfolio
+    with SessionLocal() as db:
+        gross = sum(l.gross for l in db.query(HistRevenue))
+        u = User(email="hq@test", name="HQ", role="hq", password_hash="x")
+        day = portfolio(date=date(2026, 9, 10), cmp_from=None, cmp_to=None, user=u, db=db)
+        end = portfolio(date=date(2026, 9, 30), cmp_from=None, cmp_to=None, user=u, db=db)
+    assert day["metrics"]["net_revenue"] > 0 and day["metrics"]["from_history"] is True
+    assert day["metrics"]["collected"] == 0 and day["metrics"]["occupancy"] is None   # not in the workbooks
+    assert abs(sum(x["net_revenue"] for x in end["trend"]) - gross) < 0.5               # September is all of it

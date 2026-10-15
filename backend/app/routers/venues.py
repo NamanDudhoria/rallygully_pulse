@@ -11,7 +11,7 @@ from ..permissions import can, ensure_venue, roster_pairs, roster_scoped
 from ..db import get_db
 from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, CorporateEvent, Customer, Facility,
                       OperationalBlock, User, Venue)
-from ..services import analytics, bookings, dayclose, inventory, roster
+from ..services import analytics, bookings, dayclose, history_overlay, inventory, roster
 from ..services.pricing import quote
 from ..timeutil import hhmm, minute_of, now_local
 from .common import custom_window, day_or_today, get_or_404, minutes
@@ -114,6 +114,10 @@ def venue_day(venue_id: int, date: date | None = None, cmp_from: date | None = N
     cutoff = analytics.now_cutoff(d)  # unclamped: same key as the portfolio, so the warmed cache is shared
     full = analytics.daily_series(db, [venue_id], d, d).get(d)
     trend = analytics.daily_series(db, [venue_id], d - timedelta(days=29), d)
+    hist = history_overlay.totals(db, [venue_id], d, d)  # imported revenue for a past date Pulse didn't record
+    if hist["total"]:
+        full = history_overlay.with_revenue(full, hist["total"], hist["by_kind"])
+    trend_hist = history_overlay.totals(db, [venue_id], d - timedelta(days=29), d)["by_day"]
     return {
         **out,
         "metrics": full,
@@ -122,8 +126,7 @@ def venue_day(venue_id: int, date: date | None = None, cmp_from: date | None = N
         "comparison_mode": "intraday" if is_today else "full_day",
         "comparisons": analytics.comparisons(db, [venue_id], d, DAY_METRICS, cutoff if is_today else None, custom),
         "intraday": intraday_curve(db, [venue_id], d, hours),
-        "trend": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
-                   "total_activity": m["total_activity"]} for k, m in trend.items()],
+        "trend": history_overlay.trend_rows(trend, trend_hist, ("occupancy", "total_activity")),
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89), [venue_id]),
         "history_days": analytics.history_days(db),
     }

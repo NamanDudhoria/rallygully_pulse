@@ -71,7 +71,9 @@ export default function VenueDay() {
       ]} />
 
       {tab === 'summary' && (d.show_performance && !d.metrics
-        ? <Empty title="Not operating on this date" />
+        ? <Empty title={d.hours ? 'Nothing recorded for this date' : 'Opening hours are not set for this date'}>
+            {!d.hours && <Link className="btn btn-sm" to="/config">Set opening hours</Link>}
+          </Empty>
         : d.show_performance
         ? <Summary d={d} baseline={baseline} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />
         : <OpsSummary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />)}

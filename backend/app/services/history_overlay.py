@@ -60,16 +60,39 @@ def spread(l, start: date, end: date):
 def totals(db: Session, venue_ids: list[int], start: date, end: date) -> dict:
     """{'by_venue': {vid: x}, 'by_sport': {sport: x}, 'by_day': {date: x}, 'by_kind': {kind: x}, 'total': x}."""
     out = {"by_venue": defaultdict(float), "by_sport": defaultdict(float), "by_day": defaultdict(float),
-           "by_kind": defaultdict(float), "total": 0.0}
+           "by_kind": defaultdict(float), "by_venue_kind": defaultdict(lambda: defaultdict(float)), "total": 0.0}
     for l in lines(db, venue_ids, start, end):
         for d, x in spread(l, start, end):
             out["by_venue"][l.venue_id] += x
             out["by_sport"][l.sport or "Unspecified"] += x
             out["by_day"][d] += x
             out["by_kind"][kind_of(l.channel)] += x
+            out["by_venue_kind"][l.venue_id][kind_of(l.channel)] += x
             out["total"] += x
     return out
 
 
 def has_any(db: Session, venue_ids: list[int], start: date, end: date) -> bool:
     return bool(lines(db, venue_ids, start, end))
+
+
+def with_revenue(m: dict | None, total: float, by_kind: dict) -> dict:
+    """Finalized day metrics (or an empty day) with imported revenue added."""
+    live = bool(m and (m.get("net_revenue") or m.get("booking_value")))
+    m = m if m else analytics.finalize(analytics.combine([]))
+    m["from_history"] = not live  # only revenue is known; bookings, payments and occupancy are not
+    m["net_revenue"] = round((m.get("net_revenue") or 0) + total, 2)
+    for k, v in by_kind.items():
+        m["net_by_kind"][k] = round(m["net_by_kind"].get(k, 0) + v, 2)
+    return m
+
+
+def trend_rows(series: dict, by_day: dict, keys: tuple) -> list[dict]:
+    """Daily trend rows from live metrics plus imported revenue for days Pulse didn't record."""
+    rows = []
+    for d in sorted(set(series) | set(by_day)):
+        m = series.get(d)
+        row = {"date": d, **{k: (m[k] if m else None) for k in keys}}
+        row["net_revenue"] = round(((m["net_revenue"] if m else 0) or 0) + by_day.get(d, 0), 2)
+        rows.append(row)
+    return rows
