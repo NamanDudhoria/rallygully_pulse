@@ -1,3 +1,4 @@
+import Boundary from '../components/Boundary'
 import MonthlyRevenue from '../components/MonthlyRevenue'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
@@ -155,7 +156,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      <MonthlyRevenue venueId={venueId} title={venueId ? `Monthly revenue · ${venueName}` : 'Monthly revenue'} />
+      <Boundary quiet><MonthlyRevenue venueId={venueId} title={venueId ? `Monthly revenue · ${venueName}` : 'Monthly revenue'} /></Boundary>
 
       <div className="card">
         <div className="card-head">

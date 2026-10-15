@@ -1,3 +1,4 @@
+import Boundary from '../components/Boundary'
 import MonthlyRevenue from '../components/MonthlyRevenue'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -108,7 +109,7 @@ export default function Portfolio() {
         </div>
       </div>
 
-      <MonthlyRevenue />
+      <Boundary quiet><MonthlyRevenue /></Boundary>
 
       <div className="grid g-main">
         <div className="card">
