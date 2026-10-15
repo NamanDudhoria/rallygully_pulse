@@ -590,13 +590,14 @@ def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], 
     hist_days: dict = {}
     if "net_revenue" in metrics:
         from . import history_overlay
-        spans = [x for w in WINDOWS for x in _window_days(w, d, custom)]
-        if spans:
-            hist_days = history_overlay.totals(db, venue_ids, min(spans), max(spans))["by_day"]
+        spans = [x for w in WINDOWS for x in _window_days(w, d, custom)] + [d]
+        hist_days = history_overlay.totals(db, venue_ids, min(spans), max(spans))["by_day"]
     result = {}
     for name in metrics:
         f = METRICS[name]
         current = f(cur) if cur else None
+        if current is None and name == "net_revenue" and d in hist_days:
+            current = hist_days[d]  # a past day known only from the imported history
         windows = {}
         for w, span in WINDOWS.items():
             days = _window_days(w, d, custom)
