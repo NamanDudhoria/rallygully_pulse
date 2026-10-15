@@ -155,3 +155,18 @@ def test_performance_covers_imported_months_without_double_counting(folder):
     assert abs(sum(p["net_revenue"] for p in whole["series"]) - gross) < 0.5       # days are rounded to paise
     assert round(sum(whole["total"]["net_by_kind"].values()), 2) == round(gross, 2)
     assert empty["total"]["net_revenue"] == 0                                  # nothing recorded for October
+
+
+def test_portfolio_custom_baseline_uses_history(folder):
+    run_ingest(str(folder))
+    from datetime import date
+    from app.services import analytics
+    with SessionLocal() as db:
+        gross = sum(l.gross for l in db.query(HistRevenue))
+        ids = [v.id for v in db.query(Venue)]
+        w = analytics.comparisons(db, ids, date(2026, 10, 15), ["net_revenue", "occupancy"], None,
+                                  (date(2026, 9, 1), date(2026, 9, 30)))
+    rev = w["net_revenue"]["windows"]["custom"]
+    assert rev["samples"] == 30 and rev["unit"] == "inr" and round(rev["baseline"] * 30, 2) == round(gross, 2)
+    assert rev["available"] is False                                   # nothing recorded today to compare with yet
+    assert "baseline" not in w["occupancy"]["windows"]["custom"]       # history carries revenue only

@@ -586,6 +586,13 @@ def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], 
     if custom and custom[0] < d - timedelta(days=90):
         series = {**daily_series(db, venue_ids, custom[0], min(custom[1], d), cutoff_min), **series}
     cur = series.get(d)
+    # Imported history stands in for days before Pulse recorded anything (revenue only).
+    hist_days: dict = {}
+    if "net_revenue" in metrics:
+        from . import history_overlay
+        spans = [x for w in WINDOWS for x in _window_days(w, d, custom)]
+        if spans:
+            hist_days = history_overlay.totals(db, venue_ids, min(spans), max(spans))["by_day"]
     result = {}
     for name in metrics:
         f = METRICS[name]
@@ -593,13 +600,21 @@ def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], 
         windows = {}
         for w, span in WINDOWS.items():
             days = _window_days(w, d, custom)
-            vals = [f(series[x]) for x in days if x in series and series[x]["operational_units"] > 0
-                    and f(series[x]) is not None]
+            vals = []
+            for x in days:
+                if x in series and series[x]["operational_units"] > 0 and f(series[x]) is not None:
+                    vals.append(f(series[x]))
+                elif name == "net_revenue" and x in hist_days:
+                    vals.append(hist_days[x])
             n = len(vals)
-            if n < MIN_SAMPLES[w] or current is None:
+            if n < MIN_SAMPLES[w]:
                 windows[w] = {"available": False, "samples": n, "required": MIN_SAMPLES[w]}
                 continue
             base = sum(vals) / n
+            if current is None:  # nothing to compare yet today, but the baseline is still worth showing
+                windows[w] = {"available": False, "samples": n, "required": MIN_SAMPLES[w], "baseline": base,
+                              "unit": "inr" if name == "net_revenue" else None}
+                continue
             windows[w] = {"available": True, "samples": n, "full": n >= min(len(days), 4 if w == "same_weekday" else span),
                           "baseline": base, "abs_change": current - base,
                           "pct_change": (current - base) / base if base else None}

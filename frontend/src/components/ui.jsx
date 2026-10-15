@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDownRight, ArrowUpRight, Minus, X, Inbox } from 'lucide-react'
-import { KIND } from '../lib/format'
+import { KIND, money } from '../lib/format'
 import { WINDOW_LABEL } from './badges'
 
 export function Delta({ win, invert = false, digits = 1, label }) {
+  if (win && !win.available && win.baseline != null && win.unit === 'inr') {
+    return <span className="delta na" title={`Average over ${win.samples} day(s); nothing to compare yet`}>avg {money(win.baseline)}/day</span>
+  }
   if (!win || !win.available) {
     const need = win ? `needs ${win.required}+ days` : 'no history'
     return <span className="delta na" title={win ? `${win.samples} of ${win.required} days of history` : undefined}>{label ? `${label}: ` : ''}{need}</span>
