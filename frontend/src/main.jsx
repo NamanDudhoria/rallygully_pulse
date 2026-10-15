@@ -5,13 +5,14 @@ import './index.css'
 import './styles/app.css'
 import App from './App'
 import { AuthProvider, ToastProvider } from './lib/context'
+import Boundary from './components/Boundary'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <ToastProvider>
         <AuthProvider>
-          <App />
+          <Boundary><App /></Boundary>
         </AuthProvider>
       </ToastProvider>
     </BrowserRouter>
