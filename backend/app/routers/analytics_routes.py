@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..permissions import require
 from ..db import get_db
 from ..models import Booking, DayClose, Facility, HistRevenue, User
-from ..services import analytics, anomaly, bookings, dayclose, inventory
+from ..services import analytics, anomaly, bookings, dayclose, history_overlay, inventory
 from ..timeutil import hhmm, now_local, today
 from .common import custom_window, day_or_today
 from .venues import DAY_METRICS, intraday_curve
@@ -148,7 +148,22 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
 
     cur, prev = level_rows(date_from, date_to), level_rows(prev_from, prev_to)
     first = analytics.first_data_date(db)
-    prev_available = bool(first and first <= prev_from)
+    scope = ids if venue_id is None else [venue_id]
+    hist_cur = history_overlay.totals(db, scope, date_from, date_to)
+    hist_prev = history_overlay.totals(db, scope, prev_from, prev_to)
+    prev_available = bool(first and first <= prev_from) or bool(hist_prev["total"])
+    if venue_id is None:
+        hkey = lambda src: src["by_venue"]  # noqa: E731
+    elif sport is None:
+        hkey = lambda src: src["by_sport"]  # noqa: E731
+    else:
+        hkey = lambda src: {}  # noqa: E731 — history has no facility detail
+    for rows_, hist in ((cur, hist_cur), (prev, hist_prev)):
+        for k, x in hkey(hist).items():
+            if k not in rows_ and venue_id is None and k not in {v.id for v in venues}:
+                continue
+            m = rows_.setdefault(k, analytics.finalize(analytics.combine([])))
+            m["net_revenue"] = round((m.get("net_revenue") or 0) + x, 2)
     names = {}
     if venue_id is None:
         level = "venue"
@@ -177,13 +192,26 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
                  if fid in sport_fids]))
         return analytics.finalize(analytics.combine(list(analytics.compute(db, scope_ids, start, end)["days"].values())))
 
-    total = total_for(date_from, date_to)
-    prev_total = total_for(prev_from, prev_to) if prev_available else None
+    def with_history(m, hist):
+        x = hist["total"] if sport is None else hist["by_sport"].get(sport, 0.0)
+        m["net_revenue"] = round((m.get("net_revenue") or 0) + x, 2)
+        if sport is None:
+            for k, v in hist["by_kind"].items():
+                m["net_by_kind"][k] = round(m["net_by_kind"].get(k, 0) + v, 2)
+        return m
+
+    total = with_history(total_for(date_from, date_to), hist_cur)
+    prev_total = with_history(total_for(prev_from, prev_to), hist_prev) if prev_available else None
+    live_days = {k: m["net_revenue"] for k, m in series.items()}
+    by_day = {d: (live_days.get(d, 0) + (hist_cur["by_day"].get(d, 0) if sport is None else 0))
+              for d in set(live_days) | (set(hist_cur["by_day"]) if sport is None else set())}
     return {"level": level, "date_from": date_from, "date_to": date_to, "previous_from": prev_from,
             "previous_to": prev_to, "previous_available": prev_available, "rows": rows, "total": _slim(total),
             "previous_total": _slim(prev_total) if prev_total else None,
-            "series": [{"date": k, "net_revenue": m["net_revenue"], "occupancy": m["occupancy"],
-                        "total_activity": m["total_activity"]} for k, m in series.items()]}
+            "series": [{"date": d, "net_revenue": round(by_day[d], 2),
+                        "occupancy": series[d]["occupancy"] if d in series else None,
+                        "total_activity": series[d]["total_activity"] if d in series else None}
+                       for d in sorted(by_day)]}
 
 
 @router.get("/monthly")

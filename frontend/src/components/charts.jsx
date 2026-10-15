@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { KIND, KINDS, money, pct, shortDate } from '../lib/format'
+import { HISTORY_KINDS, KIND, KINDS, money, pct, shortDate } from '../lib/format'
 
 const PAD = { l: 46, r: 12, t: 12, b: 26 }
 
@@ -145,16 +145,17 @@ function niceStep(raw) {
 
 /** Channel mix: one stacked bar with 2px gaps + labelled rows (identity never colour-alone). */
 export function ChannelMix({ values, format = money, title }) {
-  const total = KINDS.reduce((a, k) => a + Math.max(0, values?.[k] || 0), 0)
+  const kinds = [...KINDS, ...HISTORY_KINDS.filter((k) => values?.[k] > 0)]
+  const total = kinds.reduce((a, k) => a + Math.max(0, values?.[k] || 0), 0)
   return (
     <div className="mix" aria-label={title}>
-      <div className="mix-bar" role="img" aria-label={`${title}: ` + KINDS.map((k) => `${KIND[k].label} ${pct(total ? (values?.[k] || 0) / total : 0)}`).join(', ')}>
-        {KINDS.map((k) => total > 0 && values?.[k] > 0 && (
+      <div className="mix-bar" role="img" aria-label={`${title}: ` + kinds.map((k) => `${KIND[k].label} ${pct(total ? (values?.[k] || 0) / total : 0)}`).join(', ')}>
+        {kinds.map((k) => total > 0 && values?.[k] > 0 && (
           <span key={k} style={{ width: `${(values[k] / total) * 100}%`, background: KIND[k].color }} title={`${KIND[k].label}: ${format(values[k])}`} />
         ))}
       </div>
       <div className="mix-rows">
-        {KINDS.map((k) => (
+        {kinds.map((k) => (
           <div key={k} className="mix-row">
             <span className="kind-label"><span className="kind-dot" style={{ background: KIND[k].color }} />{KIND[k].label}</span>
             <span className="v">{format(values?.[k] || 0)}</span>
