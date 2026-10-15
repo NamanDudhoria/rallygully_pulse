@@ -32,12 +32,15 @@ export function LineChart({ data, series, x = 'date', height = 220, format = (v)
   const labelEvery = Math.ceil(data.length / 7)
 
   const onMove = (e) => {
+    if (!data.length) return
     const r = ref.current.getBoundingClientRect()
     const px = ((e.clientX - r.left) / r.width) * W
     const i = Math.round(((px - pad.l) / (W - pad.l - pad.r)) * n)
     setHover(Math.max(0, Math.min(data.length - 1, i)))
   }
-  const hx = hover != null ? pad.l + (hover / n) * (W - pad.l - pad.r) : null
+  // The data can change (or empty out) while the pointer is over the chart; ignore a stale index.
+  const at = hover != null ? data[hover] : null
+  const hx = at ? pad.l + (hover / n) * (W - pad.l - pad.r) : null
 
   return (
     <div className="chart" ref={box} onMouseLeave={() => setHover(null)}>
@@ -79,16 +82,16 @@ export function LineChart({ data, series, x = 'date', height = 220, format = (v)
           </g>
         )}
       </svg>
-      {hover != null && (
+      {at && (
         <div className="chart-tip" style={{ left: `clamp(0px, calc(${(hx / W) * 100}% - 70px), calc(100% - 160px))`, top: 4 }}>
-          <div className="t-date">{xFormat(data[hover][x])}</div>
+          <div className="t-date">{xFormat(at[x])}</div>
           {series.map((s) => (
             <div key={s.key} className="t-row">
               <span className="row" style={{ gap: 6, color: s.color }}>
                 <span className={`swatch ${s.dashed ? 'dash' : ''}`} style={{ background: s.color }} />
                 <span style={{ color: 'var(--text-2)' }}>{s.label}</span>
               </span>
-              <b>{data[hover][s.key] == null ? '—' : format(data[hover][s.key])}</b>
+              <b>{at[s.key] == null ? '—' : format(at[s.key])}</b>
             </div>
           ))}
         </div>
