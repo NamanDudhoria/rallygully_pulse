@@ -74,9 +74,13 @@ export const KIND = {
   community: { label: 'Community', color: 'var(--k-community)' },
   academy: { label: 'Academy', color: 'var(--k-academy)' },
   corporate: { label: 'Corporate', color: 'var(--k-corporate)' },
+  platforms: { label: 'Other platforms', color: '#8b6fd1' },
+  other: { label: 'Memberships & other', color: '#7d8590' },
   block: { label: 'Op. Block', color: 'var(--k-block)' },
 }
 export const KINDS = ['district', 'direct', 'community', 'academy', 'corporate']
+/** Kinds that only imported history produces; shown only when they have revenue. */
+export const HISTORY_KINDS = ['platforms', 'other']
 
 export const METHOD = { cash: 'Cash', upi: 'UPI', card: 'Card', other: 'Other', online: 'District (online)' }
 

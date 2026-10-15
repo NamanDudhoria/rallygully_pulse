@@ -135,3 +135,23 @@ def test_monthly_revenue_uses_history_once_per_venue_month(folder):
     assert [m["month"] for m in r["months"]] == ["2026-09"]
     assert round(r["months"][0]["revenue"], 2) == round(gross, 2) and not r["months"][0]["live"]
     assert r["venues"][0]["months"]["2026-09"] == round(gross, 2)
+
+
+def test_performance_covers_imported_months_without_double_counting(folder):
+    run_ingest(str(folder))
+    from datetime import date
+    from app.routers.analytics_routes import drill
+    with SessionLocal() as db:
+        gross = sum(l.gross for l in db.query(HistRevenue))
+        whole = drill(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30), venue_id=None, sport=None,
+                      compare_from=None, compare_to=None, user=None, db=db)
+        half = drill(date_from=date(2026, 9, 1), date_to=date(2026, 9, 15), venue_id=None, sport=None,
+                     compare_from=None, compare_to=None, user=None, db=db)
+        empty = drill(date_from=date(2026, 10, 1), date_to=date(2026, 10, 14), venue_id=None, sport=None,
+                      compare_from=None, compare_to=None, user=None, db=db)
+    assert round(whole["total"]["net_revenue"], 2) == round(gross, 2)          # a whole month is exact
+    assert round(sum(r["metrics"]["net_revenue"] for r in whole["rows"]), 2) == round(gross, 2)
+    assert 0 < half["total"]["net_revenue"] < gross                            # a part month is a share of it
+    assert abs(sum(p["net_revenue"] for p in whole["series"]) - gross) < 0.5       # days are rounded to paise
+    assert round(sum(whole["total"]["net_by_kind"].values()), 2) == round(gross, 2)
+    assert empty["total"]["net_revenue"] == 0                                  # nothing recorded for October
