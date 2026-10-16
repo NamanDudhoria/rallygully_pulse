@@ -12,12 +12,14 @@ export default function TodayBand({ full: fullIn, now: nowIn, cmp, win, live, da
   const cells = [
     { label: 'Collected', value: money(full.collected), sub: full.refunds > 0 ? `${money(full.refunds)} refunded` : 'no refunds' },
     { label: 'To collect', value: money(full.outstanding), sub: full.overdue ? `${full.overdue} overdue` : 'none overdue', tone: full.overdue ? 'bad' : undefined },
-    { label: live ? 'Bookings today' : 'Bookings', value: num((a.direct || 0) + (a.district || 0)), sub: `${a.direct || 0} direct · ${a.district || 0} District` },
+    h && full.history_occupancy
+      ? { label: 'Bookings', value: num(full.total_activity), sub: '', keep: true }
+      : { label: live ? 'Bookings today' : 'Bookings', value: num((a.direct || 0) + (a.district || 0)), sub: `${a.direct || 0} direct · ${a.district || 0} District` },
     { label: 'Community · Academy', value: `${a.community || 0} · ${a.academy || 0}`, sub: `${a.corporate || 0} corporate event${a.corporate === 1 ? '' : 's'}` },
-    { label: live ? 'Occupancy so far' : 'Occupancy', value: pct(now.occupancy, 1), sub: `${hours(now.occupied_units)} of ${hours(now.sellable_units)}` },
-    { label: 'Customers', value: num(full.unique_customers), sub: `${num(full.returning_customers)} returning` },
+    { label: live ? 'Occupancy so far' : 'Occupancy', value: pct(now.occupancy, 1), sub: `${hours(now.occupied_units)} of ${hours(now.sellable_units)}`, keep: full.history_occupancy },
+    { label: 'Customers', value: num(full.unique_customers), sub: h ? 'approx.' : `${num(full.returning_customers)} returning`, keep: full.history_occupancy },
     ...extra,
-  ].map((c) => (h ? { ...c, value: '—', sub: '', tone: undefined } : c))
+  ].map((c) => (h && !c.keep ? { ...c, value: '—', sub: '', tone: undefined } : c))
   return (
     <section className="card today-band" aria-label={live ? 'Today at a glance' : 'Day at a glance'}>
       <div className="today-hero">

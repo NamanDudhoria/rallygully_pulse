@@ -74,7 +74,7 @@ cd backend && .venv/bin/python -m app.seed --reset         # rebuild demo data
 ```bash
 cd backend
 python -m app.golive                                             # dry run: what would be removed
-python -m app.golive --confirm --history ../Historic_data_ingestion
+python -m app.golive --confirm --history ../Historic_data_ingestion --bookings ../online_bookings
 ```
 
 `golive` backs up the database, then removes all demo data (bookings, customers, payments, games, academy,
@@ -90,6 +90,17 @@ sport, fees and counterparties only when it adds up to that figure; content-iden
 rows dated outside the file's month are excluded. Every line keeps its file, sheet and row, and every
 discrepancy is listed under *Data notes*. Re-running replaces the ledger. The last run's report is in
 `Historic_data_ingestion/IMPORT_REPORT.md`.
+
+`--bookings` (or `python -m app.history.bookings_ingest <folder>`, run after the sales history) imports the
+platform booking exports — Hudle, Playo, Khelomore and District — for historical occupancy, bookings and
+customers. Revenue is never changed: the sales files stay the only source of money, and where an export
+disagrees with its sales-file channel the gap is listed in `online_bookings/IMPORT_REPORT.md`. Recorded
+bookings fill court time as they are (copies and repeated bookings are kept once; cancelled and refunded ones
+are dropped). Pay & play money that no recorded booking explains is turned into hours at the venue-month's
+online price per hour for each sport, split by online sport mix and spread over weekday x hour in the venue's
+own booking pattern, never past 100% of a court. Capacity is the venue's courts x the hours it actually ran
+that month. Customers are matched by name within a venue (approximate: the exports carry no phone numbers).
+Re-running replaces the bookings import; re-run it after re-running the sales history.
 
 ## Architecture
 

@@ -22,7 +22,8 @@ def _slim(m: dict) -> dict:
             "occupancy", "utilization", "occupied_units", "sellable_units", "operational_units", "blocked_units",
             "unused_units", "reserved_units", "total_activity", "unique_customers", "returning_customers",
             "no_shows", "cancellations", "overdue", "unassigned_district", "cash_share", "activities",
-            "net_by_kind", "occupied_by_kind", "collected_by_method", "academy_accrued", "from_history")
+            "net_by_kind", "occupied_by_kind", "collected_by_method", "academy_accrued", "from_history",
+            "history_occupancy")
     return {k: m.get(k) for k in keys}
 
 
@@ -42,21 +43,23 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
     per_venue = analytics.raw_days(db, ids, d, d)
     per_venue_now = analytics.raw_days(db, ids, d, d, cutoff) if is_today else per_venue
     hist = history_overlay.totals(db, ids, d, d)  # imported revenue for a past date Pulse didn't record
-    if hist["total"]:
-        total = history_overlay.with_revenue(total, hist["total"], hist["by_kind"])
+    if hist["total"] or hist["occ"]["total"]["sellable_units"]:
+        total = history_overlay.with_revenue(total, hist["total"], hist["by_kind"], hist["occ"]["total"])
     rows = []
     for v in venues:
         src = per_venue_now if is_today else per_venue
         m = analytics.finalize(analytics.combine([src[(v.id, d)]] if (v.id, d) in src else []))
-        if hist["by_venue"].get(v.id):
-            m = history_overlay.with_revenue(m, hist["by_venue"][v.id], hist["by_venue_kind"][v.id])
+        if hist["by_venue"].get(v.id) or v.id in hist["occ"]["by_venue"]:
+            m = history_overlay.with_revenue(m, hist["by_venue"].get(v.id, 0.0), hist["by_venue_kind"][v.id],
+                                             hist["occ"]["by_venue"].get(v.id))
         cmp_ = analytics.comparisons(db, [v.id], d, ["net_revenue", "occupancy", "total_activity"],
                                      cutoff if is_today else None, custom)
         rows.append({"venue": {"id": v.id, "name": v.name, "code": v.code, "location": v.location},
                      "hours": _hours(db, v.id, d), "metrics": _slim(m), "comparisons": cmp_,
                      "day_close": dayclose.status(db, v.id, d)["status"]})
     trend = analytics.daily_series(db, ids, d - timedelta(days=89), d)
-    trend_hist = history_overlay.totals(db, ids, d - timedelta(days=89), d)["by_day"]
+    trend_h = history_overlay.totals(db, ids, d - timedelta(days=89), d)
+    trend_hist = trend_h["by_day"]
     insights = anomaly.portfolio(db, venues, d, cutoff) if total and not hist["total"] else []
     if is_today:
         insights += anomaly.portfolio(db, venues, d - timedelta(days=1))
@@ -71,7 +74,8 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
         "repeat": analytics.repeat_rate(db, d, d - timedelta(days=89)),
         "repeat_lifetime": analytics.repeat_rate(db, d),
         "venues": rows,
-        "trend": history_overlay.trend_rows(trend, trend_hist, ("occupancy", "opportunity", "total_activity")),
+        "trend": history_overlay.trend_rows(trend, trend_hist, ("occupancy", "opportunity", "total_activity"),
+                                            trend_h["occ"]["by_day"]),
         "intraday": intraday_curve(db, ids, d, span) if is_today else None,
         "insights": insights,
         "exceptions": _exceptions(db, ids, d),
@@ -163,12 +167,15 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
         hkey = lambda src: src["by_sport"]  # noqa: E731
     else:
         hkey = lambda src: {}  # noqa: E731 — history has no facility detail
+    okey = (lambda src: src["occ"]["by_venue"]) if venue_id is None else (  # noqa: E731
+        (lambda src: src["occ"]["by_sport"]) if sport is None else (lambda src: {}))  # noqa: E731
     for rows_, hist in ((cur, hist_cur), (prev, hist_prev)):
-        for k, x in hkey(hist).items():
+        occ_rows = okey(hist)
+        for k in set(hkey(hist)) | set(occ_rows):
             if k not in rows_ and venue_id is None and k not in {v.id for v in venues}:
                 continue
             m = rows_.setdefault(k, analytics.finalize(analytics.combine([])))
-            m["net_revenue"] = round((m.get("net_revenue") or 0) + x, 2)
+            rows_[k] = history_overlay.with_revenue(m, hkey(hist).get(k, 0.0), {}, occ_rows.get(k))
     names = {}
     if venue_id is None:
         level = "venue"
@@ -199,11 +206,8 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
 
     def with_history(m, hist):
         x = hist["total"] if sport is None else hist["by_sport"].get(sport, 0.0)
-        m["net_revenue"] = round((m.get("net_revenue") or 0) + x, 2)
-        if sport is None:
-            for k, v in hist["by_kind"].items():
-                m["net_by_kind"][k] = round(m["net_by_kind"].get(k, 0) + v, 2)
-        return m
+        occ = hist["occ"]["total"] if sport is None else hist["occ"]["by_sport"].get(sport)
+        return history_overlay.with_revenue(m, x, hist["by_kind"] if sport is None else {}, occ)
 
     total = with_history(total_for(date_from, date_to), hist_cur)
     prev_total = with_history(total_for(prev_from, prev_to), hist_prev) if prev_available else None
@@ -213,10 +217,9 @@ def drill(date_from: date, date_to: date, venue_id: int | None = None, sport: st
     return {"level": level, "date_from": date_from, "date_to": date_to, "previous_from": prev_from,
             "previous_to": prev_to, "previous_available": prev_available, "rows": rows, "total": _slim(total),
             "previous_total": _slim(prev_total) if prev_total else None,
-            "series": [{"date": d, "net_revenue": round(by_day[d], 2),
-                        "occupancy": series[d]["occupancy"] if d in series else None,
-                        "total_activity": series[d]["total_activity"] if d in series else None}
-                       for d in sorted(by_day)]}
+            "series": history_overlay.trend_rows(series, {d: x - live_days.get(d, 0) for d, x in by_day.items()},
+                                                 ("occupancy", "total_activity"),
+                                                 hist_cur["occ"]["by_day"] if sport is None else None)}
 
 
 @router.get("/monthly")

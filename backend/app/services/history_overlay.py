@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import HistRevenue
+from ..models import HistBooking, HistRevenue, HistSlot
 from ..timeutil import today
 from . import analytics
 
@@ -25,6 +25,8 @@ KIND_OF = {
     "courtly": "platforms", "sportomic": "platforms", "misfits": "platforms",
 }
 HISTORY_KINDS = ("platforms", "other")
+# Imported sport labels → the facility sports used by live data (box cricket is played on the turf).
+SPORT_OF = {"Turf": "Football", "Cricket": "Football"}
 
 
 def kind_of(channel: str) -> str:
@@ -64,11 +66,45 @@ def totals(db: Session, venue_ids: list[int], start: date, end: date) -> dict:
     for l in lines(db, venue_ids, start, end):
         for d, x in spread(l, start, end):
             out["by_venue"][l.venue_id] += x
-            out["by_sport"][l.sport or "Unspecified"] += x
+            out["by_sport"][SPORT_OF.get(l.sport, l.sport) or "Unspecified"] += x
             out["by_day"][d] += x
             out["by_kind"][kind_of(l.channel)] += x
             out["by_venue_kind"][l.venue_id][kind_of(l.channel)] += x
             out["total"] += x
+    out["occ"] = occupancy(db, venue_ids, start, end)
+    return out
+
+
+def _blank_occ():
+    return {"occupied_units": 0.0, "sellable_units": 0.0, "bookings": 0, "customers": set()}
+
+
+def occupancy(db: Session, venue_ids: list[int], start: date, end: date) -> dict:
+    """Court time from the imported platform bookings (recorded + imputed offline play), in 30-minute units,
+    with booking counts and approximate customers — by venue, sport, day and overall."""
+    live = live_venue_months(db, venue_ids)
+    keep = lambda vid, d: (vid, d.strftime("%Y-%m")) not in live  # noqa: E731
+    out = {k: defaultdict(_blank_occ) for k in ("by_venue", "by_sport", "by_day")}
+    out["total"] = _blank_occ()
+    out["by_venue_day"] = defaultdict(_blank_occ)
+    q = select(HistSlot.venue_id, HistSlot.day, HistSlot.sport, HistSlot.capacity_min, HistSlot.recorded_min,
+               HistSlot.imputed_min).where(HistSlot.venue_id.in_(venue_ids), HistSlot.day >= start, HistSlot.day <= end)
+    for vid, d, sp, cap, rec, imp in db.execute(q):
+        if not keep(vid, d):
+            continue
+        occ = min(cap, rec + imp) / 30 if cap else 0.0
+        for o in (out["by_venue"][vid], out["by_sport"][sp], out["by_day"][d], out["total"], out["by_venue_day"][(vid, d)]):
+            o["occupied_units"] += occ
+            o["sellable_units"] += cap / 30
+    q = select(HistBooking.venue_id, HistBooking.day, HistBooking.sport, HistBooking.customer_key).where(
+        HistBooking.venue_id.in_(venue_ids), HistBooking.day >= start, HistBooking.day <= end)
+    for vid, d, sp, ck in db.execute(q):
+        if not keep(vid, d):
+            continue
+        for o in (out["by_venue"][vid], out["by_sport"][sp], out["by_day"][d], out["total"], out["by_venue_day"][(vid, d)]):
+            o["bookings"] += 1
+            if ck:
+                o["customers"].add(ck)
     return out
 
 
@@ -76,23 +112,40 @@ def has_any(db: Session, venue_ids: list[int], start: date, end: date) -> bool:
     return bool(lines(db, venue_ids, start, end))
 
 
-def with_revenue(m: dict | None, total: float, by_kind: dict) -> dict:
-    """Finalized day metrics (or an empty day) with imported revenue added."""
+def with_revenue(m: dict | None, total: float, by_kind: dict, occ: dict | None = None) -> dict:
+    """Finalized day metrics (or an empty day) with imported revenue — and, when the platform bookings cover
+    it, court time, bookings and customers — added. Payments and collections stay unknown for these days."""
     live = bool(m and (m.get("net_revenue") or m.get("booking_value")))
     m = m if m else analytics.finalize(analytics.combine([]))
-    m["from_history"] = not live  # only revenue is known; bookings, payments and occupancy are not
+    m["from_history"] = not live
     m["net_revenue"] = round((m.get("net_revenue") or 0) + total, 2)
     for k, v in by_kind.items():
         m["net_by_kind"][k] = round(m["net_by_kind"].get(k, 0) + v, 2)
+    if occ and occ["sellable_units"]:
+        m["occupied_units"] = round((m.get("occupied_units") or 0) + occ["occupied_units"], 2)
+        m["sellable_units"] = round((m.get("sellable_units") or 0) + occ["sellable_units"], 2)
+        m["operational_units"] = round((m.get("operational_units") or 0) + occ["sellable_units"], 2)
+        m["occupancy"] = m["occupied_units"] / m["sellable_units"] if m["sellable_units"] else None
+        m["utilization"] = m["occupancy"]
+        m["total_activity"] = (m.get("total_activity") or 0) + occ["bookings"]
+        m["unique_customers"] = (m.get("unique_customers") or 0) + len(occ["customers"])
+        m["history_occupancy"] = True
     return m
 
 
-def trend_rows(series: dict, by_day: dict, keys: tuple) -> list[dict]:
-    """Daily trend rows from live metrics plus imported revenue for days Pulse didn't record."""
+def trend_rows(series: dict, by_day: dict, keys: tuple, occ_by_day: dict | None = None) -> list[dict]:
+    """Daily trend rows from live metrics plus imported revenue (and court time) for days Pulse didn't record."""
     rows = []
+    occ_by_day = occ_by_day or {}
     for d in sorted(set(series) | set(by_day)):
         m = series.get(d)
         row = {"date": d, **{k: (m[k] if m else None) for k in keys}}
         row["net_revenue"] = round(((m["net_revenue"] if m else 0) or 0) + by_day.get(d, 0), 2)
+        o = occ_by_day.get(d)
+        if not m and o and o["sellable_units"]:
+            if "occupancy" in keys:
+                row["occupancy"] = o["occupied_units"] / o["sellable_units"]
+            if "total_activity" in keys:
+                row["total_activity"] = o["bookings"]
         rows.append(row)
     return rows
