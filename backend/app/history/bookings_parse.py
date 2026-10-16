@@ -171,6 +171,16 @@ _HUD_DATE = re.compile(r"([A-Z][a-z]{2} \d{1,2}, \d{4})")
 _COURT = re.compile(r"(court|turf|7v7|5v5|box|pitch|padel|arena)\b", re.I)
 
 
+def _hud_days(text) -> dict:
+    """'Oct 10, 2025 05:30 PM - 06:00 PM | Oct 11, 2025 05:30 PM - 06:00 PM' → {day: [(start, end), …]}."""
+    out: dict = {}
+    for seg in str(text or "").split("|"):
+        dm = _HUD_DATE.search(seg)
+        if dm and _date(dm.group(1)):
+            out.setdefault(_date(dm.group(1)), []).extend((_clock(a), _clock(b)) for a, b in _HUD_RANGE.findall(seg))
+    return out
+
+
 def parse_hudle(path, res: ParseResult):
     fname = os.path.basename(path)
     for sheet, rows in _rows(path):
@@ -181,17 +191,25 @@ def parse_hudle(path, res: ParseResult):
         for i, r in enumerate(rows[hi + 1:], start=hi + 2):
             cells = {h: (r[j] if j < len(r) else None) for h, j in col.items()}
             ref = next((str(v) for v in r if isinstance(v, str) and re.fullmatch(r"HUD\d+", v.strip())), None)
+            if not ref and "booking reference id" not in col and cells.get("venue") and norm(r[0]) != "total":
+                # Some sheets (Dec 2025 EOK, DPSG) were exported without the reference column: key the booking
+                # on its payment id, or on its place in the file.
+                ref = str(cells.get("payment gateway ids") or "").strip() or f"{fname}|{sheet}|{i}"
+                anchor = col["source"]  # where the reference column sits in the usual layout
+                r = r[:anchor] + [ref] + r[anchor:]
             if not ref:
                 if any(v not in (None, "") for v in r):
                     res.skip("hudle: total or unlabelled row")
                 continue
-            if norm(cells.get("entry type")) not in ("", "original_entry"):
+            # Entry type is found by content too: in shifted rows its column holds an amount or a date.
+            entry = next((norm(v) for v in r if isinstance(v, str) and norm(v).endswith("_entry")), "")
+            if entry not in ("", "original_entry"):
                 res.skip("hudle: adjustment entry (not a booking)")
                 continue
             # Exports mix layouts: some rows are shifted (a missing 'Cancelled Slot Details' cell) and carry
             # extra columns after the payment block. Payment cells are read by name, realigned on the booking
             # reference; status, sport and court are found by their content.
-            shift = r.index(ref) - col.get("booking reference id", r.index(ref))
+            shift = r.index(ref) - col.get("booking reference id", r.index(ref) - 1)
             g = lambda h: r[col[h] + shift] if h in col and 0 <= col[h] + shift < len(r) else None  # noqa: E731
             statuses = [norm(v) for v in r if isinstance(v, str) and norm(v) in HUDLE_STATUS]
             status = statuses[0] if statuses else "confirmed"
@@ -206,15 +224,13 @@ def parse_hudle(path, res: ParseResult):
                 res.skip("excluded venue (Jaipur, Ambala, …)")
                 continue
             slot_cells = [v for v in r[:r.index(ref) + 2] if isinstance(v, str) and _HUD_RANGE.search(v)]
-            slots = slot_cells[0] if slot_cells else ""
-            dm = _HUD_DATE.search(slots)
-            day = _date(dm.group(1)) if dm else None
-            pairs = [(_clock(a), _clock(b)) for a, b in _HUD_RANGE.findall(slots)]
-            cancelled = [(_clock(a), _clock(b)) for a, b in _HUD_RANGE.findall(slot_cells[1] if len(slot_cells) > 1 else "")]
-            for c in cancelled:
-                if c in pairs:
-                    pairs.remove(c)
-            if not day or not pairs or any(p[0] is None or p[1] is None for p in pairs):
+            days = _hud_days(slot_cells[0] if slot_cells else "")
+            for d, cs in _hud_days(slot_cells[1] if len(slot_cells) > 1 else "").items():
+                for c in cs:
+                    if c in days.get(d, []):
+                        days[d].remove(c)
+            days = {d: ps for d, ps in days.items() if ps}
+            if not days or any(p[0] is None or p[1] is None for ps in days.values() for p in ps):
                 res.skip("hudle: unreadable slot details")
                 continue
             parts = {h: num(g(h)) or 0 for h in HUDLE_PAY}
@@ -226,16 +242,20 @@ def parse_hudle(path, res: ParseResult):
             sport = next((sport_of(v) for v in r[r.index(ref) + 1:] if isinstance(v, str) and not v.startswith("http")
                           and sport_of(v)), None)
             medium = "offline" if norm(g("source")) == "offline" else "online"  # entered by the venue, paid there
-            # A slot listed twice means two courts at that time; give each court its own ranges.
-            per_court: dict[str, list] = {c: [] for c in courts}
-            seen: dict = {}
-            for p in pairs:
-                k = seen.get(p, 0)
-                seen[p] = k + 1
-                per_court[courts[min(k, len(courts) - 1)]].append(p)
-            spans = [(c, a, b) for c, ps in per_court.items() for a, b in _ranges(ps)]
-            total_min = sum(b - a for _, a, b in spans) or 1
-            for c, a, b in spans:
+            # A slot listed twice on a day means two courts at that time; give each court its own ranges. More
+            # copies than named courts: the extra copies were on courts the export didn't name.
+            spans = []
+            for day, pairs in sorted(days.items()):
+                per_court: dict[str, list] = {c: [] for c in courts}
+                seen: dict = {}
+                for p in pairs:
+                    k = seen.get(p, 0)
+                    seen[p] = k + 1
+                    per_court.setdefault(courts[k] if k < len(courts) else f"{courts[-1]} +{k - len(courts) + 1}",
+                                         []).append(p)
+                spans += [(day, c, a, b) for c, ps in per_court.items() for a, b in _ranges(ps)]
+            total_min = sum(b - a for _, _, a, b in spans) or 1
+            for day, c, a, b in spans:
                 share = (b - a) / total_min
                 res.bookings.append(Booking("hudle", code, day, a, b, c, sport,
                                             amount * share, medium, str(r[0] or "").strip(),
@@ -243,18 +263,23 @@ def parse_hudle(path, res: ParseResult):
 
 
 # ── Playo ────────────────────────────────────────────────────────────────────
+PLAYO_ALIASES = {"bookingid": "id", "slot_date": "date", "sport_name": "sport", "user_name": "name"}  # Powerplay layout
+_PLAYO_RANGE = re.compile(r"\s*(\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AP]M)?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AP]M)?)\s*$", re.I)
+
+
 def parse_playo(path, res: ParseResult):
     fname = os.path.basename(path)
     for sheet, rows in _rows(path):
         hi, head = _header(rows, "gross")
         if hi is None:
             continue
-        col = {h: j for j, h in enumerate(head) if h}
+        col = {PLAYO_ALIASES.get(h, h): j for j, h in enumerate(head) if h}
+        price = "net" if "net" in col else "gross"  # that layout lists the venue's discount; net is what was charged
         groups: dict = {}
         for i, r in enumerate(rows[hi + 1:], start=hi + 2):
             g = lambda h: r[col[h]] if h in col and col[h] < len(r) else None  # noqa: E731
             bid = str(g("id") or "").strip()
-            if bid.lower() == "id":
+            if bid.lower() in ("id", "bookingid"):
                 continue  # the header repeated above a second table
             if not bid or norm(g("timestamp")).startswith("total") or (g("date") is None and not g("time")):
                 if any(v not in (None, "") for v in r):
@@ -269,7 +294,7 @@ def parse_playo(path, res: ParseResult):
                 continue
             day = _date(g("date"))  # Playo writes the slot date month-first (04/07/2026 = 7 April)
             t = str(g("time") or "")
-            m = re.match(r"\s*(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)", t, re.I)
+            m = _PLAYO_RANGE.match(t)
             if not day or not m:
                 res.skip("playo: unreadable date or time")
                 continue
@@ -278,7 +303,7 @@ def parse_playo(path, res: ParseResult):
             groups.setdefault(key, {"pairs": [], "amount": 0.0, "sport": g("sport"), "name": g("name"), "row": i,
                                     "code": code, "booked": _date(str(g("timestamp") or "")[:10], dayfirst=True)})
             groups[key]["pairs"].append((_clock(m.group(1)), _clock(m.group(2))))
-            groups[key]["amount"] += num(g("gross")) or 0
+            groups[key]["amount"] += num(g(price)) or 0
         for (bid, day, court), x in groups.items():
             spans = _ranges(x["pairs"])
             total_min = sum(b - a for a, b in spans) or 1
