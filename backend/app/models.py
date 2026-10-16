@@ -473,6 +473,51 @@ class HistPnl(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class HistBooking(Base):
+    """A booking from a platform export (Hudle, Playo, Khelomore, District): one court, one time range."""
+    __tablename__ = "hist_bookings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    start_min: Mapped[int] = mapped_column(Integer)
+    end_min: Mapped[int] = mapped_column(Integer)
+    sport: Mapped[str] = mapped_column(String(40))
+    court: Mapped[str] = mapped_column(String(80))
+    platform: Mapped[str] = mapped_column(String(20))
+    medium: Mapped[str] = mapped_column(String(10))  # online | offline (entered by the venue, paid there)
+    amount: Mapped[float] = mapped_column(Float)  # money the export shows for this booking
+    revenue: Mapped[float] = mapped_column(Float)  # the part that is this channel's revenue (no wallet credit)
+    customer: Mapped[str] = mapped_column(String(120))
+    customer_key: Mapped[str] = mapped_column(String(140), index=True)  # venue + normalised name
+    ref: Mapped[str] = mapped_column(String(60))
+    file: Mapped[str] = mapped_column(String(200))
+    sheet: Mapped[str] = mapped_column(String(80))
+    row: Mapped[int] = mapped_column(Integer)
+
+
+class HistSlot(Base):
+    """Court time per venue, day, hour and sport: capacity, recorded bookings and imputed offline play."""
+    __tablename__ = "hist_slots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    hour: Mapped[int] = mapped_column(Integer)
+    sport: Mapped[str] = mapped_column(String(40))
+    capacity_min: Mapped[float] = mapped_column(Float)
+    recorded_min: Mapped[float] = mapped_column(Float)
+    imputed_min: Mapped[float] = mapped_column(Float)
+
+
+class HistBookingMonth(Base):
+    """Per venue-month audit of the bookings import: platform totals vs the sales file, and the imputation."""
+    __tablename__ = "hist_booking_months"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"), index=True)
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    data: Mapped[dict] = mapped_column(JSON)
+
+
 class HistTracker(Base):
     """The B2C trackers' Central Dashboard figures, captured at import so Pulse can be reconciled against them."""
     __tablename__ = "hist_tracker"

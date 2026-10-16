@@ -588,16 +588,28 @@ def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], 
     cur = series.get(d)
     # Imported history stands in for days before Pulse recorded anything (revenue only).
     hist_days: dict = {}
-    if "net_revenue" in metrics:
+    hist_occ: dict = {}
+    if {"net_revenue", "occupancy", "total_activity"} & set(metrics):
         from . import history_overlay
         spans = [x for w in WINDOWS for x in _window_days(w, d, custom)] + [d]
-        hist_days = history_overlay.totals(db, venue_ids, min(spans), max(spans))["by_day"]
+        h = history_overlay.totals(db, venue_ids, min(spans), max(spans))
+        hist_days = h["by_day"]
+        hist_occ = {k: o for k, o in h["occ"]["by_day"].items() if o["sellable_units"]}
+
+    def hist_value(name, x):
+        if name == "net_revenue":
+            return hist_days.get(x)
+        o = hist_occ.get(x)
+        if not o:
+            return None
+        return o["occupied_units"] / o["sellable_units"] if name == "occupancy" else (
+            o["bookings"] if name == "total_activity" else None)
     result = {}
     for name in metrics:
         f = METRICS[name]
         current = f(cur) if cur else None
-        if current is None and name == "net_revenue" and d in hist_days:
-            current = hist_days[d]  # a past day known only from the imported history
+        if current is None:
+            current = hist_value(name, d)  # a past day known only from the imported history
         windows = {}
         for w, span in WINDOWS.items():
             days = _window_days(w, d, custom)
@@ -605,8 +617,8 @@ def comparisons(db: Session, venue_ids: list[int], d: date, metrics: list[str], 
             for x in days:
                 if x in series and series[x]["operational_units"] > 0 and f(series[x]) is not None:
                     vals.append(f(series[x]))
-                elif name == "net_revenue" and x in hist_days:
-                    vals.append(hist_days[x])
+                elif hist_value(name, x) is not None:
+                    vals.append(hist_value(name, x))
             n = len(vals)
             if n < MIN_SAMPLES[w]:
                 windows[w] = {"available": False, "samples": n, "required": MIN_SAMPLES[w]}

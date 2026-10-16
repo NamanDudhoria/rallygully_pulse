@@ -1,7 +1,7 @@
 """Clear the demo data before real use, keeping people.
 
     python -m app.golive                 # dry run: shows what would be removed
-    python -m app.golive --confirm [--history ..\\Historic_data_ingestion]
+    python -m app.golive --confirm [--history ..\\Historic_data_ingestion] [--bookings ..\\online_bookings]
 
 Keeps: users, their logins/invites and venue teams; venues and their facilities.
 Removes: every demo booking, customer, payment, refund, community game, academy series, corporate
@@ -62,6 +62,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--confirm", action="store_true", help="actually delete (otherwise a dry run)")
     ap.add_argument("--history", help="folder of historical sales workbooks to import afterwards")
+    ap.add_argument("--bookings", help="folder of platform booking exports (Hudle, Playo, Khelomore, District) "
+                                       "to import after the sales history: occupancy, bookings, customers")
     a = ap.parse_args()
     ensure_schema()
     db = SessionLocal()
@@ -84,6 +86,12 @@ def main():
         from .history.ingest import run_ingest
         report = "history_report.md"
         print("History import:", run_ingest(a.history, report))
+        print(f"Report written to {report}")
+    if a.bookings:
+        from .history.bookings_ingest import run as run_bookings
+        report = "bookings_report.md"
+        out = run_bookings(a.bookings, report)
+        print("Bookings import:", {k: v for k, v in out.items() if k != "skipped"})
         print(f"Report written to {report}")
     print("Next: set each venue's opening hours and prices under Configuration before taking bookings.")
 
