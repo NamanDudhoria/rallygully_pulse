@@ -85,3 +85,43 @@ def test_unexplained_offline_money_becomes_hours_within_capacity(folder):
         assert {s.hour for s in slots if s.capacity_min} == {18, 19, 20}  # hours the venue actually ran
     finally:
         db.close()
+
+
+def test_layouts_without_booking_reference_or_with_powerplay_columns(tmp_path):
+    from datetime import datetime
+
+    from openpyxl import Workbook
+
+    from app.history.bookings_parse import parse_folder
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "EOK"  # Hudle sheet exported without the 'Booking reference id' column
+    ws.append(["Name", "City", "Venue", "Date of booking", "Slot Details", "Cancelled Slot Details", "Source",
+               "Pay At Venue", "Hudle Wallet", "Venue Wallet", "Hudle Passes", "Hudle Discount", "Venue Discount",
+               "QR Payment", "Online Paid Amount", "Payment Gateway Ids", "Sports", "Booking Status", "Facilities"])
+    ws.append(["Asha", "South Delhi", "RallyGully | East of Kailash", "2025-12-02",
+               "Dec 2, 2025 07:00 PM - 07:30 PM, 07:30 PM - 08:00 PM", None, "Online", 0, 0, 0, 0, 0, 0, 0, 1200,
+               "PAYX1", "Pickleball", "Confirmed", "Court 3"])
+    ws.append(["Ravi", "South Delhi", "RallyGully | East of Kailash", "2025-12-03",  # one booking over two days
+               "Dec 10, 2025 05:30 PM - 06:00 PM | Dec 11, 2025 05:30 PM - 06:00 PM", None, "Offline", 800, 0, 0, 0,
+               0, 0, 0, 0, None, "Pickleball", "Confirmed", "Court 1"])
+    ws.append(["Total", None, None, None, None, None, None, 0, 0, 0, 0, 0, 0, 0, 1200])
+    wb.save(tmp_path / "Hudle Partner Bookings - Dec 2025.xlsx")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Powerplay"  # Playo's second layout: one row per booking, 24-hour times, a net price
+    ws.append(["TIMESTAMP", "SLOT_DATE", "TIME", "BOOKINGID", "PLACE", "SPORT_NAME", "COURT", "TYPE", "GROSS",
+               "DISCOUNT", "NET", "PAID", "USER_NAME"])
+    ws.append([datetime(2026, 3, 27, 15, 11), datetime(2026, 3, 28), "18:00:00 - 20:00:00", "OTFSFEKM", "Playo",
+               "Box Cricket Medium", "Turf 1", "Regular", 3600, 900, 2700, 2700, "Vaishnavi"])
+    wb.save(tmp_path / "Playo Partner Booking - Mar 2026.xlsx")
+    res, _ = parse_folder(str(tmp_path))
+    hud = [b for b in res.bookings if b.platform == "hudle"]
+    assert [(b.venue, b.day, b.start_min, b.end_min, b.court, b.amount, b.medium) for b in hud] == [
+        ("EOK", date(2025, 12, 2), 19 * 60, 20 * 60, "Court 3", 1200.0, "online"),
+        ("EOK", date(2025, 12, 10), 17 * 60 + 30, 18 * 60, "Court 1", 400.0, "offline"),
+        ("EOK", date(2025, 12, 11), 17 * 60 + 30, 18 * 60, "Court 1", 400.0, "offline")]
+    ply = [b for b in res.bookings if b.platform == "playo"]
+    assert [(b.venue, b.day, b.start_min, b.end_min, b.amount) for b in ply] == \
+        [("BNR", date(2026, 3, 28), 18 * 60, 20 * 60, 2700.0)]
