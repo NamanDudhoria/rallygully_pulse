@@ -137,8 +137,8 @@ historical analytics keep the price they were sold at.
 
 ## Deploying
 
-See [DEPLOY.md](DEPLOY.md): server setup, settings, creating the live database (`app.golive`, then
-`app.prune_users` to remove the demo accounts and set the HQ admin's password), HTTPS and backups.
+See [DEPLOY.md](DEPLOY.md): Supabase database, creating the live data (`app.golive`, then `app.prune_users` to
+remove the demo accounts and set the HQ admin's password), app host, HTTPS and backups.
 
 ## Integrations
 
@@ -150,6 +150,7 @@ visible under **Integrations**):
 | `PULSE_IMAP_HOST`, `PULSE_IMAP_USER`, `PULSE_IMAP_PASSWORD` | District mailbox. Without it, drop `.eml`/`.txt` files in `backend/inbox/` |
 | `PULSE_WHATSAPP_TOKEN`, `PULSE_WHATSAPP_PHONE_ID`, `PULSE_COMMUNITY_LINK` | WhatsApp Cloud API (booking + community link messages) |
 | `PULSE_SMTP_HOST`, `PULSE_SMTP_USER`, `PULSE_SMTP_PASSWORD`, `PULSE_OPS_EMAIL` | Missed day-close escalation email |
+| `PULSE_DATABASE_URL` | Database. Default is a local SQLite file; set a `postgresql://…` URL (e.g. Supabase) for a hosted one |
 | `PULSE_SECRET_KEY` | Token signing — **set this in any shared deployment** |
 | `PULSE_APP_URL` | Public URL used in invite / reset links |
 | `PULSE_ROSTER_ALERT_MIN` | Minute of day (IST) for the "no VM rostered tomorrow" alert; default 1200 (8 PM) |

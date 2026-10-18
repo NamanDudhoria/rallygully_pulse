@@ -37,3 +37,14 @@ def test_prune_refuses_without_an_admin(db):
     with pytest.raises(SystemExit):
         prune(db, ["gaurav@rallygully.com"])
     assert db.query(User).count() == 2
+
+
+def test_plain_postgres_urls_get_the_driver():
+    import subprocess
+    import sys
+
+    for given in ("postgresql://u:p@h:5432/db", "postgres://u:p@h:5432/db"):
+        out = subprocess.run([sys.executable, "-c", "from app import config; print(config.DATABASE_URL)"],
+                             env={"PULSE_DATABASE_URL": given, "PATH": ""}, capture_output=True, text=True,
+                             cwd=__import__("os").path.dirname(__import__("os").path.dirname(__file__)))
+        assert out.stdout.strip() == "postgresql+psycopg://u:p@h:5432/db", out.stderr

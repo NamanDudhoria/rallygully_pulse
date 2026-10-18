@@ -5,8 +5,12 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from . import config
 
-_connect_args = {"check_same_thread": False} if config.DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(config.DATABASE_URL, connect_args=_connect_args)
+if config.DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    # prepare_threshold=None: no server-side prepared statements, so a transaction pooler (Supabase, PgBouncer) works.
+    engine = create_engine(config.DATABASE_URL, connect_args={"prepare_threshold": None}, pool_pre_ping=True,
+                           pool_size=5, max_overflow=5, pool_recycle=1800)
 
 if config.DATABASE_URL.startswith("sqlite"):
     @event.listens_for(engine, "connect")
@@ -46,6 +50,8 @@ def ensure_schema() -> None:
     from . import models  # noqa: F401 — register every table on Base.metadata
 
     Base.metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        _lock_down_postgres()
     insp = inspect(engine)
     if engine.dialect.name == "sqlite":
         for table in Base.metadata.sorted_tables:
@@ -60,6 +66,21 @@ def ensure_schema() -> None:
                 if col.name not in have and col.nullable:
                     conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" '
                                       f'{col.type.compile(engine.dialect)}'))
+
+
+def _lock_down_postgres() -> None:
+    """Turn on row-level security for every table. Pulse reaches the database as its owner, which bypasses it,
+    so nothing changes for the app; but on Supabase it stops the public Data API (anon / authenticated keys) from
+    reading or writing these tables. Best effort: a role that doesn't own a table can't change it."""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            try:
+                with conn.begin_nested():
+                    conn.execute(text(f'ALTER TABLE "{table.name}" ENABLE ROW LEVEL SECURITY'))
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def _sqlite_rebuild(table, keep_cols) -> None:

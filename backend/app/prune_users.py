@@ -64,6 +64,7 @@ def main():
     ensure_schema()
     db = SessionLocal()
     try:
+        print(f"Database: {engine.url.render_as_string(hide_password=True)}")
         everyone = db.scalars(select(User).order_by(User.id)).all()
         for u in everyone:
             print(f"  {'KEEP  ' if u.email.lower() in [k.lower() for k in keep] else 'DELETE'} {u.email:32} {u.role}")
@@ -78,6 +79,8 @@ def main():
         dest = backup()
         if dest:
             print(f"Backup saved: {dest}")
+        else:
+            print("No automatic backup for this database engine: make sure you have your own before continuing.")
         print(prune(db, keep))
         if password:
             admin = db.scalar(select(User).where(func.lower(User.email) == keep[0].lower()))

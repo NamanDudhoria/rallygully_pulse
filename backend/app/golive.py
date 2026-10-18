@@ -69,6 +69,7 @@ def main():
     db = SessionLocal()
     try:
         before = counts(db)
+        print(f"Database: {engine.url.render_as_string(hide_password=True)}")
         print("Demo data:", {k: v for k, v in before.items() if v})
         print(f"Kept: {db.scalar(select(func.count()).select_from(User))} users, "
               f"{db.scalar(select(func.count()).select_from(Venue))} venues (with facilities)")
@@ -78,6 +79,9 @@ def main():
         dest = backup()
         if dest:
             print(f"Backup saved: {dest}")
+        else:
+            print("No automatic backup for this database engine: make sure you have your own (e.g. pg_dump, or the "
+                  "provider's backups) before continuing.")
         clear(db)
         print("Cleared:", {k: v for k, v in counts(db).items() if v} or "all demo tables are empty")
     finally:
