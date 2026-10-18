@@ -135,6 +135,11 @@ changing a facility's sport, shrinking hours, or closing a date. Renames are alw
 "Change price" schedules a new price from a date; prices already in use can't be deleted, so past bookings and
 historical analytics keep the price they were sold at.
 
+## Deploying
+
+See [DEPLOY.md](DEPLOY.md): server setup, settings, creating the live database (`app.golive`, then
+`app.prune_users` to remove the demo accounts and set the HQ admin's password), HTTPS and backups.
+
 ## Integrations
 
 All are real code paths with a safe default when credentials are absent (messages are logged as `simulated` and
