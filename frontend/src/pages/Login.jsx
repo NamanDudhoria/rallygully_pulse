@@ -1,19 +1,9 @@
 import { useState } from 'react'
 import { post } from '../lib/api'
-import { ArrowRight } from 'lucide-react'
 import logo from '../assets/logo.svg'
 import { useAuth } from '../lib/useCtx'
 import { Field } from '../components/ui'
 
-const DEMO = [
-  ['admin@rallygully.com', 'HQ Admin', 'Everything + people'],
-  ['hq@rallygully.com', 'HQ', 'Operations, config, roster'],
-  ['community@rallygully.com', 'Community Ops', 'Games + analytics'],
-  ['academy@rallygully.com', 'Academy', 'Academy + analytics'],
-  ['gaurav@rallygully.com', 'Gaurav · VM', 'Delhi venues'],
-  ['govind@rallygully.com', 'Govind · VM', 'Gurgaon venues'],
-  ['mohit@rallygully.com', 'Mohit · VM', 'Noida & Pune venues'],
-]
 
 export default function Login() {
   const { login } = useAuth()
@@ -79,18 +69,6 @@ export default function Login() {
           </Field>
           <button className="btn btn-primary" disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
           <button type="button" className="btn btn-ghost btn-sm" style={{ justifySelf: 'start' }} onClick={() => { setMode('forgot'); setError(null) }}>Forgot password?</button>
-          <div className="divider" />
-          <div>
-            <div className="section-title">Demo accounts · password pulse1234</div>
-            <div className="demo-logins">
-              {DEMO.map(([e, role, scope]) => (
-                <button key={e} type="button" className="btn" disabled={busy} onClick={() => submit(null, [e, 'pulse1234'])}>
-                  <span style={{ textAlign: 'left' }}><b style={{ fontWeight: 600 }}>{role}</b> <span className="subtle">· {scope}</span></span>
-                  <ArrowRight aria-hidden />
-                </button>
-              ))}
-            </div>
-          </div>
         </form>
         )}
       </section>

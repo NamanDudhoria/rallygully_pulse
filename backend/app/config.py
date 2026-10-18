@@ -41,5 +41,10 @@ APP_URL = os.getenv("PULSE_APP_URL", "http://localhost:8000")
 # Evening-before check for venues with no VM rostered for tomorrow (IST minute of day).
 ROSTER_ALERT_MIN = int(os.getenv("PULSE_ROSTER_ALERT_MIN", str(20 * 60)))
 
+# Anyone who knows the default key can mint a valid session for any user, so a deployed app must not use it.
+if SECRET_KEY == "dev-only-change-me" and not APP_URL.startswith(("http://localhost", "http://127.0.0.1")):
+    raise RuntimeError("PULSE_SECRET_KEY must be set to a long random value when PULSE_APP_URL is not localhost "
+                       "(generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\")")
+
 RUN_SCHEDULER = os.getenv("PULSE_RUN_SCHEDULER", "1") == "1"
 CORS_ORIGINS = os.getenv("PULSE_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")

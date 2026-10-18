@@ -334,8 +334,6 @@ button.list-item { width: 100%; background: none; border: 0; border-bottom: 1px 
 .login { min-height: 100vh; display: grid; }
 .login-form { display: grid; place-items: center; padding: 32px 16px; background: var(--bg); }
 .login-card { width: min(380px, 100%); display: grid; gap: 18px; }
-.demo-logins { display: grid; gap: 6px; }
-.demo-logins button { justify-content: space-between; }
 
 .chip-close { display: inline-flex; align-items: center; gap: 4px; }
 .scroll-y { max-height: 420px; overflow-y: auto; }
