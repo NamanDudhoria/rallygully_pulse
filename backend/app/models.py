@@ -416,14 +416,14 @@ class HistSource(Base):
     """One source workbook (or tracker tab) and how it was used."""
     __tablename__ = "hist_sources"
     id: Mapped[int] = mapped_column(primary_key=True)
-    file: Mapped[str] = mapped_column(String(200))
-    sheet: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    content_hash: Mapped[str] = mapped_column(String(64))
+    file: Mapped[str] = mapped_column(Text)
+    sheet: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str] = mapped_column(Text)
     venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"), nullable=True)
-    venue_label: Mapped[str] = mapped_column(String(120))  # name as written in the source
+    venue_label: Mapped[str] = mapped_column(Text)  # name as written in the source
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     month: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(String(16))  # ingested | duplicate | excluded
+    status: Mapped[str] = mapped_column(Text)  # ingested | duplicate | excluded
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     stated_total: Mapped[float | None] = mapped_column(Float, nullable=True)
     ingested_total: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -439,10 +439,10 @@ class HistRevenue(Base):
     month: Mapped[int] = mapped_column(Integer)
     date_from: Mapped[date] = mapped_column(Date)
     date_to: Mapped[date] = mapped_column(Date)
-    basis: Mapped[str] = mapped_column(String(8))  # day | period | month
-    vertical: Mapped[str] = mapped_column(String(16))
-    channel: Mapped[str] = mapped_column(String(32))
-    sport: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    basis: Mapped[str] = mapped_column(Text)  # day | period | month
+    vertical: Mapped[str] = mapped_column(Text)
+    channel: Mapped[str] = mapped_column(Text)
+    sport: Mapped[str | None] = mapped_column(Text, nullable=True)
     gross: Mapped[float] = mapped_column(Float)
     commission: Mapped[float | None] = mapped_column(Float, nullable=True)  # incl. GST on commission
     gateway: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -452,9 +452,9 @@ class HistRevenue(Base):
     net: Mapped[float | None] = mapped_column(Float, nullable=True)  # realised, as stated in the source
     hours: Mapped[float | None] = mapped_column(Float, nullable=True)  # offline booking hours (daily sheets)
     people: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    counterparty: Mapped[str | None] = mapped_column(String(160), nullable=True)  # member, brand, organisation
+    counterparty: Mapped[str | None] = mapped_column(Text, nullable=True)  # member, brand, organisation
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sheet: Mapped[str] = mapped_column(String(80))
+    sheet: Mapped[str] = mapped_column(Text)
     row: Mapped[int | None] = mapped_column(Integer, nullable=True)
     __table_args__ = (Index("ix_hist_rev_venue_period", "venue_id", "year", "month"),)
 
@@ -467,8 +467,8 @@ class HistPnl(Base):
     venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
     year: Mapped[int] = mapped_column(Integer)
     month: Mapped[int] = mapped_column(Integer)
-    category: Mapped[str] = mapped_column(String(24))  # gst | commissions | net | expense | expenses_total | profit | share | other
-    label: Mapped[str] = mapped_column(String(200))
+    category: Mapped[str] = mapped_column(Text)  # gst | commissions | net | expense | expenses_total | profit | share | other
+    label: Mapped[str] = mapped_column(Text)
     amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -481,17 +481,17 @@ class HistBooking(Base):
     day: Mapped[date] = mapped_column(Date, index=True)
     start_min: Mapped[int] = mapped_column(Integer)
     end_min: Mapped[int] = mapped_column(Integer)
-    sport: Mapped[str] = mapped_column(String(40))
-    court: Mapped[str] = mapped_column(String(80))
-    platform: Mapped[str] = mapped_column(String(20))
-    medium: Mapped[str] = mapped_column(String(10))  # online | offline (entered by the venue, paid there)
+    sport: Mapped[str] = mapped_column(Text)
+    court: Mapped[str] = mapped_column(Text)
+    platform: Mapped[str] = mapped_column(Text)
+    medium: Mapped[str] = mapped_column(Text)  # online | offline (entered by the venue, paid there)
     amount: Mapped[float] = mapped_column(Float)  # money the export shows for this booking
     revenue: Mapped[float] = mapped_column(Float)  # the part that is this channel's revenue (no wallet credit)
-    customer: Mapped[str] = mapped_column(String(120))
-    customer_key: Mapped[str] = mapped_column(String(140), index=True)  # venue + normalised name
-    ref: Mapped[str] = mapped_column(String(60))
-    file: Mapped[str] = mapped_column(String(200))
-    sheet: Mapped[str] = mapped_column(String(80))
+    customer: Mapped[str] = mapped_column(Text)
+    customer_key: Mapped[str] = mapped_column(Text, index=True)  # venue + normalised name
+    ref: Mapped[str] = mapped_column(Text)
+    file: Mapped[str] = mapped_column(Text)
+    sheet: Mapped[str] = mapped_column(Text)
     row: Mapped[int] = mapped_column(Integer)
 
 
@@ -502,7 +502,7 @@ class HistSlot(Base):
     venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"), index=True)
     day: Mapped[date] = mapped_column(Date, index=True)
     hour: Mapped[int] = mapped_column(Integer)
-    sport: Mapped[str] = mapped_column(String(40))
+    sport: Mapped[str] = mapped_column(Text)
     capacity_min: Mapped[float] = mapped_column(Float)
     recorded_min: Mapped[float] = mapped_column(Float)
     imputed_min: Mapped[float] = mapped_column(Float)
@@ -522,10 +522,10 @@ class HistTracker(Base):
     """The B2C trackers' Central Dashboard figures, captured at import so Pulse can be reconciled against them."""
     __tablename__ = "hist_tracker"
     id: Mapped[int] = mapped_column(primary_key=True)
-    file: Mapped[str] = mapped_column(String(200))
-    label: Mapped[str] = mapped_column(String(200))  # dashboard row, e.g. "RallyGully I Gandhipath"
+    file: Mapped[str] = mapped_column(Text)
+    label: Mapped[str] = mapped_column(Text)  # dashboard row, e.g. "RallyGully I Gandhipath"
     venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"), nullable=True)  # None: not a Pulse venue
-    kind: Mapped[str] = mapped_column(String(10))  # venue | total
+    kind: Mapped[str] = mapped_column(Text)  # venue | total
     year: Mapped[int] = mapped_column(Integer)
     month: Mapped[int] = mapped_column(Integer)
     amount: Mapped[float] = mapped_column(Float)
@@ -539,6 +539,6 @@ class HistIssue(Base):
     venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"), nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     month: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    severity: Mapped[str] = mapped_column(String(8))  # info | warn | error
-    code: Mapped[str] = mapped_column(String(40))
+    severity: Mapped[str] = mapped_column(Text)  # info | warn | error
+    code: Mapped[str] = mapped_column(Text)
     message: Mapped[str] = mapped_column(Text)

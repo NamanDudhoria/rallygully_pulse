@@ -3,6 +3,10 @@ import os
 from zoneinfo import ZoneInfo
 
 DATABASE_URL = os.getenv("PULSE_DATABASE_URL", "sqlite:///./pulse.db")
+# Hosts such as Supabase hand out plain postgresql:// URLs; SQLAlchemy needs to be told which driver to use.
+for _plain in ("postgres://", "postgresql://"):
+    if DATABASE_URL.startswith(_plain):
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len(_plain):]
 SECRET_KEY = os.getenv("PULSE_SECRET_KEY", "dev-only-change-me")
 TOKEN_TTL_HOURS = int(os.getenv("PULSE_TOKEN_TTL_HOURS", "12"))
 
