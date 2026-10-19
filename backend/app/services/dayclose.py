@@ -48,6 +48,19 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
     return items
 
 
+def _state(dc, hours, d: date, now) -> str:
+    deadline_passed = d < now.date() or (d == now.date() and minute_of(now, d) >= config.DAY_CLOSE_DEADLINE_MIN)
+    return dc.status if dc else ("missed" if deadline_passed and hours else "open")
+
+
+def states(db: Session, venue_ids: list[int], d: date, hours_by_venue: dict) -> dict[int, str]:
+    """Just the close state of every venue for ``d`` (one query), for pages that don't need the item list."""
+    dcs = {dc.venue_id: dc for dc in db.scalars(select(DayClose).where(DayClose.venue_id.in_(venue_ids),
+                                                                       DayClose.date == d))}
+    now = now_local()
+    return {v: _state(dcs.get(v), hours_by_venue[(v, d)], d, now) for v in venue_ids}
+
+
 _UNSET = object()
 
 
@@ -58,10 +71,9 @@ def status(db: Session, venue_id: int, d: date, hours=_UNSET) -> dict:
     if hours is _UNSET:
         hours = inventory.hours_for(db, venue_id, d)
     now = now_local()
-    deadline_passed = d < now.date() or (d == now.date() and minute_of(now, d) >= config.DAY_CLOSE_DEADLINE_MIN)
     return {
         "date": d.isoformat(), "operating": hours is not None,
-        "status": dc.status if dc else ("missed" if deadline_passed and hours else "open"),
+        "status": _state(dc, hours, d, now),
         "closed_at": dc.closed_at if dc else None, "closed_by": dc.closed_by if dc else None,
         "escalated_at": dc.escalated_at if dc else None,
         "missed_items": dc.missing_items if dc and dc.status in ("missed", "closed_late") else None,

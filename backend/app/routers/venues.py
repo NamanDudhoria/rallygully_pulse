@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .. import serialize
 from ..auth import current_user
@@ -33,7 +33,8 @@ def list_venues(user: User = Depends(current_user), db: Session = Depends(get_db
     elif not any(can(user, p) for p in ("venue.view", "venue.operate", "config.manage",
                                         "community.manage", "academy.manage", "events.manage")):
         return []
-    return [serialize.venue(v, full=True) for v in db.scalars(q)]
+    return [serialize.venue(v, full=True) for v in db.scalars(q.options(selectinload(Venue.facilities),
+                                                                           selectinload(Venue.weekly_hours)))]
 
 
 def _venue(db: Session, user: User, venue_id: int, d: date, write: bool = False) -> Venue:
@@ -44,8 +45,8 @@ def _venue(db: Session, user: User, venue_id: int, d: date, write: bool = False)
 
 def _activities(db: Session, venue_id: int, d: date) -> dict:
     return {
-        "bookings": [serialize.booking(db, b) for b in db.scalars(select(Booking).where(
-            Booking.venue_id == venue_id, Booking.date == d).order_by(Booking.start_min, Booking.id))],
+        "bookings": serialize.bookings(db, db.scalars(select(Booking).where(
+            Booking.venue_id == venue_id, Booking.date == d).order_by(Booking.start_min, Booking.id))),
         "games": [serialize.game(db, g) for g in db.scalars(select(CommunityGame).where(
             CommunityGame.venue_id == venue_id, CommunityGame.date == d).order_by(CommunityGame.start_min))],
         "academy": [serialize.occurrence(db, o) for o in db.scalars(select(AcademyOccurrence).where(
@@ -142,9 +143,9 @@ def grid(venue_id: int, date: date | None = None, user: User = Depends(current_u
     cells = []
     for a in sorted(inventory.venue_allocations(db, venue_id, d), key=lambda a: a.start_min):
         cells.append(_cell(db, a))
-    pending = [serialize.booking(db, b) for b in db.scalars(select(Booking).where(
+    pending = serialize.bookings(db, db.scalars(select(Booking).where(
         Booking.venue_id == venue_id, Booking.date == d, Booking.source == "district", Booking.status == "confirmed",
-        Booking.facility_id.is_(None), Booking.attendance == "pending").order_by(Booking.start_min))]
+        Booking.facility_id.is_(None), Booking.attendance == "pending").order_by(Booking.start_min)))
     now = now_local()
     return {"venue": serialize.venue(v), "date": d,
             "hours": {"open_min": hours[0], "close_min": hours[1]} if hours else None,

@@ -48,5 +48,9 @@ def _count(s, fn):
 def test_day_close_check_loads_customers_in_bulk(db):
     s, vid = db
     items, queries = _count(s, lambda: dayclose.missing_items(s, vid, DAY))
-    assert len(items) >= 30 and "Player 0" in items[0]["message"]  # every booking is named, in start-time order
+    attendance = [i for i in items if i["type"] == "booking_attendance"]
+    assert len(attendance) == 30
+    assert {f"Player {i}" for i in range(30)} == {next(w for w in i["message"].split("·")[1].split(":")[:1]).strip() for i in attendance}
+    starts = [i["message"].split(" ")[1] for i in attendance]
+    assert starts == sorted(starts)  # in start-time order (ties may come in any order)
     assert queries <= 4, f"{queries} queries for 30 bookings: customers are being fetched one by one again"

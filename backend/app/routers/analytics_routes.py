@@ -46,6 +46,7 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
     if hist["total"] or hist["occ"]["total"]["sellable_units"]:
         total = history_overlay.with_revenue(total, hist["total"], hist["by_kind"], hist["occ"]["total"])
     hours_by_venue = inventory.hours_map(db, ids, d, d)  # every venue's hours for the day in two queries
+    close_state = dayclose.states(db, ids, d, hours_by_venue)
     rows = []
     for v in venues:
         src = per_venue_now if is_today else per_venue
@@ -57,7 +58,7 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
                                      cutoff if is_today else None, custom)
         rows.append({"venue": {"id": v.id, "name": v.name, "code": v.code, "location": v.location},
                      "hours": _hours(hours_by_venue[(v.id, d)]), "metrics": _slim(m), "comparisons": cmp_,
-                     "day_close": dayclose.status(db, v.id, d, hours_by_venue[(v.id, d)])["status"]})
+                     "day_close": close_state[v.id]})
     trend = analytics.daily_series(db, ids, d - timedelta(days=89), d)
     trend_h = history_overlay.totals(db, ids, d - timedelta(days=89), d)
     trend_hist = trend_h["by_day"]
