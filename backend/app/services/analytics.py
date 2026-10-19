@@ -84,9 +84,11 @@ def _blank_day() -> dict:
 
 def first_data_date(db: Session) -> date | None:
     """Pulse starts clean (PRD §48): history begins at the first recorded activity."""
-    candidates = [db.scalar(select(func.min(Booking.date))), db.scalar(select(func.min(Allocation.date)))]
-    candidates = [c for c in candidates if c]
-    return min(candidates) if candidates else None
+    def load():
+        candidates = [db.scalar(select(func.min(Booking.date))), db.scalar(select(func.min(Allocation.date)))]
+        candidates = [c for c in candidates if c]
+        return min(candidates) if candidates else None
+    return _memo(("first_data_date",), load)  # asked many times per page; changes only when bookings/allocations do
 
 
 def compute(db: Session, venue_ids: list[int], start: date, end: date, cutoff_min: int | None = None,
