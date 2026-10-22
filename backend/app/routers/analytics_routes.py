@@ -45,6 +45,8 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
     hist = history_overlay.totals(db, ids, d, d)  # imported revenue for a past date Pulse didn't record
     if hist["total"] or hist["occ"]["total"]["sellable_units"]:
         total = history_overlay.with_revenue(total, hist["total"], hist["by_kind"], hist["occ"]["total"])
+    hours_by_venue = inventory.hours_map(db, ids, d, d)  # every venue's hours for the day in two queries
+    close_state = dayclose.states(db, ids, d, hours_by_venue)
     rows = []
     for v in venues:
         src = per_venue_now if is_today else per_venue
@@ -55,15 +57,15 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
         cmp_ = analytics.comparisons(db, [v.id], d, ["net_revenue", "occupancy", "total_activity"],
                                      cutoff if is_today else None, custom)
         rows.append({"venue": {"id": v.id, "name": v.name, "code": v.code, "location": v.location},
-                     "hours": _hours(db, v.id, d), "metrics": _slim(m), "comparisons": cmp_,
-                     "day_close": dayclose.status(db, v.id, d)["status"]})
+                     "hours": _hours(hours_by_venue[(v.id, d)]), "metrics": _slim(m), "comparisons": cmp_,
+                     "day_close": close_state[v.id]})
     trend = analytics.daily_series(db, ids, d - timedelta(days=89), d)
     trend_h = history_overlay.totals(db, ids, d - timedelta(days=89), d)
     trend_hist = trend_h["by_day"]
     insights = anomaly.portfolio(db, venues, d, cutoff) if total and not hist["total"] else []
     if is_today:
         insights += anomaly.portfolio(db, venues, d - timedelta(days=1))
-    hours = [h for h in (inventory.hours_for(db, v.id, d) for v in venues) if h]
+    hours = [h for h in (hours_by_venue[(v.id, d)] for v in venues) if h]
     span = (min(h[0] for h in hours), max(h[1] for h in hours)) if hours else None
     return {
         "date": d, "is_today": is_today, "comparison_mode": "intraday" if is_today else "full_day",
@@ -83,8 +85,7 @@ def portfolio(date: date | None = None, cmp_from: date | None = None, cmp_to: da
     }
 
 
-def _hours(db, venue_id, d):
-    h = inventory.hours_for(db, venue_id, d)
+def _hours(h):
     return {"open_min": h[0], "close_min": h[1]} if h else None
 
 

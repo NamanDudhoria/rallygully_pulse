@@ -33,13 +33,15 @@ def kind_of(channel: str) -> str:
     return KIND_OF.get(channel, "other")
 
 
-def live_venue_months(db: Session, venue_ids: list[int]) -> set:
+def live_venue_months(db: Session, venue_ids: list[int]) -> frozenset:
     """{(venue_id, 'YYYY-MM')} that already have live Pulse revenue."""
-    first = analytics.first_data_date(db)
-    if not first:
-        return set()
-    return {(v, d.strftime("%Y-%m")) for (v, d), m in analytics.raw_days(db, venue_ids, first, today()).items()
-            if m["net_revenue"]}
+    def load():
+        first = analytics.first_data_date(db)
+        if not first:
+            return frozenset()
+        return frozenset((v, d.strftime("%Y-%m"))
+                         for (v, d), m in analytics.raw_days(db, venue_ids, first, today()).items() if m["net_revenue"])
+    return analytics._memo(("live_venue_months", tuple(sorted(venue_ids)), today()), load)
 
 
 def lines(db: Session, venue_ids: list[int], start: date, end: date) -> list:

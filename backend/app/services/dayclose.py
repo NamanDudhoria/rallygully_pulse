@@ -2,7 +2,7 @@
 from datetime import date, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .. import audit, config
 from ..audit import DomainError
@@ -16,9 +16,16 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
     now = now_local()
     now_min = minute_of(now, d)
     items = []
-    for b in db.scalars(select(Booking).where(Booking.venue_id == venue_id, Booking.date == d,
-                                              Booking.status == "confirmed").order_by(Booking.start_min)):
-        who = db.get(Customer, b.customer_id)
+    day_bookings = list(db.scalars(select(Booking).where(Booking.venue_id == venue_id, Booking.date == d,
+                                                         Booking.status == "confirmed").order_by(Booking.start_min)))
+    games = list(db.scalars(select(CommunityGame).where(CommunityGame.venue_id == venue_id, CommunityGame.date == d,
+                                                        CommunityGame.status == "scheduled")
+                            .options(selectinload(CommunityGame.participants))))
+    # One query for every customer named below, instead of one per booking and participant.
+    wanted = {b.customer_id for b in day_bookings} | {p.customer_id for g in games for p in g.participants if p.customer_id}
+    customers = {c.id: c for c in db.scalars(select(Customer).where(Customer.id.in_(wanted)))} if wanted else {}
+    for b in day_bookings:
+        who = customers.get(b.customer_id)
         tag = f"{b.source.title()} {hhmm(b.start_min)}–{hhmm(b.end_min)} · {who.name or who.phone}"
         if b.attendance == "pending":
             what = "court not assigned / arrival not recorded" if b.facility_id is None else "attendance not recorded"
@@ -28,10 +35,9 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
             state = "payment overdue — collect or cancel" if b.payment_status == "overdue" else "payment not recorded"
             items.append({"type": "booking_payment", "ref_id": b.id, "message": f"{tag}: {state}",
                           "due": now_min >= b.start_min})
-    for g in db.scalars(select(CommunityGame).where(CommunityGame.venue_id == venue_id, CommunityGame.date == d,
-                                                    CommunityGame.status == "scheduled")):
+    for g in games:
         for p in g.participants:
-            c = db.get(Customer, p.customer_id) if p.customer_id else None
+            c = customers.get(p.customer_id) if p.customer_id else None
             tag = f"{g.title} {hhmm(g.start_min)} · {(c and (c.name or c.phone)) or p.name or 'Player'}"
             if p.attendance == "added":
                 items.append({"type": "participant_attendance", "ref_id": p.id, "game_id": g.id, "message": f"{tag}: attendance not recorded",
@@ -42,15 +48,32 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
     return items
 
 
-def status(db: Session, venue_id: int, d: date) -> dict:
+def _state(dc, hours, d: date, now) -> str:
+    deadline_passed = d < now.date() or (d == now.date() and minute_of(now, d) >= config.DAY_CLOSE_DEADLINE_MIN)
+    return dc.status if dc else ("missed" if deadline_passed and hours else "open")
+
+
+def states(db: Session, venue_ids: list[int], d: date, hours_by_venue: dict) -> dict[int, str]:
+    """Just the close state of every venue for ``d`` (one query), for pages that don't need the item list."""
+    dcs = {dc.venue_id: dc for dc in db.scalars(select(DayClose).where(DayClose.venue_id.in_(venue_ids),
+                                                                       DayClose.date == d))}
+    now = now_local()
+    return {v: _state(dcs.get(v), hours_by_venue[(v, d)], d, now) for v in venue_ids}
+
+
+_UNSET = object()
+
+
+def status(db: Session, venue_id: int, d: date, hours=_UNSET) -> dict:
+    """``hours`` may be passed when the caller already has the venue's hours for ``d`` (None = closed)."""
     dc = db.scalar(select(DayClose).where(DayClose.venue_id == venue_id, DayClose.date == d))
     items = missing_items(db, venue_id, d)
-    hours = inventory.hours_for(db, venue_id, d)
+    if hours is _UNSET:
+        hours = inventory.hours_for(db, venue_id, d)
     now = now_local()
-    deadline_passed = d < now.date() or (d == now.date() and minute_of(now, d) >= config.DAY_CLOSE_DEADLINE_MIN)
     return {
         "date": d.isoformat(), "operating": hours is not None,
-        "status": dc.status if dc else ("missed" if deadline_passed and hours else "open"),
+        "status": _state(dc, hours, d, now),
         "closed_at": dc.closed_at if dc else None, "closed_by": dc.closed_by if dc else None,
         "escalated_at": dc.escalated_at if dc else None,
         "missed_items": dc.missing_items if dc and dc.status in ("missed", "closed_late") else None,

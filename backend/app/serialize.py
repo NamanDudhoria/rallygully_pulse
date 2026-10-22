@@ -1,9 +1,9 @@
 """Response shaping. Kept separate so routers stay thin."""
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .models import (AcademyOccurrence, AcademySeries, Allocation, Booking, CommunityGame, CorporateEvent, Customer,
-                     Facility, OperationalBlock, User, Venue)
+                     Facility, OperationalBlock, Refund, User, Venue)
 from .services import bookings as booking_svc
 from .services.community import game_state, participant_dict
 from .services.inventory import facilities_of
@@ -36,22 +36,45 @@ def customer(c: Customer) -> dict:
     return {"id": c.id, "phone": c.phone, "name": c.name, "name_locked": c.name_locked, "created_at": c.created_at}
 
 
-def _fac_name(db: Session, fid: int | None) -> str | None:
+def _fac_name(db: Session, fid: int | None, names: dict | None = None) -> str | None:
     if not fid:
         return None
+    if names is not None:
+        return names.get(fid)
     f = db.get(Facility, fid)
     return f.name if f else None
 
 
-def booking(db: Session, b: Booking, detail: bool = False) -> dict:
-    c = db.get(Customer, b.customer_id)
+def booking_lookups(db: Session, rows: list[Booking]) -> dict:
+    """Customers, court names and refund totals for a whole list of bookings in three queries,
+    so serialising a day's bookings doesn't cost several queries each."""
+    cids = {b.customer_id for b in rows}
+    fids = {x for b in rows for x in (b.facility_id, b.original_facility_id) if x}
+    ids = [b.id for b in rows]
+    return {
+        "customers": {c.id: c for c in db.scalars(select(Customer).where(Customer.id.in_(cids)))} if cids else {},
+        "facilities": dict(db.execute(select(Facility.id, Facility.name).where(Facility.id.in_(fids))).all()) if fids else {},
+        "refunded": dict(db.execute(select(Refund.booking_id, func.sum(Refund.amount)).where(
+            Refund.booking_id.in_(ids), Refund.status == "processed").group_by(Refund.booking_id)).all()) if ids else {},
+    }
+
+
+def bookings(db: Session, rows, detail: bool = False) -> list[dict]:
+    rows = list(rows)
+    pre = booking_lookups(db, rows)
+    return [booking(db, b, detail, pre) for b in rows]
+
+
+def booking(db: Session, b: Booking, detail: bool = False, pre: dict | None = None) -> dict:
+    c = pre["customers"].get(b.customer_id) if pre else db.get(Customer, b.customer_id)
+    names = pre["facilities"] if pre else None
     now = now_local()
     now_min = minute_of(now, b.date)
     out = {
         "id": b.id, "kind": b.source, "source": b.source, "external_ref": b.external_ref,
         "customer": customer(c), "venue_id": b.venue_id,
-        "facility_id": b.facility_id, "facility": _fac_name(db, b.facility_id),
-        "original_facility_id": b.original_facility_id, "original_facility": _fac_name(db, b.original_facility_id),
+        "facility_id": b.facility_id, "facility": _fac_name(db, b.facility_id, names),
+        "original_facility_id": b.original_facility_id, "original_facility": _fac_name(db, b.original_facility_id, names),
         "sport": b.sport, "date": b.date, "start_min": b.start_min, "end_min": b.end_min,
         "time": f"{hhmm(b.start_min)}–{hhmm(b.end_min)}", "booking_value": b.booking_value,
         "collected_amount": b.collected_amount, "payment_status": b.payment_status, "payment_method": b.payment_method,
@@ -60,7 +83,7 @@ def booking(db: Session, b: Booking, detail: bool = False) -> dict:
         "created_at": b.created_at, "assigned_at": b.assigned_at,
         "can_no_show": b.status == "confirmed" and b.attendance == "pending" and now_min >= b.start_min + 30,
         "no_show_from_min": b.start_min + 30,
-        "refunded": booking_svc.refunded_total(db, b.id),
+        "refunded": float(pre["refunded"].get(b.id) or 0.0) if pre else booking_svc.refunded_total(db, b.id),
     }
     if detail:
         out["assignments"] = booking_svc.assignment_history(db, b)

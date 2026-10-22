@@ -66,7 +66,7 @@ def list_bookings(venue_id: int | None = None, date_from: date | None = None, da
         query = query.join(Customer, Customer.id == Booking.customer_id).where(
             (Customer.phone.contains(q)) | (Customer.name.ilike(f"%{q}%")) | (Booking.external_ref.ilike(f"%{q}%")))
     rows = db.scalars(query.order_by(Booking.date.desc(), Booking.start_min).limit(min(limit, 500)))
-    return [serialize.booking(db, b) for b in rows]
+    return serialize.bookings(db, rows)
 
 
 @router.post("/bookings/direct")

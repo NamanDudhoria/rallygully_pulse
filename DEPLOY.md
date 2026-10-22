@@ -8,6 +8,15 @@ scheduler and cache live in the process).
 browser ──https──> your app host (Pulse: API + UI) ──postgres──> Supabase
 ```
 
+## Put the app host and the database in the same region
+
+Pulse's busiest pages run about 30 to 60 database queries each in sequence (Portfolio 56, venue day 32, venue
+grid 57; today's Portfolio about 105 on its first load; measured on Postgres 16 with this data). Every query waits
+for the network, so the distance to Supabase sets the page time: about 0.06 s extra at 1 ms, 0.3 s at 5 ms, 1.8 s at
+30 ms and 9 s at 150 ms (60 queries). Pick the Supabase region first, then create the VM in the **same region**
+(ideally the same city). Round-trip times are typical figures, not measured; the arithmetic is exact. If a page
+is slow, test with `psql "<connection string>" -c "select 1"` from the host and time it.
+
 ## 1. Supabase
 
 1. In your project: **Project Settings → Database → Connection string**, choose **Session pooler** (port 5432) and
