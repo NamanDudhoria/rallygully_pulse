@@ -1,0 +1,19 @@
+[Unit]
+Description=RallyGully Pulse
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pulse
+Group=pulse
+WorkingDirectory=/opt/pulse/backend
+EnvironmentFile=/opt/pulse/backend/.env.pulse
+# One worker only: the scheduler and caches live in the process. Caddy in front is the only thing that talks to it.
+ExecStart=/opt/pulse/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
