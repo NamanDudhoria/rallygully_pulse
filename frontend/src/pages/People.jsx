@@ -6,6 +6,7 @@ import { useApi, useLocalState } from '../lib/hooks'
 import { useAction, useAuth, useToast } from '../lib/useCtx'
 import { addDays, dateTime, hhmm, parseISO, range12, shortDate, time12, todayISO } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, Seg, Skeleton } from '../components/ui'
+import { clockTime } from '../lib/attendance'
 
 const ROLE_TONE = { hq_admin: 'brand', hq: 'brand', community: 'info', academy: 'warn', vm: undefined }
 
@@ -254,12 +255,29 @@ function DayHead({ d, today }) {
   )
 }
 
+/** Clock-in state for today's and past shifts: "In 5:05 PM · 12m late", or "Not clocked in". */
+function attendanceNote(e) {
+  const a = e.attendance
+  if (!a) {
+    if (e.date > todayISO()) return null
+    const now = new Date()
+    const started = e.date < todayISO() || e.start_min == null || now.getHours() * 60 + now.getMinutes() >= e.start_min
+    return started ? 'Not clocked in' : null
+  }
+  let note = `In ${clockTime(a.clock_in_at)}`
+  if (a.late_min) note += ` · ${a.late_min}m late`
+  if (a.photo === 'missing') note += ' · no photo'
+  if (a.clock_out_at) note += ` · out ${clockTime(a.clock_out_at)}`
+  return note
+}
+
 function ShiftChip({ e, label, onShift, onRemove, busy }) {
   return (
     <span className="badge brand roster-chip">
       <button type="button" className="roster-chip-main" onClick={() => onShift(e)} title="Set shift">
         <span>{label}</span>
         <span className="roster-chip-time">{e.custom ? shiftLabel(e) : 'Full day'}</span>
+        {attendanceNote(e) && <span className="roster-chip-time" style={{ color: e.attendance ? undefined : 'var(--warn)' }}>{attendanceNote(e)}</span>}
       </button>
       {onRemove && (
         <button type="button" className="roster-chip-x" aria-label={`Remove ${e.name}`} disabled={busy} onClick={() => onRemove(e)}><X size={13} /></button>

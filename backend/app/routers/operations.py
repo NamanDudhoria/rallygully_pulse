@@ -21,12 +21,15 @@ router = APIRouter(prefix="/api", tags=["operations"])
 
 
 def _scoped(db: Session, q, model, user: User, venue_id: int | None):
-    """Filter a list query to what the user may see. VMs only see venue-days they're rostered for."""
+    """Filter a list query to what the user may see. VMs only see venue-days they're rostered for and have
+    clocked in to."""
     if venue_id is not None:
         q = q.where(model.venue_id == venue_id)
     if roster_scoped(user):
         from datetime import date as _d
-        pairs = roster_pairs(db, user, _d.min, _d.max)
+
+        from ..services import attendance
+        pairs = roster_pairs(db, user, _d.min, _d.max) & attendance.unlocked_pairs(db, user)
         q = q.where(or_(*[and_(model.venue_id == v, model.date == d) for v, d in pairs])) if pairs else q.where(false())
     return q
 

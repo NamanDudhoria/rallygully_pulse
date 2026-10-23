@@ -366,3 +366,15 @@ button.list-item { width: 100%; background: none; border: 0; border-bottom: 1px 
   .today-cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .today-value { font-size: 28px; }
 }
+
+/* VM clock-in: full-screen live camera (no gallery) */
+.camera-sheet { position: fixed; inset: 0; z-index: 60; background: var(--bg, #0b0b0c); display: flex; flex-direction: column; }
+.camera-head { padding: 16px 16px 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.camera-head h2 { margin: 0 0 4px; }
+.camera-view { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; }
+.camera-view video, .camera-view img { width: 100%; height: 100%; object-fit: contain; }
+.camera-actions { display: flex; gap: 10px; justify-content: center; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border); }
+.camera-actions .btn { min-height: 48px; padding-inline: 20px; }
+.camera-shutter { min-width: 180px; }
+/* Keep messages off the camera buttons while the camera is open. */
+body:has(.camera-sheet) .toast-stack { top: 12px; bottom: auto; }

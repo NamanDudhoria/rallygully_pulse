@@ -26,9 +26,19 @@ class VenueIn(BaseModel):
     name: str
     location: str = ""
     status: str = "active"
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 STATUSES = ("active", "inactive")
+
+
+def _coords(body: VenueIn) -> tuple[float | None, float | None]:
+    if (body.latitude is None) != (body.longitude is None):
+        raise HTTPException(422, "Give both latitude and longitude, or neither.")
+    if body.latitude is not None and not (-90 <= body.latitude <= 90 and -180 <= body.longitude <= 180):
+        raise HTTPException(422, "That map location isn't valid.")
+    return body.latitude, body.longitude
 
 
 def _venue_fields(db: Session, body: VenueIn, venue_id: int | None = None) -> tuple[str, str]:
@@ -90,7 +100,8 @@ def _check_hours(o: int, c: int):
 def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
     """New venues start with 5–11 PM daily hours and no facilities; configure both before going live."""
     code, name = _venue_fields(db, body)
-    v = Venue(code=code, name=name, location=body.location.strip(), status=body.status)
+    lat, lng = _coords(body)
+    v = Venue(code=code, name=name, location=body.location.strip(), status=body.status, latitude=lat, longitude=lng)
     db.add(v)
     db.flush()
     for wd in range(7):
@@ -109,6 +120,7 @@ def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require("con
         venue_config.check_venue_deactivation(db, venue_id)
     before = serialize.venue(v)
     v.code, v.name, v.location, v.status = code, name, body.location.strip(), body.status
+    v.latitude, v.longitude = _coords(body)
     audit.record(db, user, "venue.update", "venue", v.id, before, serialize.venue(v), v.id)
     db.commit()
     return serialize.venue(v, full=True)

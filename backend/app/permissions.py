@@ -82,7 +82,7 @@ def ensure_venue(db: Session, user, venue_id: int, d: date, write: bool = False)
     """Gate venue access for a specific date.
 
     Writes need ``venue.operate``; reads accept ``venue.view`` too. VMs additionally
-    need a roster entry for that venue on that date.
+    need a roster entry for that venue on that date, and to have clocked in there that day.
     """
     needed = ("venue.operate",) if write else ("venue.operate", "venue.view")
     if not any(can(user, p) for p in needed):
@@ -93,6 +93,11 @@ def ensure_venue(db: Session, user, venue_id: int, d: date, write: bool = False)
         v = db.get(Venue, venue_id)
         raise HTTPException(403, f"You're not rostered for {v.name if v else 'this venue'} on "
                                  f"{d.strftime('%a %d %b')}. Ask HQ to add you to the roster.")
+    if roster_scoped(user):
+        from .services import attendance
+        if not attendance.unlocked(db, user, venue_id, d):
+            # 428: the client shows the clock-in screen instead of the venue.
+            raise HTTPException(428, "Clock in at the venue to open it for the day.")
 
 
 def roster_pairs(db: Session, user, start: date, end: date) -> set[tuple[int, date]]:

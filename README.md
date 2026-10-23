@@ -140,6 +140,20 @@ historical analytics keep the price they were sold at.
 See [DEPLOY.md](DEPLOY.md): Supabase database, creating the live data (`app.golive`, then `app.prune_users` to
 remove the demo accounts and set the HQ admin's password), app host, HTTPS and backups.
 
+## VM attendance
+
+A rostered Venue Manager's venue stays closed to them for the day until they clock in on site: Pulse checks
+their phone's location is within 500 m of the venue's map position, then opens a live camera (no gallery) for a
+photo of the venue. The photo is emailed to Operations with the clock-in time, lateness, distance and a map link,
+and is kept in the database only until that email is delivered (retried every 10 minutes). Each venue needs its
+own clock-in; clock-out records where it happened. HQ sees clock-in times, lateness and missing photos on the
+roster and the venue page.
+
+Before going live: set every venue's **map position** under Configuration → Venues (venues without one show a
+warning there, and their VMs cannot clock in), and set the SMTP variables so the photos are actually sent.
+Location and camera only work on the https address (or `localhost`). Phone location can be faked with mock-GPS
+apps; the server re-checks the distance and the photo is the second piece of evidence.
+
 ## Integrations
 
 All are real code paths with a safe default when credentials are absent (messages are logged as `simulated` and
@@ -153,6 +167,8 @@ visible under **Integrations**):
 | `PULSE_DATABASE_URL` | Database. Default is a local SQLite file; set a `postgresql://…` URL (e.g. Supabase) for a hosted one |
 | `PULSE_SECRET_KEY` | Token signing — **set this in any shared deployment** |
 | `PULSE_APP_URL` | Public URL used in invite / reset links |
+| `PULSE_ATTENDANCE_EMAIL` | Receives each VM clock-in photo; defaults to `PULSE_OPS_EMAIL`. Needs the SMTP settings to actually send |
+| `PULSE_ATTENDANCE_RADIUS_M`, `PULSE_ATTENDANCE_EARLY_MIN` | Clock-in distance from the venue (default 500 m) and how early before the shift it opens (default 60 min) |
 | `PULSE_ROSTER_ALERT_MIN` | Minute of day (IST) for the "no VM rostered tomorrow" alert; default 1200 (8 PM) |
 
 ## PRD decisions and open points

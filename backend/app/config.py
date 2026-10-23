@@ -50,5 +50,11 @@ if SECRET_KEY == "dev-only-change-me" and not APP_URL.startswith(("http://localh
     raise RuntimeError("PULSE_SECRET_KEY must be set to a long random value when PULSE_APP_URL is not localhost "
                        "(generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\")")
 
+# VM attendance: clock-in opens within this distance of the venue, from this long before the shift starts.
+ATTENDANCE_RADIUS_M = int(os.getenv("PULSE_ATTENDANCE_RADIUS_M", "500"))
+ATTENDANCE_EARLY_MIN = int(os.getenv("PULSE_ATTENDANCE_EARLY_MIN", "60"))
+ATTENDANCE_MAX_ACCURACY_M = int(os.getenv("PULSE_ATTENDANCE_MAX_ACCURACY_M", "500"))  # coarser fixes are refused
+ATTENDANCE_EMAIL = os.getenv("PULSE_ATTENDANCE_EMAIL") or OPS_EMAIL  # receives each clock-in photo
+
 RUN_SCHEDULER = os.getenv("PULSE_RUN_SCHEDULER", "1") == "1"
 CORS_ORIGINS = os.getenv("PULSE_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")

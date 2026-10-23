@@ -1,7 +1,8 @@
 """Venue day: performance summary, availability grid, quotes, and day close."""
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -11,7 +12,7 @@ from ..permissions import can, ensure_venue, roster_pairs, roster_scoped
 from ..db import get_db
 from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, CorporateEvent, Customer, Facility,
                       OperationalBlock, User, Venue)
-from ..services import analytics, bookings, dayclose, history_overlay, inventory, roster
+from ..services import analytics, attendance, bookings, dayclose, history_overlay, inventory, roster
 from ..services.pricing import quote
 from ..timeutil import hhmm, minute_of, now_local
 from .common import custom_window, day_or_today, get_or_404, minutes
@@ -212,3 +213,52 @@ def close(venue_id: int, date: date | None = None, user: User = Depends(current_
     dayclose.close_day(db, user, venue_id, d)
     db.commit()
     return dayclose.status(db, venue_id, d)
+
+
+# ── VM attendance ────────────────────────────────────────────────────────────
+class FixIn(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy: float | None = None
+
+
+class PhotoIn(BaseModel):
+    image: str = Field(max_length=5_000_000)  # data:image/jpeg;base64,...
+
+
+def _vm(user: User) -> None:
+    if not roster_scoped(user):
+        raise HTTPException(403, "Clock-in is for Venue Managers.")
+
+
+@router.get("/{venue_id}/attendance")
+def attendance_state(venue_id: int, date: date | None = None, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    _vm(user)
+    get_or_404(db, Venue, venue_id)
+    return attendance.state(db, user, venue_id, day_or_today(date))
+
+
+@router.post("/{venue_id}/clock-in")
+def clock_in(venue_id: int, body: FixIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _vm(user)
+    get_or_404(db, Venue, venue_id)
+    a = attendance.clock_in(db, user, venue_id, body.latitude, body.longitude, body.accuracy)
+    db.commit()
+    return attendance.state(db, user, venue_id, a.date)
+
+
+@router.post("/{venue_id}/clock-in/photo")
+def clock_in_photo(venue_id: int, body: PhotoIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _vm(user)
+    a = attendance.add_photo(db, user, venue_id, body.image)
+    db.commit()
+    return {**attendance.state(db, user, venue_id, a.date), "photo_delivery": a.photo_status}
+
+
+@router.post("/{venue_id}/clock-out")
+def clock_out(venue_id: int, body: FixIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _vm(user)
+    a = attendance.clock_out(db, user, venue_id, body.latitude, body.longitude, body.accuracy)
+    db.commit()
+    return attendance.state(db, user, venue_id, a.date)

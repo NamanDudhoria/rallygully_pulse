@@ -8,7 +8,7 @@ from app import timeutil
 from app.auth import hash_password, reset_throttle
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Facility, Notification, PricingRule, User, Venue, VmAssignment, VmRoster, WeeklyHours
+from app.models import Facility, Notification, PricingRule, User, Venue, VmAssignment, VmAttendance, VmRoster, WeeklyHours
 from app.services import roster
 
 DAY = date(2026, 10, 7)
@@ -42,12 +42,24 @@ def c():
     db.add_all([vm, other])
     db.flush()
     db.add(VmRoster(venue_id=eok.id, user_id=vm.id, date=DAY))
+    # The VM has clocked in on site for that shift (attendance has its own tests).
+    db.add(VmAttendance(user_id=vm.id, venue_id=eok.id, date=DAY, clock_in_at=at(16), in_lat=0, in_lng=0,
+                        in_distance_m=0, photo_at=at(16), photo_status="sent"))
     db.commit()
     db.close()
     timeutil.set_clock(at(16))
     reset_throttle()
     yield TestClient(app)
     timeutil.set_clock(None)
+
+
+def clock_in(user_id, venue_id, d=DAY):
+    """A completed on-site clock-in (location + photo), as the attendance flow leaves it."""
+    db = SessionLocal()
+    db.add(VmAttendance(user_id=user_id, venue_id=venue_id, date=d, clock_in_at=at(16, d=d), in_lat=0, in_lng=0,
+                        in_distance_m=0, photo_at=at(16, d=d), photo_status="sent"))
+    db.commit()
+    db.close()
 
 
 def login(c, email, pw="pulse1234"):
@@ -85,6 +97,9 @@ def test_multiple_vms_share_a_venue_day(c):
     h1, h2 = login(c, "vm@x.com"), login(c, "vm2@x.com")
     b = direct(c, h1).json()
     timeutil.set_clock(at(19))
+    # Rostered but not yet clocked in: the venue stays closed to Kavya.
+    assert c.post(f"/api/bookings/{b['id']}/pay", headers=h2, json={"method": "cash"}).status_code == 428
+    clock_in(6, 1)
     assert c.post(f"/api/bookings/{b['id']}/pay", headers=h2, json={"method": "cash"}).status_code == 200
 
 
@@ -107,7 +122,10 @@ def test_rostering_outside_team_joins_team(c):
     db = SessionLocal()
     assert db.get(VmAssignment, (5, 2)) is not None
     db.close()
-    assert c.get(f"/api/venues/2/day?date={DAY}", headers=login(c, "vm@x.com")).status_code == 200
+    vm = login(c, "vm@x.com")
+    assert c.get(f"/api/venues/2/day?date={DAY}", headers=vm).status_code == 428  # rostered; clock-in pending
+    clock_in(5, 2)
+    assert c.get(f"/api/venues/2/day?date={DAY}", headers=vm).status_code == 200
     vms = c.get(f"/api/roster?date_from={DAY}&date_to={DAY}", headers=hq).json()["vms"]
     assert {v["name"] for v in vms} == {"Rohit", "Kavya"}
     r = c.post("/api/roster", headers=hq, json={"venue_id": 1, "user_id": 3, "date": DAY.isoformat()})

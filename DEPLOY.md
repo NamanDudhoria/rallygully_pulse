@@ -116,6 +116,10 @@ pulse.example.com {
 
 ## Before you share the link
 
+- Set each venue's **map position** (Configuration → Venues → edit → Map position). Without it, Venue Managers
+  cannot clock in and their venue stays closed to them.
+- Set `PULSE_SMTP_HOST`, `PULSE_SMTP_USER`, `PULSE_SMTP_PASSWORD` (and optionally `PULSE_ATTENDANCE_EMAIL`), or
+  clock-in photos are held in the database and never reach Operations.
 - The repository holds customer names (`online_bookings`, `Historic_data_ingestion`). Keep it **private**.
 - Sign in as each role once after inviting people, to check what each can see.
 

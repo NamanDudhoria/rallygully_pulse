@@ -6,7 +6,7 @@ import time
 
 from . import config
 from .db import SessionLocal
-from .services import bookings, dayclose, district, roster
+from .services import attendance, bookings, dayclose, district, roster
 
 log = logging.getLogger("pulse.scheduler")
 
@@ -22,6 +22,7 @@ def _tick(run_district: bool) -> None:
         bookings.refresh_overdue(db)
         dayclose.escalate_missed(db)
         roster.alert_gaps(db)
+        attendance.retry_photos(db)
         db.commit()
     except Exception:  # noqa: BLE001 — never let a job crash the loop; operational records stay intact
         db.rollback()
