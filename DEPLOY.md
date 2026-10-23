@@ -8,6 +8,51 @@ scheduler and cache live in the process).
 browser ──https──> your app host (Pulse: API + UI) ──postgres──> Supabase
 ```
 
+## Fastest path: one AWS EC2 server
+
+You need a **domain you control** (the clock-in camera and location work only over https, and a certificate
+can't be issued for a bare IP address) and to know your **Supabase region** (Supabase → Project Settings → General).
+
+1. **Launch the server.** AWS console → pick the **same region as your Supabase project** (top right) → EC2 →
+   Launch instance: name `pulse`; image **Ubuntu Server 24.04 LTS**; type **t3.small** (2 GB; a t3.micro also works,
+   the script adds swap); create a **key pair** and keep the `.pem` file; network: allow **SSH from My IP** and
+   **HTTP and HTTPS from anywhere**; storage 20 GiB gp3.
+2. **Elastic IP.** EC2 → Elastic IPs → Allocate → Associate with the instance, so the address survives a restart.
+3. **DNS.** At your registrar (or Route 53) add an **A record**: `pulse.yourdomain.com` → the Elastic IP.
+4. **Connect.** From PowerShell: `ssh -i C:\path\to\key.pem ubuntu@<elastic-ip>`
+5. **Get the code.** The repo is private, so give the server a read-only deploy key:
+   ```bash
+   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+   cat ~/.ssh/id_ed25519.pub        # copy this line
+   ```
+   GitHub → the repo → Settings → Deploy keys → Add deploy key (leave "Allow write access" **off**), then:
+   ```bash
+   sudo mkdir -p /opt/pulse && sudo chown $USER /opt/pulse
+   git clone git@github.com:NamanDudhoria/rallygully_pulse.git /opt/pulse     # answer "yes" to the fingerprint
+   ```
+6. **Run the setup script.**
+   ```bash
+   cd /opt/pulse && sudo bash deploy/ec2/setup.sh pulse.yourdomain.com
+   ```
+   It installs Python, Node and Caddy, builds the UI, asks **once** for the Supabase *Session pooler* connection
+   string (hidden as you type; the real string, no `<placeholders>`), generates the secret key, starts Pulse as a
+   service and turns on https. It can be re-run safely and never overwrites your settings.
+7. **Open** `https://pulse.yourdomain.com` (the first visit can take about a minute for the certificate) and sign
+   in as the admin. The database must already exist: build it once from your PC (sections 1-2 below) and do
+   **not** re-run `golive` against the live database.
+8. **Email** (clock-in photos, escalations): `sudo nano /opt/pulse/backend/.env.pulse`, uncomment and fill the
+   `PULSE_SMTP_*` lines (for Google Workspace use an app password, port 587; AWS blocks outbound port 25 by
+   default), then `sudo systemctl restart pulse`.
+9. **Update later:** `sudo bash /opt/pulse/deploy/ec2/update.sh`.
+
+Troubleshooting: site doesn't load → the DNS record and the security group (ports 80 and 443);
+`sudo journalctl -u caddy -n 50`. Gateway error (502) → `sudo journalctl -u pulse -n 50` (usually the database URL
+or Supabase unreachable). Changed the database URL → edit `.env.pulse`, then `sudo systemctl restart pulse`.
+
+How it's laid out: your login owns the code and runs `git pull` and the builds; the service runs as a separate
+`pulse` user that can read the code but change only the mail inbox; the settings file is readable only by root and
+that service.
+
 ## Put the app host and the database in the same region
 
 Pulse's busiest pages run about 30 to 60 database queries each in sequence (Portfolio 56, venue day 32, venue
