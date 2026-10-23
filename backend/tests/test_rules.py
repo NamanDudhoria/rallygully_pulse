@@ -8,7 +8,7 @@ from app import timeutil
 from app.auth import hash_password
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Facility, PricingRule, User, Venue, VmAssignment, VmRoster, WeeklyHours
+from app.models import Facility, PricingRule, User, Venue, VmAssignment, VmAttendance, VmRoster, WeeklyHours
 from app.auth import reset_throttle
 
 DAY = date(2026, 10, 7)  # a Wednesday
@@ -44,6 +44,9 @@ def client():
     db.add(vm)
     db.flush()
     db.add(VmRoster(venue_id=v.id, user_id=vm.id, date=DAY))
+    # The VM has clocked in on site for that shift (attendance has its own tests).
+    db.add(VmAttendance(user_id=vm.id, venue_id=v.id, date=DAY, clock_in_at=at(16), in_lat=0, in_lng=0,
+                        in_distance_m=0, photo_at=at(16), photo_status="sent"))
     db.commit()
     db.close()
     timeutil.set_clock(at(16))

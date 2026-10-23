@@ -7,7 +7,8 @@ and availability is derived from it — never stored separately.
 """
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -69,6 +70,35 @@ class VmRoster(Base):
     __table_args__ = (UniqueConstraint("venue_id", "user_id", "date"), Index("ix_roster_date", "date"))
 
 
+class VmAttendance(Base):
+    """A VM's clock-in / clock-out at a rostered venue. The venue opens to them only after clock-in on site
+    and a camera photo of the venue; the photo is emailed to Operations and kept here only until delivered."""
+    __tablename__ = "vm_attendance"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    date: Mapped[date] = mapped_column(Date)
+    shift_start_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    late_min: Mapped[int] = mapped_column(Integer, default=0)
+    clock_in_at: Mapped[datetime] = mapped_column(DateTime)
+    in_lat: Mapped[float] = mapped_column(Float)
+    in_lng: Mapped[float] = mapped_column(Float)
+    in_accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    in_distance_m: Mapped[float] = mapped_column(Float)
+    photo_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # set = venue unlocked
+    photo_status: Mapped[str | None] = mapped_column(String(12), nullable=True)  # sent | simulated | failed
+    photo_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # only until emailed
+    photo_attempted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    photo_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    photo_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    clock_out_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    out_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    out_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    out_accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    out_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    __table_args__ = (UniqueConstraint("user_id", "venue_id", "date"), Index("ix_attendance_date", "date"))
+
+
 class RosterAlert(Base):
     """Records that Operations was warned about an unrostered venue-day (sent once)."""
     __tablename__ = "roster_alerts"
@@ -92,6 +122,9 @@ class Venue(Base):
     name: Mapped[str] = mapped_column(String(120))
     location: Mapped[str] = mapped_column(String(200), default="")
     status: Mapped[str] = mapped_column(String(20), default="active")
+    # Map position, for VM clock-in: attendance opens only within the radius of this point.
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     facilities: Mapped[list["Facility"]] = relationship(back_populates="venue", order_by="Facility.sort_order")
     weekly_hours: Mapped[list["WeeklyHours"]] = relationship(cascade="all, delete-orphan", order_by="WeeklyHours.weekday")
 

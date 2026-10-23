@@ -12,7 +12,7 @@ from ..auth import (check_password_policy, check_throttle, clear_failures, creat
 from ..db import get_db
 from ..models import User, Venue, VmRoster
 from ..permissions import for_user
-from ..services import notify, roster
+from ..services import attendance, notify, roster
 from ..timeutil import now_local
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -49,10 +49,12 @@ def profile(db: Session, u: User) -> dict:
                           .where(VmRoster.user_id == u.id, VmRoster.date >= today - timedelta(days=1),
                                  VmRoster.date <= today + timedelta(days=14)).order_by(VmRoster.date, Venue.id))
         out["roster"] = []
+        open_days = attendance.unlocked_pairs(db, u)
         for r, name in rows:
             w = roster.window(db, r)
             out["roster"].append({"date": r.date, "venue_id": r.venue_id, "venue": name,
-                                  "start_min": w[0] if w else None, "end_min": w[1] if w else None})
+                                  "start_min": w[0] if w else None, "end_min": w[1] if w else None,
+                                  "clocked_in": (r.venue_id, r.date) in open_days})
     return out
 
 

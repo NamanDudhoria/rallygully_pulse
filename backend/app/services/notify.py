@@ -41,14 +41,18 @@ def whatsapp(db: Session, phone: str, template: str, body: str, ref_type: str, r
 
 
 def email(db: Session, to: str, subject: str, body: str, ref_type: str | None = None, ref_id: int | None = None,
-          template: str = "day_close_escalation", log_body: str | None = None) -> Notification:
-    """Send (or simulate) an email. ``log_body`` replaces the stored copy, e.g. to keep secrets out of logs."""
+          template: str = "day_close_escalation", log_body: str | None = None,
+          attachments: list[tuple[str, bytes, str, str]] | None = None) -> Notification:
+    """Send (or simulate) an email. ``log_body`` replaces the stored copy, e.g. to keep secrets out of logs.
+    ``attachments``: (filename, data, maintype, subtype); they are sent but never stored in the log."""
     status, error = "simulated", None
     if config.SMTP_HOST:
         try:
             msg = EmailMessage()
             msg["From"], msg["To"], msg["Subject"] = config.SMTP_USER or "pulse@rallygully.com", to, subject
             msg.set_content(body)
+            for filename, data, maintype, subtype in attachments or []:
+                msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
             with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=15) as s:
                 s.starttls()
                 if config.SMTP_USER:

@@ -17,6 +17,8 @@ import BaselinePicker from '../components/BaselinePicker'
 import AvailabilityGrid, { GridLegend } from '../components/AvailabilityGrid'
 import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, DirectBookingDrawer, GameDrawer } from '../components/drawers'
 import { WINDOWS, attendBadge, closeBadge, payBadge } from '../components/badges'
+import { ClockInGate, MyShift } from '../components/ClockIn'
+import { clockTime } from '../lib/attendance'
 
 export default function VenueDay() {
   const { id } = useParams()
@@ -29,9 +31,12 @@ export default function VenueDay() {
   const day = useApi(`/api/venues/${id}/day?date=${date}${baseline.query}`, { interval: 60000 })
   const grid = useApi(`/api/venues/${id}/grid?date=${date}`, { interval: 60000 })
   const [drawer, setDrawer] = useState(null)
+  const { user, refresh: refreshMe } = useAuth()
   const refresh = () => { day.reload(); grid.reload() }
 
   if (day.error && day.error.status === 403) return <NoAccess message={day.error.message} />
+  // Rostered VM who hasn't clocked in here today: the clock-in screen replaces the venue.
+  if (day.error && day.error.status === 428) return <ClockInGate venueId={id} date={date} onUnlocked={() => { refresh(); refreshMe() }} />
   if (day.error && !day.data) return <ErrorState error={day.error} onRetry={day.reload} />
   if (!day.data) return <PageSkeleton />
   const d = day.data
@@ -53,8 +58,11 @@ export default function VenueDay() {
             <span>{d.hours ? `Open ${range12(d.hours.open_min, d.hours.close_min)}` : 'Closed on this date'}</span>
             {closeBadge(d.day_close.status)}
             {d.on_duty?.length > 0
-              ? <Badge icon={UserCheck}>On duty: {d.on_duty.map((x) => (x.custom ? `${x.name} ${range12(x.start_min, x.end_min)}` : x.name)).join(', ')}</Badge>
+              ? <Badge icon={UserCheck}>On duty: {d.on_duty.map((x) => `${x.custom ? `${x.name} ${range12(x.start_min, x.end_min)}` : x.name}${dutyNote(x, d.is_today)}`).join(', ')}</Badge>
               : d.hours && <Badge tone="warn" icon={UserX}>No VM rostered</Badge>}
+            {user?.role === 'vm' && d.is_today && (
+              <MyShift venueId={id} attendance={d.on_duty?.find((x) => x.user_id === user.id)?.attendance} onChanged={refresh} />
+            )}
             {!canOperate && <Badge tone="info" icon={Eye}>View only</Badge>}
           </p>
         </div>
@@ -526,6 +534,18 @@ function CloseTab({ d, date, canOperate, onOpen, onClosed }) {
       </div>
     </div>
   )
+}
+
+
+/** " (in 5:05 PM, 12 min late)" beside a rostered VM's name; "not clocked in" once the day has begun. */
+function dutyNote(x, isToday) {
+  const a = x.attendance
+  if (!a) return isToday ? ' (not clocked in)' : ''
+  const parts = [`in ${clockTime(a.clock_in_at)}`]
+  if (a.late_min) parts.push(`${a.late_min} min late`)
+  if (a.photo === 'missing') parts.push('no photo')
+  if (a.clock_out_at) parts.push(`out ${clockTime(a.clock_out_at)}${a.left_away ? ' away from venue' : ''}`)
+  return ` (${parts.join(', ')})`
 }
 
 

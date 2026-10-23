@@ -6,6 +6,7 @@ import { useApi } from '../lib/hooks'
 import { useAction } from '../lib/useCtx'
 import { dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, KindLabel, Skeleton, Tabs } from '../components/ui'
+import { getFix } from '../lib/attendance'
 
 const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -118,6 +119,7 @@ function VenuesConfig() {
             <div>
               <h2>{v.name} <span className="mono subtle" style={{ fontWeight: 400 }}>{v.code}</span></h2>
               <p className="muted" style={{ marginTop: 4 }}>{v.location || 'No location set'}</p>
+              {v.latitude == null && <p className="subtle" style={{ fontSize: 12.5, color: 'var(--warn)' }}>No map position: VMs can&apos;t clock in here yet</p>}
             </div>
             <div className="row">
               {v.status === 'active' ? <Badge tone="good">Active</Badge> : <Badge>Inactive</Badge>}
@@ -162,17 +164,32 @@ function VenuesConfig() {
 
 const SPORTS = ['Pickleball', 'Padel', 'Badminton', 'Football 6v6', 'Box Cricket']
 
+/** "28.5571, 77.2481" → [lat, lng]; '' → null (not set); anything else → undefined (invalid). */
+function parsePosition(text) {
+  if (!text.trim()) return null
+  const m = text.trim().match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/)
+  if (!m) return undefined
+  const lat = Number(m[1])
+  const lng = Number(m[2])
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : undefined
+}
+
 function VenueDrawer({ form, onClose, onSaved }) {
   const [run, busy] = useAction()
   const [f, setF] = useState({ code: form.code, name: form.name, location: form.location || '', status: form.status || 'active' })
+  const [pos, setPos] = useState(form.latitude != null ? `${form.latitude}, ${form.longitude}` : '')
+  const [locating, setLocating] = useState(false)
   const isNew = !form.id
+  const coords = parsePosition(pos)
   return (
     <Drawer open onClose={onClose} title={isNew ? 'New venue' : `Edit ${form.name}`}
       subtitle={isNew ? 'Starts with 5–11 PM daily hours; add facilities and prices next' : 'Changes are audited'}>
       {(close) => (
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()
-          const r = await run(() => (isNew ? post('/api/venues', f) : put(`/api/venues/${form.id}`, f)), isNew ? 'Venue created' : 'Venue updated')
+          if (coords === undefined) return
+          const body = { ...f, latitude: coords?.[0] ?? null, longitude: coords?.[1] ?? null }
+          const r = await run(() => (isNew ? post('/api/venues', body) : put(`/api/venues/${form.id}`, body)), isNew ? 'Venue created' : 'Venue updated')
           if (r) { onSaved(r); close() }
         }}>
           <Field label="Code" help={isNew ? 'Short code, e.g. EOK. District emails are matched by this code or the venue name.' : 'District emails are matched by code or name — update District if you change it.'}>
@@ -180,6 +197,18 @@ function VenueDrawer({ form, onClose, onSaved }) {
           </Field>
           <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
           <Field label="Location"><input className="input" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} placeholder="Area, city" /></Field>
+          <Field label="Map position" error={coords === undefined ? 'Enter latitude, longitude, e.g. 28.5571, 77.2481' : null}
+            help="Venue Managers can clock in only near this point. In Google Maps, right-click the venue and click the numbers to copy them.">
+            <div className="row" style={{ gap: 8 }}>
+              <input className="input mono grow" value={pos} onChange={(e) => setPos(e.target.value)} placeholder="28.5571, 77.2481" inputMode="decimal" />
+              <button type="button" className="btn" disabled={locating} onClick={async () => {
+                setLocating(true)
+                const fix = await run(() => getFix())
+                setLocating(false)
+                if (fix) setPos(`${fix.latitude.toFixed(6)}, ${fix.longitude.toFixed(6)}`)
+              }}>{locating ? 'Locating…' : 'Use my location'}</button>
+            </div>
+          </Field>
           {!isNew && (
             <Field label="Status" help="A venue can be made inactive only when it has no upcoming bookings or allocations.">
               <select className="select" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>

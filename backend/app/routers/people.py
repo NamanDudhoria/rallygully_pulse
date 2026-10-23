@@ -11,7 +11,7 @@ from ..auth import create_auth_token, link_for
 from ..db import get_db
 from ..models import User, Venue, VmAssignment, VmRoster
 from ..permissions import PERMISSIONS, ROLE_PERMISSIONS, ROLES, require
-from ..services import inventory, roster
+from ..services import attendance, inventory, roster
 from ..timeutil import today
 from .auth_routes import send_link_email, smtp_configured
 from .common import get_or_404, minutes
@@ -146,8 +146,9 @@ def get_roster(date_from: date, date_to: date, user: User = Depends(require("ros
     if date_to < date_from or (date_to - date_from).days > 62:
         raise HTTPException(422, "Choose up to 62 days.")
     venues = list(db.scalars(select(Venue).where(Venue.status == "active").order_by(Venue.id)))
-    entries = db.execute(select(VmRoster, User).join(User, User.id == VmRoster.user_id).where(
-        VmRoster.date >= date_from, VmRoster.date <= date_to))
+    entries = list(db.execute(select(VmRoster, User).join(User, User.id == VmRoster.user_id).where(
+        VmRoster.date >= date_from, VmRoster.date <= date_to)))
+    seen = attendance.by_roster(db, [(u.id, r.venue_id, r.date) for r, u in entries])
     days = []
     d = date_from
     while d <= date_to:
@@ -163,7 +164,7 @@ def get_roster(date_from: date, date_to: date, user: User = Depends(require("ros
         "venues": [{"id": v.id, "name": v.name, "code": v.code, "team": teams[v.id],
                     "hours": {x.isoformat(): inventory.hours_for(db, v.id, x) for x in days}}
                    for v in venues],
-        "entries": [_entry(db, r, u) for r, u in entries],
+        "entries": [{**_entry(db, r, u), "attendance": seen.get((u.id, r.venue_id, r.date))} for r, u in entries],
         "tomorrow_gaps": [v.name for v in roster.gaps(db, today() + timedelta(days=1))],
         "vms": [{"id": u.id, "name": u.name, "email": u.email} for u in db.scalars(
             select(User).where(User.role == "vm", User.active.is_(True)).order_by(User.name))],

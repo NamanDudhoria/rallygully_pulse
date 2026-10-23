@@ -109,11 +109,14 @@ def on_duty(db: Session, venue_id: int, d: date) -> list[dict]:
     """Who is rostered here on ``d`` and when, ordered by shift start."""
     rows = db.execute(select(VmRoster, User).join(User, User.id == VmRoster.user_id).where(
         VmRoster.venue_id == venue_id, VmRoster.date == d))
+    from . import attendance
+    rows = list(rows)
+    seen = attendance.by_roster(db, [(u.id, r.venue_id, r.date) for r, u in rows])
     out = []
     for r, u in rows:
         w = window(db, r)
         out.append({"user_id": u.id, "name": u.name, "start_min": w[0] if w else None, "end_min": w[1] if w else None,
-                    "custom": r.start_min is not None})
+                    "custom": r.start_min is not None, "attendance": seen.get((u.id, r.venue_id, r.date))})
     return sorted(out, key=lambda x: (x["start_min"] or 0, x["name"]))
 
 
