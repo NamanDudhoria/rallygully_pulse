@@ -1,5 +1,5 @@
 """Background jobs: District ingestion (every 5 min), payment overdue, missed day-close escalation,
-and the evening-before alert for venues with no VM rostered tomorrow."""
+the evening-before alert for venues with no VM rostered tomorrow, and each VM's WhatsApp for tomorrow at 11:30 PM."""
 import asyncio
 import logging
 import time
@@ -22,6 +22,7 @@ def _tick(run_district: bool) -> None:
         bookings.refresh_overdue(db)
         dayclose.escalate_missed(db)
         roster.alert_gaps(db)
+        roster.send_tomorrow(db)
         attendance.retry_photos(db)
         db.commit()
     except Exception:  # noqa: BLE001 — never let a job crash the loop; operational records stay intact

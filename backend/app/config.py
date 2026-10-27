@@ -41,7 +41,7 @@ TWILIO_CONTENT_SID_COMMUNITY = os.getenv("PULSE_TWILIO_CONTENT_SID_COMMUNITY")  
 TWILIO_CONTENT_SID_ROSTER = os.getenv("PULSE_TWILIO_CONTENT_SID_ROSTER")  # VM roster alert template
 # Variable names as written in each Twilio template, in the order we fill them (venue, time, link / dates).
 TWILIO_BOOKING_VARS = os.getenv("PULSE_TWILIO_BOOKING_VARS", "1,2,3").split(",")
-TWILIO_ROSTER_VARS = os.getenv("PULSE_TWILIO_ROSTER_VARS", "venue_name,time_slot,dates").split(",")
+TWILIO_ROSTER_VARS = os.getenv("PULSE_TWILIO_ROSTER_VARS", "venue_name,time-slot").split(",")
 
 # Escalation email: SMTP when configured, otherwise logged only.
 SMTP_HOST = os.getenv("PULSE_SMTP_HOST")
@@ -54,6 +54,7 @@ OPS_EMAIL = os.getenv("PULSE_OPS_EMAIL", "ops@rallygully.com")
 APP_URL = os.getenv("PULSE_APP_URL", "http://localhost:8000")
 # Evening-before check for venues with no VM rostered for tomorrow (IST minute of day).
 ROSTER_ALERT_MIN = int(os.getenv("PULSE_ROSTER_ALERT_MIN", str(20 * 60)))
+VM_ALERT_MIN = int(os.getenv("PULSE_VM_ALERT_MIN", str(23 * 60 + 30)))  # each VM is told tomorrow's venue and shift
 
 # Anyone who knows the default key can mint a valid session for any user, so a deployed app must not use it.
 if SECRET_KEY == "dev-only-change-me" and not APP_URL.startswith(("http://localhost", "http://127.0.0.1")):
