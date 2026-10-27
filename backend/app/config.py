@@ -38,6 +38,10 @@ TWILIO_AUTH_TOKEN = os.getenv("PULSE_TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_FROM = os.getenv("PULSE_TWILIO_WHATSAPP_FROM")  # e.g. +919876543210, your approved sender
 TWILIO_CONTENT_SID_BOOKING = os.getenv("PULSE_TWILIO_CONTENT_SID_BOOKING")  # approved template HX…; vars 1=venue 2=when 3=link
 TWILIO_CONTENT_SID_COMMUNITY = os.getenv("PULSE_TWILIO_CONTENT_SID_COMMUNITY")  # optional; vars 1=level 2=link
+TWILIO_CONTENT_SID_ROSTER = os.getenv("PULSE_TWILIO_CONTENT_SID_ROSTER")  # VM roster alert template
+# Variable names as written in each Twilio template, in the order we fill them (venue, time, link / dates).
+TWILIO_BOOKING_VARS = os.getenv("PULSE_TWILIO_BOOKING_VARS", "1,2,3").split(",")
+TWILIO_ROSTER_VARS = os.getenv("PULSE_TWILIO_ROSTER_VARS", "venue_name,time_slot,dates").split(",")
 
 # Escalation email: SMTP when configured, otherwise logged only.
 SMTP_HOST = os.getenv("PULSE_SMTP_HOST")

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from .. import audit, config
 from ..audit import DomainError
 from ..models import User, Venue, VmAttendance, VmRoster
-from ..timeutil import minute_of, now_local
+from ..timeutil import minute_of, now_local, tz_label
 from . import notify, roster
 
 MAX_PHOTO_BYTES = 3 * 1024 * 1024
@@ -163,7 +163,7 @@ def add_photo(db: Session, user: User, venue_id: int, data_url: str) -> VmAttend
 def send_photo(db: Session, a: VmAttendance) -> None:
     """Email the clock-in photo to Operations. Delivered → the photo is deleted; otherwise it waits for a retry."""
     u, v = db.get(User, a.user_id), db.get(Venue, a.venue_id)
-    when = a.clock_in_at.strftime("%I:%M %p").lstrip("0")
+    when = a.clock_in_at.strftime("%I:%M %p").lstrip("0") + f" {tz_label()}"
     late = f" — {a.late_min} min late" if a.late_min else ""
     subject = f"[Pulse] {u.name} clocked in at {v.name}, {a.date.strftime('%a %d %b')} {when}{late}"
     accuracy = f"±{a.in_accuracy_m:.0f} m" if a.in_accuracy_m is not None else "not reported"
@@ -172,7 +172,7 @@ def send_photo(db: Session, a: VmAttendance) -> None:
             f"Clock-in: {when}" + (f" (shift starts {_t12(a.shift_start_min)}{late})" if a.shift_start_min is not None else "") + "\n"
             f"Distance from venue: {a.in_distance_m:.0f} m (phone accuracy {accuracy})\n"
             f"Location: https://maps.google.com/?q={a.in_lat:.6f},{a.in_lng:.6f}\n"
-            f"Photo taken: {a.photo_at.strftime('%I:%M %p').lstrip('0')} (attached)\n")
+            f"Photo taken: {a.photo_at.strftime('%I:%M %p').lstrip('0')} {tz_label()} (attached)\n")
     filename = f"{v.code}-{a.date.isoformat()}-{u.name.split()[0].lower()}.jpg"
     n = notify.email(db, config.ATTENDANCE_EMAIL, subject, body, ref_type="attendance", ref_id=a.id,
                      template="attendance_photo", attachments=[(filename, a.photo_bytes, "image", "jpeg")])

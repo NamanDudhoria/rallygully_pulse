@@ -116,7 +116,7 @@ def _send_booking_whatsapp(db: Session, b: Booking) -> None:
     when = f"{b.date.strftime('%a %d %b')}, {hhmm(b.start_min)}–{hhmm(b.end_min)}"
     link = venue.community_link or config.COMMUNITY_LINK
     notify.whatsapp(db, customers_phone(db, b), "booking_created", notify.booking_message(venue.name, when, link),
-                    "booking", b.id, content_sid=config.TWILIO_CONTENT_SID_BOOKING, variables=[venue.name, when, link])
+                    "booking", b.id, content_sid=config.TWILIO_CONTENT_SID_BOOKING, variables=notify.named(config.TWILIO_BOOKING_VARS, venue.name, when, link))
     email = db.get(Customer, b.customer_id).email
     if email:
         subject, body = notify.booking_email(venue.name, when, link)

@@ -10,6 +10,11 @@ def now_local() -> datetime:
     return datetime.now(config.TZ).replace(tzinfo=None) + _offset
 
 
+def tz_label() -> str:
+    """Short name of the venue timezone (IST), for times written in emails."""
+    return datetime.now(config.TZ).tzname() or str(config.TZ)
+
+
 def set_clock(at: datetime | None) -> None:
     """Pin 'now' to ``at`` (tests / demos). Pass None to restore real time."""
     global _offset

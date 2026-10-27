@@ -503,3 +503,40 @@ def test_confirmation_uses_the_venues_own_community_link_and_twilio(client, monk
     db = SessionLocal()
     assert db.query(Notification).filter_by(channel="whatsapp", status="sent").count() == 1
     db.close()
+
+
+def test_vm_is_whatsapped_when_rostered(client, monkeypatch):
+    import json, urllib.parse
+    from app import config
+    from app.models import Notification
+    db = SessionLocal()
+    db.add(User(name="HQ", email="hq2@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    vm = db.query(User).filter_by(email="vm@x.com").one()
+    vm_id = vm.id
+    db.commit()
+    db.close()
+    h = login(client, "hq2@x.com")
+    body = {"name": "VM One", "email": "vm@x.com", "role": "vm", "venue_ids": [1], "active": True}
+    assert client.put(f"/api/users/{vm_id}", headers=h, json={**body, "phone": "12345"}).status_code == 422
+    assert client.put(f"/api/users/{vm_id}", headers=h, json={**body, "phone": "+91 98123 45678"}).json()["phone"] == "9812345678"
+
+    sent = []
+
+    class Resp:
+        status = 201
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr("app.services.notify.urllib.request.urlopen", lambda req, timeout=0: sent.append(req) or Resp())
+    for k, val in (("TWILIO_ACCOUNT_SID", "ACtest"), ("TWILIO_AUTH_TOKEN", "tok"), ("TWILIO_WHATSAPP_FROM", "+919800000000"),
+                   ("TWILIO_CONTENT_SID_ROSTER", "HXroster")):
+        monkeypatch.setattr(config, k, val)
+    day = (DAY + timedelta(days=3)).isoformat()
+    assert client.post("/api/roster", headers=h, json={"venue_id": 1, "user_id": vm_id, "date": day}).status_code == 200
+    form = urllib.parse.parse_qs(sent[0].data.decode())
+    assert form["To"] == ["whatsapp:+919812345678"] and form["ContentSid"] == ["HXroster"]
+    vars_ = json.loads(form["ContentVariables"][0])
+    assert set(vars_) == {"venue_name", "time_slot", "dates"} and "PM" in vars_["time_slot"]
+    n = len(sent)
+    assert client.post("/api/roster", headers=h, json={"venue_id": 1, "user_id": vm_id, "date": day}).status_code == 200
+    assert len(sent) == n  # already rostered: no repeat message

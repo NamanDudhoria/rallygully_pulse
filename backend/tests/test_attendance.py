@@ -137,6 +137,7 @@ def test_photo_is_emailed_and_kept_only_until_delivered(c, monkeypatch):
     assert a.photo_bytes and a.photo_bytes.startswith(b"\xff\xd8\xff")  # held for a retry
     n = db.query(Notification).filter_by(template="attendance_photo").one()
     assert n.recipient == config.ATTENDANCE_EMAIL and "Rohit Kumar clocked in at East of Kailash" in n.body
+    assert "Clock-in: 4:30 PM IST" in n.body  # the pinned clock is 16:30 venue time
     assert "base64" not in n.body and "maps.google.com" in n.body
     db.close()
 

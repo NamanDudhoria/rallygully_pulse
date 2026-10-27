@@ -29,12 +29,12 @@ def _send_whatsapp(phone: str, body: str) -> None:
             raise RuntimeError(f"WhatsApp API HTTP {resp.status}")
 
 
-def _send_twilio(phone: str, body: str, content_sid: str | None, variables: list[str] | None) -> None:
+def _send_twilio(phone: str, body: str, content_sid: str | None, variables: dict[str, str] | None) -> None:
     """Approved template when ``content_sid`` is set (needed to message customers first), else plain text."""
     data = {"From": f"whatsapp:{config.TWILIO_WHATSAPP_FROM}", "To": f"whatsapp:+91{phone}"}
     if content_sid and variables:
         data["ContentSid"] = content_sid
-        data["ContentVariables"] = json.dumps({str(i): v for i, v in enumerate(variables, 1)})
+        data["ContentVariables"] = json.dumps(variables)
     else:
         data["Body"] = body
     sid = config.TWILIO_ACCOUNT_SID
@@ -53,7 +53,7 @@ def _send_twilio(phone: str, body: str, content_sid: str | None, variables: list
 
 
 def whatsapp(db: Session, phone: str, template: str, body: str, ref_type: str, ref_id: int,
-             content_sid: str | None = None, variables: list[str] | None = None) -> Notification:
+             content_sid: str | None = None, variables: dict[str, str] | None = None) -> Notification:
     status, error = "simulated", None
     twilio = config.TWILIO_ACCOUNT_SID and config.TWILIO_AUTH_TOKEN and config.TWILIO_WHATSAPP_FROM
     if twilio or (config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_ID):
@@ -107,6 +107,15 @@ def booking_email(venue_name: str, when: str, link: str) -> tuple[str, str]:
     return (f"Your RallyGully booking at {venue_name} is confirmed",
             f"Hi,\n\nYour booking at {venue_name} on {when} is confirmed.\n\n"
             f"Join the RallyGully community for games and updates: {link}\n\nSee you on court!\nRallyGully")
+
+
+def named(names: list[str], *values: str) -> dict[str, str]:
+    """Pair our values with the variable names used in the Twilio template, in order."""
+    return {k.strip(): v for k, v in zip(names, values)}
+
+
+def roster_message(venue_name: str, slot: str, dates: str) -> str:
+    return f"You have been allotted {venue_name} for time {slot} on these dates - {dates}"
 
 
 def community_message(level: str, link: str) -> str:

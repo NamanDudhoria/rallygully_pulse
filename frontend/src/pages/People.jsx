@@ -32,7 +32,7 @@ export function PeoplePage() {
     <div className="stack rise">
       <div className="page-head">
         <div><h1>People &amp; access</h1></div>
-        <button className="btn btn-primary" onClick={() => setEdit({ name: '', email: '', role: 'vm', venue_ids: [], active: true })}><Plus /> Add person</button>
+        <button className="btn btn-primary" onClick={() => setEdit({ name: '', email: '', phone: '', role: 'vm', venue_ids: [], active: true })}><Plus /> Add person</button>
       </div>
       <div className="spread">
         <div className="seg wrap" role="group" aria-label="Filter by role">
@@ -123,7 +123,7 @@ function PersonDrawer({ person, roles, venues, onClose, onSaved }) {
           )}
           <form className="form" onSubmit={async (e) => {
             e.preventDefault()
-            const body = { name: f.name, email: f.email, role: f.role, venue_ids: f.role === 'vm' ? f.venue_ids : [], active: f.active }
+            const body = { name: f.name, email: f.email, phone: f.phone || null, role: f.role, venue_ids: f.role === 'vm' ? f.venue_ids : [], active: f.active }
             const r = await run(() => (isNew ? post('/api/users', body) : put(`/api/users/${person.id}`, body)), isNew ? null : 'Saved')
             if (!r) return
             onSaved()
@@ -133,6 +133,11 @@ function PersonDrawer({ person, roles, venues, onClose, onSaved }) {
             <Field label="Work email" help={isNew ? 'This is their sign-in. It can’t be changed later.' : null}>
               <input className="input" type="email" value={f.email} disabled={!isNew} onChange={(e) => setF({ ...f, email: e.target.value })} required />
             </Field>
+            {f.role === 'vm' && (
+              <Field label="WhatsApp number" help="Optional. Roster changes are sent to this number.">
+                <input className="input" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+              </Field>
+            )}
             <Field label="Role" help={self ? "You can't change your own role." : roleInfo ? `Can: ${roleInfo.permissions.map((p) => roles.permissions[p].split(':')[0]).join(' · ')}` : null}>
               <select className="select" value={f.role} disabled={self} onChange={(e) => setF({ ...f, role: e.target.value })}>
                 {(roles?.roles || []).map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}

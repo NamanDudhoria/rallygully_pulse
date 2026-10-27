@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from .. import audit, config
 from ..audit import DomainError
 from ..models import Booking, CommunityGame, Customer, DayClose, Participant, User, Venue
-from ..timeutil import hhmm, minute_of, now_local
+from ..timeutil import hhmm, minute_of, now_local, tz_label
 from . import inventory, notify, roster
 
 
@@ -132,7 +132,7 @@ def escalate_missed(db: Session) -> int:
             body = "\n".join(f"• {i['message']}" for i in items)
             on_duty = ", ".join(roster.names_for(db, v.id, d)) or "nobody was rostered"
             notify.email(db, config.OPS_EMAIL, f"[Pulse] Missed day close — {v.name}, {d.strftime('%a %d %b %Y')}",
-                         f"{v.name} was not closed by the {hhmm(config.DAY_CLOSE_DEADLINE_MIN)} deadline.\n"
+                         f"{v.name} was not closed by the {hhmm(config.DAY_CLOSE_DEADLINE_MIN)} {tz_label()} deadline.\n"
                          f"Rostered VM(s): {on_duty}\n\n"
                          f"Outstanding items ({len(items)}):\n{body}\n", "day_close", dc.id)
             audit.record(db, None, "day.missed", "day_close", dc.id, None, {"date": d, "items": len(items)}, v.id)
