@@ -15,15 +15,16 @@ You need a **domain you control** (the clock-in camera and location work only ov
 can't be issued for a bare IP address).
 
 1. **Launch the server.** AWS console → pick the region closest to your users (for India: Mumbai, `ap-south-1`)
-   → EC2 → Launch instance: name `pulse`; image **Ubuntu Server 24.04 LTS** (not Amazon Linux: the setup script
-   is built for Ubuntu); type **t3.small** (2 GB; a t3.micro also works, the script adds swap); create a
-   **key pair** and keep the `.pem` file; network: allow **SSH from My IP** and **HTTP and HTTPS from anywhere**;
-   storage 20 GiB gp3.
+   → EC2 → Launch instance: name `pulse`; image **Amazon Linux 2023** or **Ubuntu Server 24.04 LTS** (both are
+   supported; Amazon Linux 2, the older one, is not); type **t3.small** (2 GB; a t3.micro also works, the script
+   adds swap; ARM `t4g` works too); create a **key pair** and keep the `.pem` file; network: allow **SSH from My
+   IP** and **HTTP and HTTPS from anywhere**; storage 20 GiB gp3.
 2. **Elastic IP.** EC2 → Elastic IPs → Allocate → Associate with the instance, so the address survives a restart.
 3. **DNS.** At your registrar (or Route 53) add an **A record**: `pulse.yourdomain.com` → the Elastic IP.
-4. **Connect.** Easiest: select the instance → **Connect** → *EC2 Instance Connect* (a terminal in the browser,
-   logs in as `ubuntu`, no key file). Or from PowerShell: `ssh -i <your-key-file>.pem ubuntu@<elastic-ip>`
-   (use the real path to your `.pem`; commands shown in angle brackets are placeholders).
+4. **Connect.** Easiest: select the instance → **Connect** → *EC2 Instance Connect* (a terminal in the browser, no
+   key file). The login is `ec2-user` on Amazon Linux and `ubuntu` on Ubuntu. Or from PowerShell:
+   `ssh -i <your-key-file>.pem ec2-user@<elastic-ip>` (use the real path to your `.pem`; anything in angle
+   brackets is a placeholder).
 5. **Get the code.** The repo is private, so give the server a read-only deploy key:
    ```bash
    ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
@@ -31,6 +32,7 @@ can't be issued for a bare IP address).
    ```
    GitHub → the repo → Settings → Deploy keys → Add deploy key (leave "Allow write access" **off**), then:
    ```bash
+   command -v git || sudo dnf install -y git          # Amazon Linux does not include git; Ubuntu does
    sudo mkdir -p /opt/pulse && sudo chown $USER /opt/pulse
    git clone git@github.com:NamanDudhoria/rallygully_pulse.git /opt/pulse     # answer "yes" to the fingerprint
    ```
@@ -38,9 +40,10 @@ can't be issued for a bare IP address).
    ```bash
    cd /opt/pulse && sudo bash deploy/ec2/setup.sh pulse.yourdomain.com
    ```
-   It installs Python, Node and Caddy, builds the website, generates the secret key, starts Pulse as a service,
-   turns on https and schedules the nightly backup. It asks for nothing. It can be re-run safely and never
-   overwrites your settings or your database.
+   It installs Python, Node and Caddy (standalone, checksum-verified downloads under `/opt/pulse-tools`, so it
+   behaves the same on Amazon Linux and Ubuntu), builds the website, generates the secret key, starts Pulse as a
+   service, turns on https and schedules the nightly backup. It asks for nothing. It can be re-run safely and
+   never overwrites your settings or your database.
 7. **Build the database, once.**
    ```bash
    sudo bash /opt/pulse/deploy/ec2/create-database.sh
@@ -57,15 +60,16 @@ can't be issued for a bare IP address).
 ### Backups: do not skip this
 
 The database is a file on this one server, so a lost or deleted server means lost data unless you copy it away.
-- **Nightly copies** are made automatically into `/opt/pulse/backups` (kept 14 days, integrity-checked). They
-  protect against mistakes, **not** against losing the server.
+- **Nightly copies** are made automatically into `/opt/pulse/backups` (kept 14 days, integrity-checked; check
+  the schedule with `systemctl list-timers pulse-backup`). They protect against mistakes, **not** against losing
+  the server.
 - **Snapshot the disk in AWS** so a copy exists outside the server: EC2 → Lifecycle Manager → Create lifecycle
   policy → *EBS snapshot policy*, target the instance, schedule daily, keep 14. (Or EC2 → Volumes → Create snapshot
   by hand before risky changes.)
 - **Restore** from a nightly copy: `sudo systemctl stop pulse`, copy the chosen file over
   `/opt/pulse/data/pulse.db` (owner `pulse`), `sudo systemctl start pulse`.
 
-Troubleshooting: site doesn't load → the DNS record and the security group (ports 80 and 443);
+Troubleshooting: the setup script stops with a message naming what failed; re-run it after fixing that. Site doesn't load → the DNS record and the security group (ports 80 and 443);
 `sudo journalctl -u caddy -n 50`. Gateway error (502) → `sudo journalctl -u pulse -n 50`. Changed a setting →
 edit `.env.pulse`, then `sudo systemctl restart pulse`.
 

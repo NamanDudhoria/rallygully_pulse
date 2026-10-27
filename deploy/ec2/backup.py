@@ -1,4 +1,4 @@
-"""Nightly copy of the Pulse database (SQLite), kept for 14 days. Run by cron as the service user.
+"""Nightly copy of the Pulse database (SQLite), kept for 14 days. Run nightly by a systemd timer as the service user.
 
 Uses SQLite's own online-backup call, so the copy is consistent even while the app is writing.
 """
