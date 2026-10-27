@@ -1,25 +1,29 @@
-# Deploying RallyGully Pulse (Supabase database)
+# Deploying RallyGully Pulse
 
-Supabase hosts the **database only**. Pulse is a Python server that also serves the UI, so it needs somewhere to
-run: any Linux VM, or a host that runs one long-lived Python process. Run **exactly one instance** (the
-scheduler and cache live in the process).
+Pulse is one Python server that also serves the website. The simplest setup is **one AWS EC2 server that holds
+everything**, including the database (a file on the server, with nightly backups). Run **exactly one instance**
+(the scheduler and cache live in the process). A hosted PostgreSQL such as Supabase is an alternative: see the
+last sections.
 
 ```
-browser ──https──> your app host (Pulse: API + UI) ──postgres──> Supabase
+browser ──https──> EC2 server: Caddy (https) → Pulse (API + website) → database file on the server's disk
 ```
 
 ## Fastest path: one AWS EC2 server
 
 You need a **domain you control** (the clock-in camera and location work only over https, and a certificate
-can't be issued for a bare IP address) and to know your **Supabase region** (Supabase → Project Settings → General).
+can't be issued for a bare IP address).
 
-1. **Launch the server.** AWS console → pick the **same region as your Supabase project** (top right) → EC2 →
-   Launch instance: name `pulse`; image **Ubuntu Server 24.04 LTS**; type **t3.small** (2 GB; a t3.micro also works,
-   the script adds swap); create a **key pair** and keep the `.pem` file; network: allow **SSH from My IP** and
-   **HTTP and HTTPS from anywhere**; storage 20 GiB gp3.
+1. **Launch the server.** AWS console → pick the region closest to your users (for India: Mumbai, `ap-south-1`)
+   → EC2 → Launch instance: name `pulse`; image **Ubuntu Server 24.04 LTS** (not Amazon Linux: the setup script
+   is built for Ubuntu); type **t3.small** (2 GB; a t3.micro also works, the script adds swap); create a
+   **key pair** and keep the `.pem` file; network: allow **SSH from My IP** and **HTTP and HTTPS from anywhere**;
+   storage 20 GiB gp3.
 2. **Elastic IP.** EC2 → Elastic IPs → Allocate → Associate with the instance, so the address survives a restart.
 3. **DNS.** At your registrar (or Route 53) add an **A record**: `pulse.yourdomain.com` → the Elastic IP.
-4. **Connect.** From PowerShell: `ssh -i C:\path\to\key.pem ubuntu@<elastic-ip>`
+4. **Connect.** Easiest: select the instance → **Connect** → *EC2 Instance Connect* (a terminal in the browser,
+   logs in as `ubuntu`, no key file). Or from PowerShell: `ssh -i <your-key-file>.pem ubuntu@<elastic-ip>`
+   (use the real path to your `.pem`; commands shown in angle brackets are placeholders).
 5. **Get the code.** The repo is private, so give the server a read-only deploy key:
    ```bash
    ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
@@ -34,26 +38,50 @@ can't be issued for a bare IP address) and to know your **Supabase region** (Sup
    ```bash
    cd /opt/pulse && sudo bash deploy/ec2/setup.sh pulse.yourdomain.com
    ```
-   It installs Python, Node and Caddy, builds the UI, asks **once** for the Supabase *Session pooler* connection
-   string (hidden as you type; the real string, no `<placeholders>`), generates the secret key, starts Pulse as a
-   service and turns on https. It can be re-run safely and never overwrites your settings.
-7. **Open** `https://pulse.yourdomain.com` (the first visit can take about a minute for the certificate) and sign
-   in as the admin. The database must already exist: build it once from your PC (sections 1-2 below) and do
-   **not** re-run `golive` against the live database.
-8. **Email** (clock-in photos, escalations): `sudo nano /opt/pulse/backend/.env.pulse`, uncomment and fill the
+   It installs Python, Node and Caddy, builds the website, generates the secret key, starts Pulse as a service,
+   turns on https and schedules the nightly backup. It asks for nothing. It can be re-run safely and never
+   overwrites your settings or your database.
+7. **Build the database, once.**
+   ```bash
+   sudo bash /opt/pulse/deploy/ec2/create-database.sh
+   ```
+   It creates the venues, imports your sales history and online bookings from the repository, removes the demo
+   accounts, and asks you to choose the **HQ admin password** (`admin@rallygully.com`). It takes a few minutes and
+   refuses to run if the database already has users, so it can't wipe live data by accident.
+8. **Open** `https://pulse.yourdomain.com` (the first visit can take about a minute for the certificate) and sign in.
+9. **Email** (clock-in photos, escalations): `sudo nano /opt/pulse/backend/.env.pulse`, uncomment and fill the
    `PULSE_SMTP_*` lines (for Google Workspace use an app password, port 587; AWS blocks outbound port 25 by
    default), then `sudo systemctl restart pulse`.
-9. **Update later:** `sudo bash /opt/pulse/deploy/ec2/update.sh`.
+10. **Update later:** `sudo bash /opt/pulse/deploy/ec2/update.sh`.
+
+### Backups: do not skip this
+
+The database is a file on this one server, so a lost or deleted server means lost data unless you copy it away.
+- **Nightly copies** are made automatically into `/opt/pulse/backups` (kept 14 days, integrity-checked). They
+  protect against mistakes, **not** against losing the server.
+- **Snapshot the disk in AWS** so a copy exists outside the server: EC2 → Lifecycle Manager → Create lifecycle
+  policy → *EBS snapshot policy*, target the instance, schedule daily, keep 14. (Or EC2 → Volumes → Create snapshot
+  by hand before risky changes.)
+- **Restore** from a nightly copy: `sudo systemctl stop pulse`, copy the chosen file over
+  `/opt/pulse/data/pulse.db` (owner `pulse`), `sudo systemctl start pulse`.
 
 Troubleshooting: site doesn't load → the DNS record and the security group (ports 80 and 443);
-`sudo journalctl -u caddy -n 50`. Gateway error (502) → `sudo journalctl -u pulse -n 50` (usually the database URL
-or Supabase unreachable). Changed the database URL → edit `.env.pulse`, then `sudo systemctl restart pulse`.
+`sudo journalctl -u caddy -n 50`. Gateway error (502) → `sudo journalctl -u pulse -n 50`. Changed a setting →
+edit `.env.pulse`, then `sudo systemctl restart pulse`.
 
 How it's laid out: your login owns the code and runs `git pull` and the builds; the service runs as a separate
-`pulse` user that can read the code but change only the mail inbox; the settings file is readable only by root and
-that service.
+`pulse` user that can read the code but change only the database, its backups and the mail inbox; the settings
+file is readable only by root and that service.
 
-## Put the app host and the database in the same region
+## Using a hosted PostgreSQL (Supabase) instead
+
+Possible, and the code is tested on it, but it adds a network hop to every query: keep the server in the **same
+region** as the database. In `.env.pulse` replace the `PULSE_DATABASE_URL` line with the connection string
+(Supabase: Project Settings → Database → Connection string → *Session pooler*, real values, special characters in
+the password percent-encoded), skip step 7, and build the database from a PC as in the sections below. Back up
+with `pg_dump`.
+
+### Same region as the database
 
 Pulse's busiest pages run about 30 to 60 database queries each in sequence (Portfolio 56, venue day 32, venue
 grid 57; today's Portfolio about 105 on its first load; measured on Postgres 16 with this data). Every query waits
@@ -167,8 +195,3 @@ pulse.example.com {
   clock-in photos are held in the database and never reach Operations.
 - The repository holds customer names (`online_bookings`, `Historic_data_ingestion`). Keep it **private**.
 - Sign in as each role once after inviting people, to check what each can see.
-
-## Single-server alternative
-
-Without Supabase, leave `PULSE_DATABASE_URL` unset and Pulse uses a SQLite file (`sqlite:////opt/pulse/data/pulse.db`
-on a persistent disk). Same steps, minus section 1; `golive` and `prune_users` then take a file backup for you.

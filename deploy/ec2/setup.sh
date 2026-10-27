@@ -36,7 +36,7 @@ fi
 step "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3-venv python3-pip git curl ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
+apt-get install -y -qq python3-venv python3-pip git curl cron ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
 
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
   step "Installing Node.js 22 (needed to build the UI)"
@@ -62,6 +62,8 @@ id pulse >/dev/null 2>&1 || useradd --system --home-dir /nonexistent --shell /us
 chown -R "$OWNER:pulse" "$APP"
 chmod -R g+rX "$APP"
 install -d -o pulse -g pulse "$APP/backend/inbox" "$APP/backend/inbox/processed"
+# The database and its backups live outside the code, owned by the service (setup never changes them on a re-run).
+install -d -o pulse -g pulse -m 750 "$APP/data" "$APP/backups"
 
 step "Installing Pulse (Python packages and the UI)"
 sudo -u "$OWNER" bash -euo pipefail <<INSTALL
@@ -75,13 +77,11 @@ INSTALL
 
 if [ ! -f "$ENV_FILE" ]; then
   step "Settings (stored only in $ENV_FILE, readable by root and the service only)"
-  echo "Paste the Supabase 'Session pooler' connection string (it will not be shown as you type)."
-  read -r -s -p "Database URL: " DB_URL; echo
-  [[ "$DB_URL" == postgres*://* ]] || die "That doesn't look like a postgresql:// connection string."
-  [[ "$DB_URL" != *"<"* && "$DB_URL" != *"["* ]] || die "The URL still contains a placeholder (<...> or [...]). Use the real values from Supabase."
   umask 077
   cat > "$ENV_FILE" <<ENVF
-PULSE_DATABASE_URL=$DB_URL
+# The database is a file on this server. (To use a hosted PostgreSQL such as Supabase instead, replace this line
+# with its postgresql:// connection string.)
+PULSE_DATABASE_URL=sqlite:///$APP/data/pulse.db
 PULSE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
 PULSE_APP_URL=https://$DOMAIN
 
@@ -97,6 +97,14 @@ ENVF
 else
   echo "Keeping your existing settings file: $ENV_FILE"
 fi
+
+step "Scheduling a nightly database backup (kept 14 days in $APP/backups)"
+cat > /etc/cron.d/pulse-backup <<CRON
+# 02:30 India time (21:00 UTC) every night
+0 21 * * * pulse bash -c 'set -a; . $ENV_FILE; set +a; exec $APP/backend/.venv/bin/python $APP/deploy/ec2/backup.py' >> $APP/backups/backup.log 2>&1
+CRON
+chmod 644 /etc/cron.d/pulse-backup
+systemctl enable --now cron >/dev/null 2>&1 || true
 
 step "Starting the service"
 install -m 644 "$APP/deploy/ec2/pulse.service" /etc/systemd/system/pulse.service
@@ -115,7 +123,12 @@ systemctl reload caddy 2>/dev/null || systemctl restart caddy
 cat <<DONE
 
 Done. Open  https://$DOMAIN  (the first visit can take about a minute while the certificate is issued).
+
+The database is still empty. Build it once, with your sales history and bookings:
+  sudo bash $APP/deploy/ec2/create-database.sh
+
   Logs:     sudo journalctl -u pulse -f      (app)     sudo journalctl -u caddy -f   (HTTPS)
   Settings: sudo nano $ENV_FILE  then  sudo systemctl restart pulse
   Update:   sudo bash $APP/deploy/ec2/update.sh
+  Backups:  $APP/backups  (nightly, 14 days). Also snapshot the server's disk in AWS: see DEPLOY.md.
 DONE
