@@ -17,7 +17,7 @@ def facility(f: Facility) -> dict:
 
 def venue(v: Venue, full: bool = False) -> dict:
     out = {"id": v.id, "code": v.code, "name": v.name, "location": v.location, "status": v.status,
-           "latitude": v.latitude, "longitude": v.longitude}
+           "latitude": v.latitude, "longitude": v.longitude, "community_link": v.community_link}
     if full:
         out["facilities"] = [facility(f) for f in v.facilities]
         out["weekly_hours"] = [{"weekday": w.weekday, "open_min": w.open_min, "close_min": w.close_min,

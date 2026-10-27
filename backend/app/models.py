@@ -125,6 +125,7 @@ class Venue(Base):
     # Map position, for VM clock-in: attendance opens only within the radius of this point.
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    community_link: Mapped[str | None] = mapped_column(String(300), nullable=True)  # WhatsApp group for this venue
     facilities: Mapped[list["Facility"]] = relationship(back_populates="venue", order_by="Facility.sort_order")
     weekly_hours: Mapped[list["WeeklyHours"]] = relationship(cascade="all, delete-orphan", order_by="WeeklyHours.weekday")
 

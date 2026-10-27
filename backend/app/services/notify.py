@@ -3,8 +3,11 @@
 Without provider credentials, messages are recorded with status ``simulated`` so the
 full flow is observable in the System screen.
 """
+import base64
 import json
 import smtplib
+import urllib.error
+import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 
@@ -26,11 +29,39 @@ def _send_whatsapp(phone: str, body: str) -> None:
             raise RuntimeError(f"WhatsApp API HTTP {resp.status}")
 
 
-def whatsapp(db: Session, phone: str, template: str, body: str, ref_type: str, ref_id: int) -> Notification:
+def _send_twilio(phone: str, body: str, content_sid: str | None, variables: list[str] | None) -> None:
+    """Approved template when ``content_sid`` is set (needed to message customers first), else plain text."""
+    data = {"From": f"whatsapp:{config.TWILIO_WHATSAPP_FROM}", "To": f"whatsapp:+91{phone}"}
+    if content_sid and variables:
+        data["ContentSid"] = content_sid
+        data["ContentVariables"] = json.dumps({str(i): v for i, v in enumerate(variables, 1)})
+    else:
+        data["Body"] = body
+    sid = config.TWILIO_ACCOUNT_SID
+    req = urllib.request.Request(
+        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json", method="POST",
+        data=urllib.parse.urlencode(data).encode(),
+        headers={"Authorization": "Basic " + base64.b64encode(f"{sid}:{config.TWILIO_AUTH_TOKEN}".encode()).decode(),
+                 "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status >= 300:
+                raise RuntimeError(f"Twilio HTTP {resp.status}")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace")[:300]
+        raise RuntimeError(f"Twilio HTTP {exc.code}: {detail}") from exc
+
+
+def whatsapp(db: Session, phone: str, template: str, body: str, ref_type: str, ref_id: int,
+             content_sid: str | None = None, variables: list[str] | None = None) -> Notification:
     status, error = "simulated", None
-    if config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_ID:
+    twilio = config.TWILIO_ACCOUNT_SID and config.TWILIO_AUTH_TOKEN and config.TWILIO_WHATSAPP_FROM
+    if twilio or (config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_ID):
         try:
-            _send_whatsapp(phone, body)
+            if twilio:
+                _send_twilio(phone, body, content_sid, variables)
+            else:
+                _send_whatsapp(phone, body)
             status = "sent"
         except Exception as exc:  # noqa: BLE001 — any provider failure is logged, never raised
             status, error = "failed", str(exc)[:500]

@@ -28,6 +28,7 @@ class VenueIn(BaseModel):
     status: str = "active"
     latitude: float | None = None
     longitude: float | None = None
+    community_link: str | None = None
 
 
 STATUSES = ("active", "inactive")
@@ -39,6 +40,13 @@ def _coords(body: VenueIn) -> tuple[float | None, float | None]:
     if body.latitude is not None and not (-90 <= body.latitude <= 90 and -180 <= body.longitude <= 180):
         raise HTTPException(422, "That map location isn't valid.")
     return body.latitude, body.longitude
+
+
+def _community_link(body: VenueIn) -> str | None:
+    link = (body.community_link or "").strip()
+    if link and not link.lower().startswith("https://"):
+        raise HTTPException(422, "The community group link must start with https://")
+    return link[:300] or None
 
 
 def _venue_fields(db: Session, body: VenueIn, venue_id: int | None = None) -> tuple[str, str]:
@@ -101,7 +109,8 @@ def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), 
     """New venues start with 5–11 PM daily hours and no facilities; configure both before going live."""
     code, name = _venue_fields(db, body)
     lat, lng = _coords(body)
-    v = Venue(code=code, name=name, location=body.location.strip(), status=body.status, latitude=lat, longitude=lng)
+    v = Venue(code=code, name=name, location=body.location.strip(), status=body.status, latitude=lat, longitude=lng,
+              community_link=_community_link(body))
     db.add(v)
     db.flush()
     for wd in range(7):
@@ -121,6 +130,7 @@ def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require("con
     before = serialize.venue(v)
     v.code, v.name, v.location, v.status = code, name, body.location.strip(), body.status
     v.latitude, v.longitude = _coords(body)
+    v.community_link = _community_link(body)
     audit.record(db, user, "venue.update", "venue", v.id, before, serialize.venue(v), v.id)
     db.commit()
     return serialize.venue(v, full=True)
