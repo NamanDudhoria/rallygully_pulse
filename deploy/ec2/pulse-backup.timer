@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly Pulse database backup (02:30 India time)
+
+[Timer]
+OnCalendar=*-*-* 21:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

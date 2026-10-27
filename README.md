@@ -137,7 +137,7 @@ historical analytics keep the price they were sold at.
 
 ## Deploying
 
-See [DEPLOY.md](DEPLOY.md) (a one-command AWS EC2 path is in `deploy/ec2/`): Supabase database, creating the live data (`app.golive`, then `app.prune_users` to
+See [DEPLOY.md](DEPLOY.md) (a one-command AWS EC2 path for Amazon Linux 2023 or Ubuntu, with the database on the server and nightly backups, is in `deploy/ec2/`): creating the live data (`app.golive`, then `app.prune_users` to
 remove the demo accounts and set the HQ admin's password), app host, HTTPS and backups.
 
 ## VM attendance

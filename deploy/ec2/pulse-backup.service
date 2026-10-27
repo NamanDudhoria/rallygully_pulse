@@ -1,0 +1,9 @@
+[Unit]
+Description=Pulse database backup
+
+[Service]
+Type=oneshot
+User=pulse
+Group=pulse
+EnvironmentFile=/opt/pulse/backend/.env.pulse
+ExecStart=/opt/pulse/backend/.venv/bin/python /opt/pulse/deploy/ec2/backup.py

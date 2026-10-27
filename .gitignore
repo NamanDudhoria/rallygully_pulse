@@ -15,3 +15,7 @@ backend/*.db-wal
 backend/history_report.md
 backend/*.db.backup-*
 backend/bookings_report.md
+
+# Server data (EC2): database, backups, import reports
+/data/
+/backups/
