@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the live database on this server, once: venues, your sales history and online bookings, one admin.
+# Build the live database once (on this server's file, or in the PostgreSQL your settings point to): venues, your sales history and online bookings, one admin.
 #
 #   sudo bash /opt/pulse/deploy/ec2/create-database.sh
 #
@@ -12,7 +12,6 @@ step() { echo; echo "==> $*"; }
 
 [ "$(id -u)" -eq 0 ] || die "Run with sudo."
 [ -f "$ENV_FILE" ] || die "Run deploy/ec2/setup.sh first."
-grep -q '^PULSE_DATABASE_URL=sqlite:///' "$ENV_FILE" || die "This script builds a database on this server (SQLite); your settings point elsewhere."
 [ -d "$APP/Historic_data_ingestion" ] && [ -d "$APP/online_bookings" ] || die "The Historic_data_ingestion / online_bookings folders are missing from $APP."
 
 # Run Python as the service user, with the service's settings, in the data folder (reports are written there).
@@ -26,7 +25,7 @@ from sqlalchemy import select, func
 from app.db import SessionLocal, ensure_schema
 from app.models import User
 ensure_schema(); db = SessionLocal(); print(db.scalar(select(func.count()).select_from(User)))")"
-[ "$USERS" = "0" ] || die "The database already has $USERS user(s). This script replaces everything in it; stopping to protect your data."
+[ "$USERS" = "0" ] || die "The database already has $USERS user(s), so it is already set up. This script replaces everything in it, so it stops here to protect your data."
 
 step "Stopping the app while the database is built"
 systemctl stop pulse

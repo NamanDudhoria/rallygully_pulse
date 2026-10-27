@@ -11,7 +11,8 @@ from datetime import datetime
 KEEP_DAYS = 14
 url = os.environ.get("PULSE_DATABASE_URL", "")
 if not url.startswith("sqlite:///"):
-    print("Not a SQLite database: nothing to back up here (back up a hosted database with pg_dump).")
+    print("The database is hosted (PostgreSQL): its provider's backups apply, not this job. Check your plan "
+          "(Supabase: Database > Backups) and consider a periodic pg_dump.")
     sys.exit(0)
 src = url.replace("sqlite:///", "", 1)
 out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backups")

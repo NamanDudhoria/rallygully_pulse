@@ -131,12 +131,32 @@ INSTALL
 fix_perms
 
 if [ ! -f "$ENV_FILE" ]; then
-  step "Settings (stored only in $ENV_FILE, readable by root and the service only)"
+  step "Database and settings (stored only in $ENV_FILE, readable by root and the service only)"
+  echo "Where is the database?"
+  echo "  - Paste your Supabase 'Session pooler' connection string (real values, no <placeholders>), or"
+  echo "  - press Enter to keep the database as a file on this server."
+  read -r -s -p "Database URL (hidden; Enter = this server): " DB_URL; echo
+  if [ -z "$DB_URL" ]; then
+    DB_URL="sqlite:///$APP/data/pulse.db"
+    echo "Using a database file on this server: $APP/data/pulse.db"
+  else
+    [[ "$DB_URL" == postgres*://* ]] || die "That doesn't look like a postgresql:// connection string."
+    [[ "$DB_URL" != *"<"* && "$DB_URL" != *">"* && "$DB_URL" != *"["* ]] || die "The URL still contains a placeholder (<...> or [...]). Copy the real string from Supabase."
+    echo "Testing the connection..."
+    if ! OUT="$(sudo -u "$OWNER" env "PATH=$PATH" "PULSE_DATABASE_URL=$DB_URL" bash -c "cd '$APP/backend' && .venv/bin/python -c \"
+from app.db import engine
+with engine.connect() as c:
+    c.exec_driver_sql('select 1')
+print('Connected to', engine.url.render_as_string(hide_password=True))
+\"" 2>&1)"; then
+      echo "$OUT" | tail -4 | cut -c1-300
+      die "Couldn't connect to that database (see above). Check the string and run this script again: nothing has been saved yet."
+    fi
+    echo "$OUT" | tail -1
+  fi
   umask 077
   cat > "$ENV_FILE" <<ENVF
-# The database is a file on this server. (To use a hosted PostgreSQL such as Supabase instead, replace this line
-# with its postgresql:// connection string.)
-PULSE_DATABASE_URL=sqlite:///$APP/data/pulse.db
+PULSE_DATABASE_URL=$DB_URL
 PULSE_SECRET_KEY=$(head -c 48 /dev/urandom | base64 -w0 | tr '+/' '-_' | tr -d '=')
 PULSE_APP_URL=https://$DOMAIN
 
@@ -148,7 +168,6 @@ PULSE_APP_URL=https://$DOMAIN
 #PULSE_OPS_EMAIL=ops@rallygully.com
 #PULSE_ATTENDANCE_EMAIL=
 ENVF
-  chown root:pulse "$ENV_FILE"; chmod 640 "$ENV_FILE"
 else
   echo "Keeping your existing settings file: $ENV_FILE"
 fi
@@ -174,12 +193,13 @@ cat <<DONE
 
 Done. Open  https://$DOMAIN  (the first visit can take about a minute while the certificate is issued).
 
-The database is still empty. Build it once, with your sales history and bookings:
+If the database is new and empty, build it once with your sales history and bookings (it refuses if it already
+has users, so it is safe to try):
   sudo bash $APP/deploy/ec2/create-database.sh
 
   Logs:     sudo journalctl -u pulse -f      (app)     sudo journalctl -u caddy -f   (https)
   Settings: sudo nano $ENV_FILE  then  sudo systemctl restart pulse
   Update:   sudo bash $APP/deploy/ec2/update.sh
-  Backups:  $APP/backups  (nightly, 14 days; check with: systemctl list-timers pulse-backup).
-            Also snapshot the server's disk in AWS: see DEPLOY.md.
+  Backups:  a database file on this server is copied nightly to $APP/backups (14 days) and should also be snapshotted
+            in AWS; a hosted database (Supabase) is backed up by the provider: see DEPLOY.md.
 DONE

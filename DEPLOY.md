@@ -1,12 +1,12 @@
 # Deploying RallyGully Pulse
 
-Pulse is one Python server that also serves the website. The simplest setup is **one AWS EC2 server that holds
-everything**, including the database (a file on the server, with nightly backups). Run **exactly one instance**
-(the scheduler and cache live in the process). A hosted PostgreSQL such as Supabase is an alternative: see the
-last sections.
+Pulse is one Python server that also serves the website. The setup here is **one AWS EC2 server** (Amazon Linux
+2023 or Ubuntu) running Pulse behind https, with **Supabase (PostgreSQL) as the database**. (Instead of Supabase
+you can keep the database as a file on the server: the setup asks.) Run **exactly one instance** (the scheduler
+and cache live in the process).
 
 ```
-browser ──https──> EC2 server: Caddy (https) → Pulse (API + website) → database file on the server's disk
+browser ──https──> EC2 server: Caddy (https) → Pulse (API + website) ──postgres──> Supabase
 ```
 
 ## Fastest path: one AWS EC2 server
@@ -42,15 +42,20 @@ can't be issued for a bare IP address).
    ```
    It installs Python, Node and Caddy (standalone, checksum-verified downloads under `/opt/pulse-tools`, so it
    behaves the same on Amazon Linux and Ubuntu), builds the website, generates the secret key, starts Pulse as a
-   service, turns on https and schedules the nightly backup. It asks for nothing. It can be re-run safely and
-   never overwrites your settings or your database.
-7. **Build the database, once.**
+   service, turns on https and sets up the nightly backup of a server-side database. **It asks once where the
+   database is:** paste your Supabase **Session pooler** connection string (Supabase → Project Settings →
+   Database → Connection string → *Session pooler*; the real string with your password filled in, any `@ # / ?` in
+   the password percent-encoded as `%40 %23 %2F %3F`), or press Enter to keep a database file on this server.
+   It **tests the connection before saving anything**; if it can't connect it says why and you run it again. It
+   can be re-run safely and never overwrites your settings or your data.
+7. **Build the database, once, if it is new and empty.**
    ```bash
    sudo bash /opt/pulse/deploy/ec2/create-database.sh
    ```
    It creates the venues, imports your sales history and online bookings from the repository, removes the demo
-   accounts, and asks you to choose the **HQ admin password** (`admin@rallygully.com`). It takes a few minutes and
-   refuses to run if the database already has users, so it can't wipe live data by accident.
+   accounts, and asks you to choose the **HQ admin password** (`admin@rallygully.com`). It takes a few minutes
+   (longer against a hosted database) and **refuses to run if the database already has users**, so it can't wipe
+   live data by accident. If you already built the Supabase database from your PC, skip this step.
 8. **Open** `https://pulse.yourdomain.com` (the first visit can take about a minute for the certificate) and sign in.
 9. **Email** (clock-in photos, escalations): `sudo nano /opt/pulse/backend/.env.pulse`, uncomment and fill the
    `PULSE_SMTP_*` lines (for Google Workspace use an app password, port 587; AWS blocks outbound port 25 by
@@ -59,15 +64,14 @@ can't be issued for a bare IP address).
 
 ### Backups: do not skip this
 
-The database is a file on this one server, so a lost or deleted server means lost data unless you copy it away.
-- **Nightly copies** are made automatically into `/opt/pulse/backups` (kept 14 days, integrity-checked; check
-  the schedule with `systemctl list-timers pulse-backup`). They protect against mistakes, **not** against losing
-  the server.
-- **Snapshot the disk in AWS** so a copy exists outside the server: EC2 → Lifecycle Manager → Create lifecycle
-  policy → *EBS snapshot policy*, target the instance, schedule daily, keep 14. (Or EC2 → Volumes → Create snapshot
-  by hand before risky changes.)
-- **Restore** from a nightly copy: `sudo systemctl stop pulse`, copy the chosen file over
-  `/opt/pulse/data/pulse.db` (owner `pulse`), `sudo systemctl start pulse`.
+- **Supabase database:** Supabase's own backups apply, and they depend on your plan (check Supabase → Database →
+  Backups; free projects may have none). If you have no plan-level backup, take a copy yourself with `pg_dump` on a
+  schedule you keep an eye on, before risky changes at least.
+- **Database file on this server:** copied automatically every night into `/opt/pulse/backups` (kept 14 days,
+  integrity-checked; check the schedule with `systemctl list-timers pulse-backup`). That protects against
+  mistakes, **not** against losing the server: also snapshot the disk in AWS (EC2 → Lifecycle Manager → Create
+  lifecycle policy → *EBS snapshot policy*, target the instance, daily, keep 14). To restore a copy:
+  `sudo systemctl stop pulse`, copy the file over `/opt/pulse/data/pulse.db` (owner `pulse`), `sudo systemctl start pulse`.
 
 Troubleshooting: the setup script stops with a message naming what failed; re-run it after fixing that. Site doesn't load → the DNS record and the security group (ports 80 and 443);
 `sudo journalctl -u caddy -n 50`. Gateway error (502) → `sudo journalctl -u pulse -n 50`. Changed a setting →
@@ -77,15 +81,7 @@ How it's laid out: your login owns the code and runs `git pull` and the builds; 
 `pulse` user that can read the code but change only the database, its backups and the mail inbox; the settings
 file is readable only by root and that service.
 
-## Using a hosted PostgreSQL (Supabase) instead
-
-Possible, and the code is tested on it, but it adds a network hop to every query: keep the server in the **same
-region** as the database. In `.env.pulse` replace the `PULSE_DATABASE_URL` line with the connection string
-(Supabase: Project Settings → Database → Connection string → *Session pooler*, real values, special characters in
-the password percent-encoded), skip step 7, and build the database from a PC as in the sections below. Back up
-with `pg_dump`.
-
-### Same region as the database
+## Notes for a hosted database
 
 Pulse's busiest pages run about 30 to 60 database queries each in sequence (Portfolio 56, venue day 32, venue
 grid 57; today's Portfolio about 105 on its first load; measured on Postgres 16 with this data). Every query waits
