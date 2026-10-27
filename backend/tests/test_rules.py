@@ -499,7 +499,7 @@ def test_confirmation_uses_the_venues_own_community_link_and_twilio(client, monk
     assert sent[0].full_url.endswith("/Accounts/ACtest/Messages.json")
     assert form["From"] == ["whatsapp:+919800000000"] and form["To"] == ["whatsapp:+919811111111"]
     assert form["ContentSid"] == ["HXabc"]
-    assert json.loads(form["ContentVariables"][0])["3"] == "https://chat.whatsapp.com/EOKgroup"
+    assert json.loads(form["ContentVariables"][0]) == {"venue": "East of Kailash", "community_link": "https://chat.whatsapp.com/EOKgroup"}
     db = SessionLocal()
     assert db.query(Notification).filter_by(channel="whatsapp", status="sent").count() == 1
     db.close()

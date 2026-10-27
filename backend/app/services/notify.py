@@ -114,6 +114,11 @@ def named(names: list[str], *values: str) -> dict[str, str]:
     return {k.strip(): v for k, v in zip(names, values)}
 
 
+def by_role(names: dict[str, str], **values: str) -> dict[str, str]:
+    """Fill the template variables named in ``names`` (role -> variable name) from ``values`` (role -> text)."""
+    return {names[role].strip(): text for role, text in values.items() if names.get(role, "").strip()}
+
+
 def roster_message(venue_name: str, slot: str) -> str:
     return f"You have been allotted {venue_name} for time slot :- {slot} tomorrow"
 
