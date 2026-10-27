@@ -464,3 +464,42 @@ def test_background_warm_up_runs(client):
         warm_once(db)
     finally:
         db.close()
+
+
+def test_confirmation_uses_the_venues_own_community_link_and_twilio(client, monkeypatch):
+    import json, urllib.parse
+    from app import config
+    from app.models import Notification
+    admin = User(name="Admin", email="adm@x.com", password_hash=hash_password("pulse1234"), role="hq_admin")
+    db = SessionLocal()
+    db.add(admin)
+    db.commit()
+    db.close()
+    ha = login(client, "adm@x.com")
+    v = next(x for x in client.get("/api/venues", headers=ha).json() if x["id"] == 1)
+    body = {k: v[k] for k in ("code", "name", "location", "status", "latitude", "longitude")}
+    assert client.put("/api/venues/1", headers=ha, json={**body, "community_link": "http://nope"}).status_code == 422
+    r = client.put("/api/venues/1", headers=ha, json={**body, "community_link": "https://chat.whatsapp.com/EOKgroup"})
+    assert r.status_code == 200 and r.json()["community_link"] == "https://chat.whatsapp.com/EOKgroup"
+
+    sent = []
+
+    class Resp:
+        status = 201
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr("app.services.notify.urllib.request.urlopen", lambda req, timeout=0: sent.append(req) or Resp())
+    for k, val in (("TWILIO_ACCOUNT_SID", "ACtest"), ("TWILIO_AUTH_TOKEN", "tok"), ("TWILIO_WHATSAPP_FROM", "+919800000000"),
+                   ("TWILIO_CONTENT_SID_BOOKING", "HXabc")):
+        monkeypatch.setattr(config, k, val)
+    h = login(client, "vm@x.com")
+    assert direct(client, h).status_code == 200
+    form = urllib.parse.parse_qs(sent[0].data.decode())
+    assert sent[0].full_url.endswith("/Accounts/ACtest/Messages.json")
+    assert form["From"] == ["whatsapp:+919800000000"] and form["To"] == ["whatsapp:+919811111111"]
+    assert form["ContentSid"] == ["HXabc"]
+    assert json.loads(form["ContentVariables"][0])["3"] == "https://chat.whatsapp.com/EOKgroup"
+    db = SessionLocal()
+    assert db.query(Notification).filter_by(channel="whatsapp", status="sent").count() == 1
+    db.close()

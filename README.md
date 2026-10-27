@@ -163,6 +163,7 @@ visible under **Integrations**):
 |---|---|
 | `PULSE_IMAP_HOST`, `PULSE_IMAP_USER`, `PULSE_IMAP_PASSWORD` | District mailbox. Without it, drop `.eml`/`.txt` files in `backend/inbox/` |
 | `PULSE_WHATSAPP_TOKEN`, `PULSE_WHATSAPP_PHONE_ID`, `PULSE_COMMUNITY_LINK` | WhatsApp Cloud API (booking + community link messages) |
+| `PULSE_TWILIO_ACCOUNT_SID`, `PULSE_TWILIO_AUTH_TOKEN`, `PULSE_TWILIO_WHATSAPP_FROM`, `PULSE_TWILIO_CONTENT_SID_BOOKING` (optional `…_COMMUNITY`) | WhatsApp via Twilio (used instead of Meta when set); booking template variables: 1 = venue, 2 = date and time, 3 = community link. Each venue's own group link is set under Configuration → Venues |
 | `PULSE_SMTP_HOST`, `PULSE_SMTP_USER`, `PULSE_SMTP_PASSWORD`, `PULSE_OPS_EMAIL` | Missed day-close escalation email |
 | `PULSE_DATABASE_URL` | Database. Default is a local SQLite file; set a `postgresql://…` URL (e.g. Supabase) for a hosted one |
 | `PULSE_SECRET_KEY` | Token signing — **set this in any shared deployment** |

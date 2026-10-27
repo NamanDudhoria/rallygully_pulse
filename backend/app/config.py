@@ -31,7 +31,13 @@ IMAP_FOLDER = os.getenv("PULSE_IMAP_FOLDER", "INBOX")
 # WhatsApp: Meta Cloud API when configured, otherwise messages are logged only.
 WHATSAPP_TOKEN = os.getenv("PULSE_WHATSAPP_TOKEN")
 WHATSAPP_PHONE_ID = os.getenv("PULSE_WHATSAPP_PHONE_ID")
-COMMUNITY_LINK = os.getenv("PULSE_COMMUNITY_LINK", "https://chat.whatsapp.com/rallygully-community")
+COMMUNITY_LINK = os.getenv("PULSE_COMMUNITY_LINK", "https://chat.whatsapp.com/rallygully-community")  # venues without their own
+# WhatsApp via Twilio (used instead of the Meta settings above when the account SID and token are set).
+TWILIO_ACCOUNT_SID = os.getenv("PULSE_TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("PULSE_TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_FROM = os.getenv("PULSE_TWILIO_WHATSAPP_FROM")  # e.g. +919876543210, your approved sender
+TWILIO_CONTENT_SID_BOOKING = os.getenv("PULSE_TWILIO_CONTENT_SID_BOOKING")  # approved template HX…; vars 1=venue 2=when 3=link
+TWILIO_CONTENT_SID_COMMUNITY = os.getenv("PULSE_TWILIO_CONTENT_SID_COMMUNITY")  # optional; vars 1=level 2=link
 
 # Escalation email: SMTP when configured, otherwise logged only.
 SMTP_HOST = os.getenv("PULSE_SMTP_HOST")

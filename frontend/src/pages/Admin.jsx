@@ -176,7 +176,7 @@ function parsePosition(text) {
 
 function VenueDrawer({ form, onClose, onSaved }) {
   const [run, busy] = useAction()
-  const [f, setF] = useState({ code: form.code, name: form.name, location: form.location || '', status: form.status || 'active' })
+  const [f, setF] = useState({ code: form.code, name: form.name, location: form.location || '', status: form.status || 'active', community_link: form.community_link || '' })
   const [pos, setPos] = useState(form.latitude != null ? `${form.latitude}, ${form.longitude}` : '')
   const [locating, setLocating] = useState(false)
   const isNew = !form.id
@@ -208,6 +208,9 @@ function VenueDrawer({ form, onClose, onSaved }) {
                 if (fix) setPos(`${fix.latitude.toFixed(6)}, ${fix.longitude.toFixed(6)}`)
               }}>{locating ? 'Locating…' : 'Use my location'}</button>
             </div>
+          </Field>
+          <Field label="WhatsApp community group link" help="Sent in this venue's booking confirmations. Leave blank to use the default link.">
+            <input className="input" type="url" value={f.community_link} onChange={(e) => setF({ ...f, community_link: e.target.value })} placeholder="https://chat.whatsapp.com/…" />
           </Field>
           {!isNew && (
             <Field label="Status" help="A venue can be made inactive only when it has no upcoming bookings or allocations.">

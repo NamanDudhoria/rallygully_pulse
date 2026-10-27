@@ -114,11 +114,12 @@ def ingest_district(db: Session, *, external_ref: str, venue_id: int, d: date, s
 def _send_booking_whatsapp(db: Session, b: Booking) -> None:
     venue = db.get(Venue, b.venue_id)
     when = f"{b.date.strftime('%a %d %b')}, {hhmm(b.start_min)}–{hhmm(b.end_min)}"
-    notify.whatsapp(db, customers_phone(db, b), "booking_created",
-                    notify.booking_message(venue.name, when, config.COMMUNITY_LINK), "booking", b.id)
+    link = venue.community_link or config.COMMUNITY_LINK
+    notify.whatsapp(db, customers_phone(db, b), "booking_created", notify.booking_message(venue.name, when, link),
+                    "booking", b.id, content_sid=config.TWILIO_CONTENT_SID_BOOKING, variables=[venue.name, when, link])
     email = db.get(Customer, b.customer_id).email
     if email:
-        subject, body = notify.booking_email(venue.name, when, config.COMMUNITY_LINK)
+        subject, body = notify.booking_email(venue.name, when, link)
         notify.email(db, email, subject, body, "booking", b.id, template="booking_created")
 
 
