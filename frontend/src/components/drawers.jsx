@@ -210,7 +210,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
 /** Direct on-ground booking created from an available slot (PRD §20). */
 export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, onDone }) {
   const facilities = venue.facilities.filter((f) => f.status === 'active')
-  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), duration: 60, phone: '', name: '', amount: '', pay_now: false, method: 'upi' })
+  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), duration: 60, phone: '', name: '', email: '', amount: '', pay_now: false, method: 'upi' })
   const [quote, setQuote] = useState(null)
   const [lookup, setLookup] = useState({ phone: '', customer: null })
   const existing = digitsOf(form.phone) === lookup.phone ? lookup.customer : null
@@ -227,7 +227,7 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
     if (digits.length < 10) return
     api(`/api/customers/lookup?phone=${encodeURIComponent(form.phone)}`).then((r) => {
       setLookup({ phone: digits, customer: r.found ? r.customer : null })
-      if (r.found && r.customer.name) setForm((f) => ({ ...f, name: r.customer.name }))
+      if (r.found) setForm((f) => ({ ...f, name: r.customer.name || f.name, email: r.customer.email || f.email }))
     }).catch(() => {})
   }, [form.phone])
 
@@ -236,7 +236,7 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
     const r = await run(() => post('/api/bookings/direct', {
       ...form, venue_id: venue.id, facility_id: Number(form.facility_id), duration: Number(form.duration),
       amount: form.amount === '' ? null : Number(form.amount), method: form.pay_now ? form.method : null,
-    }), 'Direct booking created · WhatsApp sent')
+    }), form.email ? 'Direct booking created · WhatsApp and email sent' : 'Direct booking created · WhatsApp sent')
     if (r) { onDone?.(r); close() }
   }
   const fac = facilities.find((f) => f.id === Number(form.facility_id))
@@ -265,6 +265,9 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
           </Field>
           <Field label="Customer name">
             <input className="input" value={form.name} onChange={set('name')} required disabled={existing?.name_locked} />
+          </Field>
+          <Field label="Customer email (optional)" help="If given, the booking confirmation is emailed too">
+            <input className="input" type="email" autoComplete="off" placeholder="name@example.com" value={form.email} onChange={set('email')} />
           </Field>
           <Field label="Amount" help={quote?.amount != null ? `Configured price ${money(quote.amount)} for ${fac?.sport} — edit for a discount` : 'No price configured — enter the amount'}>
             <input className="input" type="number" min={0} placeholder={quote?.amount ?? ''} value={form.amount} onChange={set('amount')} />

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .. import audit, config
 from ..audit import DomainError
 from ..permissions import is_hq
-from ..models import Allocation, AllocationKind, Booking, Facility, Payment, Refund, User, Venue
+from ..models import Allocation, AllocationKind, Booking, Customer, Facility, Payment, Refund, User, Venue
 from ..timeutil import at_minute, hhmm, minute_of, now_local, today
 from . import customers, inventory, notify
 from .pricing import quote
@@ -52,7 +52,7 @@ def _require_not_cancelled(b: Booking) -> None:
 
 def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, d: date, start_min: int,
                   duration: int, phone: str, name: str, amount: float | None, pay_now: bool,
-                  method: str | None) -> Booking:
+                  method: str | None, email: str | None = None) -> Booking:
     if duration not in (30, 60):
         raise DomainError("Direct bookings are 30 or 60 minutes.", 422)
     if not (name or "").strip():
@@ -64,7 +64,7 @@ def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, 
         raise DomainError("Facility not found at this venue.", 422)
     end_min = start_min + duration
     inventory.validate_window(db, venue_id, d, start_min, end_min)
-    customer, _ = customers.get_or_create(db, phone, name)
+    customer, _ = customers.get_or_create(db, phone, name, email)
     expected = quote(db, fac, d, start_min, end_min)
     if amount is None:
         if expected is None:
@@ -116,10 +116,13 @@ def _send_booking_whatsapp(db: Session, b: Booking) -> None:
     when = f"{b.date.strftime('%a %d %b')}, {hhmm(b.start_min)}–{hhmm(b.end_min)}"
     notify.whatsapp(db, customers_phone(db, b), "booking_created",
                     notify.booking_message(venue.name, when, config.COMMUNITY_LINK), "booking", b.id)
+    email = db.get(Customer, b.customer_id).email
+    if email:
+        subject, body = notify.booking_email(venue.name, when, config.COMMUNITY_LINK)
+        notify.email(db, email, subject, body, "booking", b.id, template="booking_created")
 
 
 def customers_phone(db: Session, b: Booking) -> str:
-    from ..models import Customer
     return db.get(Customer, b.customer_id).phone
 
 

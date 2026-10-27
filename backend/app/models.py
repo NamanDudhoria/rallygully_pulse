@@ -189,6 +189,7 @@ class Customer(Base):
     phone: Mapped[str] = mapped_column(String(20), unique=True)
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     name_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)  # optional; booking confirmations
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
 
