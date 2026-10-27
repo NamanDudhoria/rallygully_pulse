@@ -35,6 +35,7 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(300), nullable=True)  # None until invite accepted
     role: Mapped[str] = mapped_column(String(12))  # see permissions.ROLES
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 10-digit mobile; WhatsApp roster alerts
     # Bumped on password change / deactivation: every previously issued session stops working.
     token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)

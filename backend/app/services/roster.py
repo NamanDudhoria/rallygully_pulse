@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit, config
+from ..timeutil import hhmm
 from ..audit import DomainError
 from ..models import RosterAlert, User, Venue, VmAssignment, VmRoster
 from ..timeutil import minute_of, now_local
@@ -21,6 +22,31 @@ def window(db: Session, r: VmRoster) -> tuple[int, int] | None:
     if r.start_min is not None and r.end_min is not None:
         return r.start_min, r.end_min
     return inventory.hours_for(db, r.venue_id, r.date)
+
+
+def _time12(minute: int) -> str:
+    h, m = divmod(minute % 1440, 60)
+    return f"{h % 12 or 12}:{m:02d} {'AM' if h < 12 else 'PM'}"
+
+
+def notify_allotment(db: Session, entries: list[VmRoster]) -> int:
+    """WhatsApp each VM the dates they've been allotted, one message per venue and shift time.
+    VMs without a phone number are skipped (their roster still works). Returns messages queued."""
+    groups: dict[tuple, list[VmRoster]] = {}
+    for r in entries:
+        groups.setdefault((r.user_id, r.venue_id, window(db, r)), []).append(r)
+    sent = 0
+    for (uid, vid, win), rows in groups.items():
+        u, v = db.get(User, uid), db.get(Venue, vid)
+        if not u or not u.phone or not v or not win:
+            continue
+        slot = f"{_time12(win[0])} to {_time12(win[1])}"
+        dates = ", ".join(r.date.strftime("%a %d %b") for r in sorted(rows, key=lambda x: x.date))
+        notify.whatsapp(db, u.phone, "roster_allotment", notify.roster_message(v.name, slot, dates), "roster", rows[0].id,
+                        content_sid=config.TWILIO_CONTENT_SID_ROSTER,
+                        variables=notify.named(config.TWILIO_ROSTER_VARS, v.name, slot, dates))
+        sent += 1
+    return sent
 
 
 def _check_shift(start_min: int | None, end_min: int | None) -> tuple[int | None, int | None]:
@@ -60,6 +86,7 @@ def add(db: Session, actor: User, venue_id: int, user_id: int, d: date,
     db.flush()
     audit.record(db, actor, "roster.add", "roster", r.id, None,
                  {"venue_id": venue_id, "user": u.email, "date": d, "start": start_min, "end": end_min}, venue_id)
+    notify_allotment(db, [r])
     return r
 
 
@@ -68,6 +95,8 @@ def set_shift(db: Session, actor: User, r: VmRoster, start_min: int | None, end_
     before = {"start": r.start_min, "end": r.end_min}
     r.start_min, r.end_min = start_min, end_min
     audit.record(db, actor, "roster.shift", "roster", r.id, before, {"start": start_min, "end": end_min}, r.venue_id)
+    if before != {"start": start_min, "end": end_min}:
+        notify_allotment(db, [r])
     return r
 
 
@@ -83,6 +112,7 @@ def copy_range(db: Session, actor: User, src_start: date, dst_start: date, days:
     if not 1 <= days <= 31:
         raise DomainError("Copy between 1 and 31 days.", 422)
     n = 0
+    added: list[VmRoster] = []
     for r in list(db.scalars(select(VmRoster).where(VmRoster.date >= src_start,
                                                      VmRoster.date < src_start + timedelta(days=days)))):
         target = dst_start + (r.date - src_start)
@@ -91,10 +121,13 @@ def copy_range(db: Session, actor: User, src_start: date, dst_start: date, days:
             continue  # person left the team since; don't carry them forward
         if not db.scalar(select(VmRoster.id).where(VmRoster.venue_id == r.venue_id, VmRoster.user_id == r.user_id,
                                                    VmRoster.date == target)):
-            db.add(VmRoster(venue_id=r.venue_id, user_id=r.user_id, date=target, start_min=r.start_min,
-                            end_min=r.end_min, created_by=actor.id))
+            new = VmRoster(venue_id=r.venue_id, user_id=r.user_id, date=target, start_min=r.start_min,
+                           end_min=r.end_min, created_by=actor.id)
+            db.add(new)
+            added.append(new)
             n += 1
     db.flush()
+    notify_allotment(db, added)
     audit.record(db, actor, "roster.copy", "roster", None, None,
                  {"from": src_start, "to": dst_start, "days": days, "added": n})
     return n

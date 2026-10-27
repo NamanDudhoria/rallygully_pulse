@@ -12,6 +12,7 @@ from ..db import get_db
 from ..models import User, Venue, VmAssignment, VmRoster
 from ..permissions import PERMISSIONS, ROLE_PERMISSIONS, ROLES, require
 from ..services import attendance, inventory, roster
+from ..services.customers import normalize_phone
 from ..timeutil import today
 from .auth_routes import send_link_email, smtp_configured
 from .common import get_or_404, minutes
@@ -25,6 +26,7 @@ class UserIn(BaseModel):
     role: str
     venue_ids: list[int] = []
     active: bool = True
+    phone: str | None = None
 
 
 def _validate(db: Session, body: UserIn) -> None:
@@ -63,7 +65,8 @@ def create_user(body: UserIn, user: User = Depends(require("users.manage")), db:
     email = body.email.strip().lower()
     if db.scalar(select(User).where(func.lower(User.email) == email)):
         raise HTTPException(409, "Someone with that email already exists.")
-    u = User(name=body.name.strip(), email=email, role=body.role, password_hash=None)
+    u = User(name=body.name.strip(), email=email, role=body.role, password_hash=None,
+             phone=(normalize_phone(body.phone) if (body.phone or "").strip() else None))
     u.venues = [VmAssignment(venue_id=v) for v in body.venue_ids] if body.role == "vm" else []
     db.add(u)
     db.flush()
@@ -83,6 +86,7 @@ def update_user(uid: int, body: UserIn, user: User = Depends(require("users.mana
     before = serialize.user(u)
     role_changed = body.role != u.role
     u.name, u.role = body.name.strip(), body.role
+    u.phone = normalize_phone(body.phone) if (body.phone or "").strip() else None
     if u.active and not body.active:
         u.token_version = (u.token_version or 0) + 1  # sign them out immediately
     u.active = body.active
