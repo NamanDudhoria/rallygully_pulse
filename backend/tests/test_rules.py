@@ -105,6 +105,23 @@ def test_price_from_config_and_editable(client):
     assert b2["booking_value"] == 1200
 
 
+def test_booking_confirmation_is_emailed_when_customer_has_an_email(client):
+    from app.models import Notification
+    h = login(client, "vm@x.com")
+    assert direct(client, h, email="not-an-email").status_code == 422
+    assert direct(client, h, email="  Asha@Example.com ").status_code == 200
+    db = SessionLocal()
+    mails = db.query(Notification).filter_by(channel="email", template="booking_created").all()
+    assert [m.recipient for m in mails] == ["asha@example.com"]
+    assert "confirmed" in mails[0].body
+    assert db.query(Notification).filter_by(channel="whatsapp", template="booking_created").count() == 1
+    db.close()
+    assert direct(client, h, facility=3, phone="9822222222", name="Ravi").status_code == 200  # no email given
+    db = SessionLocal()
+    assert db.query(Notification).filter_by(channel="email", template="booking_created").count() == 1
+    db.close()
+
+
 def test_vm_is_venue_scoped(client):
     h = login(client, "vm@x.com")
     r = client.post("/api/bookings/direct", headers=h, json={

@@ -72,6 +72,12 @@ def booking_message(venue_name: str, when: str, link: str) -> str:
             f"Join the RallyGully community for games and updates: {link}")
 
 
+def booking_email(venue_name: str, when: str, link: str) -> tuple[str, str]:
+    return (f"Your RallyGully booking at {venue_name} is confirmed",
+            f"Hi,\n\nYour booking at {venue_name} on {when} is confirmed.\n\n"
+            f"Join the RallyGully community for games and updates: {link}\n\nSee you on court!\nRallyGully")
+
+
 def community_message(level: str, link: str) -> str:
     return (f"Thanks for playing with RallyGully! You're set as {level.title()}. "
             f"Join your community group here: {link}")

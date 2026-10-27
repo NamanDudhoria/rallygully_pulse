@@ -20,5 +20,5 @@ find "$APP" \( -path "$APP/data" -o -path "$APP/backups" -o -path "$APP/backend/
 for f in pulse.service pulse-backup.service pulse-backup.timer caddy.service; do install -m 644 "$APP/deploy/ec2/$f" "/etc/systemd/system/$f"; done
 systemctl daemon-reload
 systemctl restart pulse
-for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && { echo "Updated and running: $(git -C $APP log --oneline -1)"; exit 0; }; sleep 1; done
+for i in $(seq 1 150); do curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && { echo "Updated and running: $(git -C $APP log --oneline -1)"; exit 0; }; sleep 1; done
 journalctl -u pulse -n 30 --no-pager; echo "Pulse did not come back after the update." >&2; exit 1

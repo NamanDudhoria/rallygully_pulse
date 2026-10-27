@@ -46,6 +46,7 @@ class DirectIn(BaseModel):
     amount: float | None = None
     pay_now: bool = False
     method: str | None = None
+    email: str | None = None
 
 
 @router.get("/bookings")
@@ -77,7 +78,8 @@ def create_direct(body: DirectIn, user: User = Depends(current_user), db: Sessio
     ensure_venue(db, user, body.venue_id, body.date, write=True)
     b = bookings.create_direct(db, user, venue_id=body.venue_id, facility_id=body.facility_id, d=body.date,
                                start_min=minutes(body.start), duration=body.duration, phone=body.phone,
-                               name=body.name, amount=body.amount, pay_now=body.pay_now, method=body.method)
+                               name=body.name, amount=body.amount, pay_now=body.pay_now, method=body.method,
+                               email=body.email)
     db.commit()
     return serialize.booking(db, b, detail=True)
 

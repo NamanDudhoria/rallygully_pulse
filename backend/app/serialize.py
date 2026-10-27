@@ -34,7 +34,7 @@ def user(u: User) -> dict:
 
 
 def customer(c: Customer) -> dict:
-    return {"id": c.id, "phone": c.phone, "name": c.name, "name_locked": c.name_locked, "created_at": c.created_at}
+    return {"id": c.id, "phone": c.phone, "name": c.name, "name_locked": c.name_locked, "email": c.email, "created_at": c.created_at}
 
 
 def _fac_name(db: Session, fid: int | None, names: dict | None = None) -> str | None:

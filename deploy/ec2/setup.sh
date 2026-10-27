@@ -179,12 +179,13 @@ install -m 644 "$APP/deploy/ec2/pulse-backup.service" /etc/systemd/system/pulse-
 install -m 644 "$APP/deploy/ec2/pulse-backup.timer" /etc/systemd/system/pulse-backup.timer
 install -m 644 "$APP/deploy/ec2/caddy.service" /etc/systemd/system/caddy.service
 sed "s/__DOMAIN__/$DOMAIN/" "$APP/deploy/ec2/Caddyfile.template" > /etc/caddy/Caddyfile
+chmod 644 /etc/caddy/Caddyfile  # the caddy service user must be able to read it
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || die "The generated Caddyfile is invalid."
 systemctl daemon-reload
 systemctl enable pulse pulse-backup.timer caddy >/dev/null 2>&1
 systemctl restart pulse
 systemctl start pulse-backup.timer
-for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break; sleep 1; done
+for i in $(seq 1 150); do curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS http://127.0.0.1:8000/api/health >/dev/null || { journalctl -u pulse -n 30 --no-pager; die "Pulse did not start. The log above shows why."; }
 echo "Pulse is running."
 systemctl restart caddy
