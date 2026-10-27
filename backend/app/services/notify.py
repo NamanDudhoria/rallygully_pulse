@@ -114,8 +114,8 @@ def named(names: list[str], *values: str) -> dict[str, str]:
     return {k.strip(): v for k, v in zip(names, values)}
 
 
-def roster_message(venue_name: str, slot: str, dates: str) -> str:
-    return f"You have been allotted {venue_name} for time {slot} on these dates - {dates}"
+def roster_message(venue_name: str, slot: str) -> str:
+    return f"You have been allotted {venue_name} for time slot :- {slot} tomorrow"
 
 
 def community_message(level: str, link: str) -> str:

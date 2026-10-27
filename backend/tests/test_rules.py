@@ -505,14 +505,13 @@ def test_confirmation_uses_the_venues_own_community_link_and_twilio(client, monk
     db.close()
 
 
-def test_vm_is_whatsapped_when_rostered(client, monkeypatch):
+def test_vm_is_whatsapped_tomorrows_allotment_at_1130pm(client, monkeypatch):
     import json, urllib.parse
     from app import config
-    from app.models import Notification
+    from app.services import roster
     db = SessionLocal()
     db.add(User(name="HQ", email="hq2@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
-    vm = db.query(User).filter_by(email="vm@x.com").one()
-    vm_id = vm.id
+    vm_id = db.query(User).filter_by(email="vm@x.com").one().id
     db.commit()
     db.close()
     h = login(client, "hq2@x.com")
@@ -531,12 +530,30 @@ def test_vm_is_whatsapped_when_rostered(client, monkeypatch):
     for k, val in (("TWILIO_ACCOUNT_SID", "ACtest"), ("TWILIO_AUTH_TOKEN", "tok"), ("TWILIO_WHATSAPP_FROM", "+919800000000"),
                    ("TWILIO_CONTENT_SID_ROSTER", "HXroster")):
         monkeypatch.setattr(config, k, val)
-    day = (DAY + timedelta(days=3)).isoformat()
-    assert client.post("/api/roster", headers=h, json={"venue_id": 1, "user_id": vm_id, "date": day}).status_code == 200
+
+    def tick():
+        db = SessionLocal()
+        n = roster.send_tomorrow(db)
+        db.commit()
+        db.close()
+        return n
+
+    tomorrow = (DAY + timedelta(days=1)).isoformat()
+    assert client.post("/api/roster", headers=h, json={"venue_id": 1, "user_id": vm_id, "date": tomorrow}).status_code == 200
+    assert sent == []  # rostering sends nothing by itself
+    timeutil.set_clock(at(23, 29))
+    assert tick() == 0
+    timeutil.set_clock(at(23, 30))
+    assert tick() == 1
     form = urllib.parse.parse_qs(sent[0].data.decode())
     assert form["To"] == ["whatsapp:+919812345678"] and form["ContentSid"] == ["HXroster"]
     vars_ = json.loads(form["ContentVariables"][0])
-    assert set(vars_) == {"venue_name", "time_slot", "dates"} and "PM" in vars_["time_slot"]
-    n = len(sent)
-    assert client.post("/api/roster", headers=h, json={"venue_id": 1, "user_id": vm_id, "date": day}).status_code == 200
-    assert len(sent) == n  # already rostered: no repeat message
+    assert set(vars_) == {"venue_name", "time-slot"} and vars_["time-slot"] == "5:00 PM to 11:00 PM"
+    assert tick() == 0 and len(sent) == 1  # once only
+    # a shift edited after the message was sent is announced again with the new time
+    entry = next(e for e in client.get(f"/api/roster?date_from={tomorrow}&date_to={tomorrow}", headers=h).json()["entries"])
+    assert client.patch(f"/api/roster/{entry['id']}", headers=h, json={"start": "18:00", "end": "22:00"}).status_code == 200
+    assert tick() == 1
+    assert json.loads(urllib.parse.parse_qs(sent[1].data.decode())["ContentVariables"][0])["time-slot"] == "6:00 PM to 10:00 PM"
+    timeutil.set_clock(at(0, 5, DAY + timedelta(days=1)))  # after midnight "tomorrow" is a new day: nothing sent
+    assert tick() == 0

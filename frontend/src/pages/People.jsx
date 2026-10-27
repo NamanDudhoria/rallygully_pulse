@@ -134,7 +134,7 @@ function PersonDrawer({ person, roles, venues, onClose, onSaved }) {
               <input className="input" type="email" value={f.email} disabled={!isNew} onChange={(e) => setF({ ...f, email: e.target.value })} required />
             </Field>
             {f.role === 'vm' && (
-              <Field label="WhatsApp number" help="Optional. Roster changes are sent to this number.">
+              <Field label="WhatsApp number" help="Optional. Tomorrow's venue and shift is sent here at 11:30 PM.">
                 <input className="input" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} />
               </Field>
             )}
