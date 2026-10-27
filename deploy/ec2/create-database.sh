@@ -40,7 +40,7 @@ as_pulse -m app.prune_users --confirm --reset-password
 
 step "Starting the app"
 systemctl start pulse
-for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break; sleep 1; done
+for i in $(seq 1 150); do curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS http://127.0.0.1:8000/api/health >/dev/null || { journalctl -u pulse -n 30 --no-pager; die "Pulse did not start."; }
 echo
 echo "Done. Sign in as admin@rallygully.com with the password you just set."
