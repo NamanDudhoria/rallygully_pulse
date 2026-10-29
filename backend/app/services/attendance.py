@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 
 from .. import audit, config
 from ..audit import DomainError
-from ..models import User, Venue, VmAttendance, VmRoster
-from ..timeutil import minute_of, now_local, tz_label
+from ..models import Notification, User, Venue, VmAttendance, VmRoster
+from ..timeutil import at_minute, minute_of, now_local, tz_label
 from . import notify, roster
 
 MAX_PHOTO_BYTES = 3 * 1024 * 1024
@@ -194,13 +194,62 @@ def retry_photos(db: Session) -> int:
     return len(pending)
 
 
+def require_shift_over(db: Session, user: User, venue_id: int, d: date, what: str) -> None:
+    """Closing out (clock-out, day close) is allowed only once the VM's own shift has ended."""
+    _, w = _shift(db, user, venue_id, d)
+    if w and minute_of(now_local(), d) < w[1]:
+        raise DomainError(f"You can {what} once your shift ends at {_t12(w[1])}.", 409)
+
+
+def close_out(db: Session, user: User, venue_id: int, d: date) -> VmAttendance | None:
+    """Closing the day is the VM's out-attendance: it stamps their clock-out (no location is taken)."""
+    a = record(db, user.id, venue_id, d)
+    if a and not a.clock_out_at:
+        a.clock_out_at = now_local()
+        audit.record(db, user, "attendance.clock_out", "attendance", a.id, None, {"via": "day_close"}, venue_id)
+    return a
+
+
+def alert_missing_checkin(db: Session) -> int:
+    """When a rostered shift has started and the VM hasn't clocked in, email every active HQ Admin once.
+    Entries added after the shift began are skipped: nobody could have checked in for them in time."""
+    now = now_local()
+    d = now.date()
+    now_min = minute_of(now, d)
+    admins = [e for e in db.scalars(select(User.email).where(User.role == "hq_admin", User.active.is_(True))
+                                    .order_by(User.id))] or [config.OPS_EMAIL]
+    sent = 0
+    for r, u in list(db.execute(select(VmRoster, User).join(User, User.id == VmRoster.user_id)
+                                .where(VmRoster.date == d, User.active.is_(True)))):
+        w = roster.window(db, r)
+        if not w or not (w[0] <= now_min < w[1]) or r.created_at >= at_minute(d, w[0]):
+            continue
+        if record(db, u.id, r.venue_id, d) or db.scalar(select(Notification.id).where(
+                Notification.template == "attendance_missing", Notification.ref_type == "roster",
+                Notification.ref_id == r.id)):
+            continue
+        v = db.get(Venue, r.venue_id)
+        late = now_min - w[0]
+        subject = f"[Pulse] {u.name} has not checked in at {v.name} (shift started {_t12(w[0])} {tz_label()})"
+        body = (f"{u.name} was rostered at {v.name} today, {d.strftime('%A %d %B %Y')}, from {_t12(w[0])} to "
+                f"{_t12(w[1])} {tz_label()}.\n\nThey had not clocked in {late} minute{'s' if late != 1 else ''} after "
+                f"the shift started.\nPhone: {u.phone or 'not on file'}\n\nThe venue stays locked for them until they "
+                f"clock in and send the venue photo.")
+        for to in admins:
+            notify.email(db, to, subject, body, "roster", r.id, template="attendance_missing")
+        sent += 1
+    return sent
+
+
 def clock_out(db: Session, user: User, venue_id: int, lat: float, lng: float, accuracy: float | None) -> VmAttendance:
-    """Clock-out records where it happened; leaving early or away from the venue is recorded, not refused."""
+    """Clock-out records where it happened. Allowed only after the shift ends; being away from the venue is
+    recorded, not refused."""
     a = record(db, user.id, venue_id, now_local().date())
     if not a:
         raise DomainError("You haven't clocked in here today.", 409)
     if a.clock_out_at:
         raise DomainError("You've already clocked out.", 409)
+    require_shift_over(db, user, venue_id, a.date, "clock out")
     _check_fix(lat, lng, accuracy)
     v = db.get(Venue, venue_id)
     a.clock_out_at, a.out_lat, a.out_lng, a.out_accuracy_m = now_local(), lat, lng, accuracy

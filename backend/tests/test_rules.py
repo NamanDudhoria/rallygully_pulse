@@ -325,6 +325,8 @@ def test_day_close_requires_resolution(client):
     client.post(f"/api/bookings/{b['id']}/attended", headers=vm)
     client.post(f"/api/bookings/{b['id']}/extend-window", headers=vm, json={"end": "23:00"})
     client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "cash"})
+    assert client.post("/api/venues/1/close", headers=vm).status_code == 409  # all resolved, but the shift runs to 11 PM
+    timeutil.set_clock(at(23, 0))
     assert client.post("/api/venues/1/close", headers=vm).json()["status"] == "closed"
 
 
@@ -624,3 +626,66 @@ def test_long_slot_is_priced_as_hours_plus_a_half_hour(client):
     assert price("19:00", "20:30") == 1300   # 800 for the hour + 500 for the half-hour, not 3 x 500
     assert price("19:00", "21:30") == 2100   # 800 + 800 + 500
     assert price("19:00", "21:00") == 1600
+
+
+def test_day_close_is_the_vms_out_attendance_and_only_after_shift_end(client):
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    timeutil.set_clock(at(22, 59))
+    r = client.post("/api/venues/1/close", headers=vm)
+    assert r.status_code == 409 and "11:00 PM" in r.json()["detail"]
+    out = client.post("/api/venues/1/clock-out", headers=vm, json={"latitude": 0, "longitude": 0})
+    assert out.status_code == 409 and "11:00 PM" in out.json()["detail"]   # clock-out has the same rule
+    db = SessionLocal()
+    assert db.query(VmAttendance).one().clock_out_at is None
+    db.close()
+    timeutil.set_clock(at(23, 0))
+    assert client.post("/api/venues/1/close", headers=vm).json()["status"] == "closed"
+    db = SessionLocal()
+    a = db.query(VmAttendance).one()
+    assert a.clock_out_at.replace(microsecond=0) == at(23, 0) and a.out_lat is None   # stamped by the close, no location taken
+    db.close()
+    entry = next(e for e in client.get(f"/api/roster?date_from={DAY}&date_to={DAY}", headers=hq).json()["entries"] if e["venue_id"] == 1)
+    assert entry["attendance"]["clock_out_at"] and entry["attendance"]["left_away"] is False
+
+
+def test_hq_can_close_a_day_before_shift_end(client):
+    hq = login(client, "hq@x.com")
+    timeutil.set_clock(at(18, 0))
+    assert client.post("/api/venues/1/close", headers=hq).status_code == 200  # HQ isn't held to a VM's shift
+
+
+def test_admins_are_emailed_when_a_vm_has_not_checked_in_by_shift_start(client):
+    from app.models import Notification
+    from app.services import attendance
+    db = SessionLocal()
+    db.add_all([User(name="Admin One", email="a1@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"),
+                User(name="Admin Two", email="a2@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"),
+                User(name="HQ Only", email="hq3@x.com", password_hash=hash_password("pulse1234"), role="hq")])
+    vm2 = User(name="Late Larry", email="vm2@x.com", password_hash=hash_password("pulse1234"), role="vm", phone="9812345678")
+    db.add(vm2)
+    db.flush()
+    db.add(VmAssignment(user_id=vm2.id, venue_id=2))
+    db.add(VmRoster(venue_id=2, user_id=vm2.id, date=DAY, created_at=at(20, 0, DAY - timedelta(days=1))))  # rostered the evening before
+    db.commit()
+    db.close()
+
+    def tick():
+        db = SessionLocal()
+        n = attendance.alert_missing_checkin(db)
+        db.commit()
+        db.close()
+        return n
+
+    timeutil.set_clock(at(5, 59))
+    assert tick() == 0
+    timeutil.set_clock(at(6, 0))
+    assert tick() == 1
+    db = SessionLocal()
+    mails = db.query(Notification).filter_by(template="attendance_missing").all()
+    assert sorted(m.recipient for m in mails) == ["a1@x.com", "a2@x.com"]  # every admin, not plain HQ
+    assert "Late Larry has not checked in at Saket" in mails[0].body.split("\n")[0] and "9812345678" in mails[0].body
+    db.close()
+    assert tick() == 0   # once only
+    # the first VM clocked in (fixture), so no alert for them; clocking in late doesn't send another
+    timeutil.set_clock(at(17, 0))
+    assert tick() == 0

@@ -24,6 +24,7 @@ def _tick(run_district: bool) -> None:
         roster.alert_gaps(db)
         roster.send_tomorrow(db)
         attendance.retry_photos(db)
+        attendance.alert_missing_checkin(db)
         db.commit()
     except Exception:  # noqa: BLE001 — never let a job crash the loop; operational records stay intact
         db.rollback()

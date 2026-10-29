@@ -128,25 +128,15 @@ function VenueCamera({ venueId, venueName, onSent }) {
   )
 }
 
-/** Clock-in status and the clock-out button, for the VM's own shift on the venue page. */
-export function MyShift({ venueId, attendance, onChanged }) {
-  const [run, busy] = useAction()
-  const [locating, setLocating] = useState(false)
+/** Clock-in status for the VM's own shift. There is no clock-out button: closing the day is the out-attendance. */
+export function MyShift({ attendance }) {
   if (!attendance) return null
   if (attendance.clock_out_at) {
     return <span className="badge"><LogOut size={13} aria-hidden /> Clocked out {clockTime(attendance.clock_out_at)}</span>
   }
-  const out = async () => {
-    if (!window.confirm('Clock out now? You can still view the day, but this ends your shift record.')) return
-    setLocating(true)
-    const r = await run(async () => post(`/api/venues/${venueId}/clock-out`, await getFix()), 'Clocked out')
-    setLocating(false)
-    if (r) onChanged()
-  }
   return (
-    <span className="row" style={{ gap: 8 }}>
-      <span className="badge good"><CheckCircle2 size={13} aria-hidden /> Clocked in {clockTime(attendance.clock_in_at)}</span>
-      <button className="btn btn-sm" disabled={busy || locating} onClick={out}><LogOut /> {locating ? 'Finding location…' : 'Clock out'}</button>
+    <span className="badge good" title="Closing the day, after your shift ends, clocks you out.">
+      <CheckCircle2 size={13} aria-hidden /> Clocked in {clockTime(attendance.clock_in_at)}
     </span>
   )
 }
