@@ -10,9 +10,10 @@ from .. import audit, serialize
 from ..auth import current_user
 from ..permissions import require
 from ..db import get_db
-from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Notification,
+from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Membership, MembershipUse, Notification,
                       Participant, PricingRule, RentalItem, SpecialDate, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
+from ..services import membership as membership_svc
 from ..services import district, venue_config
 from ..timeutil import hhmm, today
 from .common import get_or_404, minutes
@@ -412,13 +413,82 @@ def delete_pricing(rid: int, user: User = Depends(require("config.manage")), db:
 
 # ── Customers ────────────────────────────────────────────────────────────────
 @router.get("/customers/lookup")
-def lookup(phone: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """Used by VM forms to load an existing profile by phone."""
+def lookup(phone: str, venue_id: int | None = None, date: date | None = None,
+           user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Used by VM forms to load an existing profile by phone. With a venue, also says whether the person has a
+    membership that covers them there."""
     try:
         c = customer_svc.find_by_phone(db, phone)
     except Exception:  # noqa: BLE001 — partial numbers while typing
         return {"found": False}
-    return {"found": bool(c), "customer": serialize.customer(c) if c else None}
+    member = None
+    if c and venue_id:
+        hit = membership_svc.find(db, c.id, venue_id, date or today())
+        if hit:
+            member = {"id": hit[0].id, "hours_left": hit[1], "expires_on": hit[0].expires_on}
+    return {"found": bool(c), "customer": serialize.customer(c) if c else None, "membership": member}
+
+
+# ── Memberships ──────────────────────────────────────────────────────────────
+class MembershipIn(BaseModel):
+    phone: str
+    name: str
+    venue_ids: list[int]
+    hours: float
+    amount_paid: float
+    method: str
+    sold_on: date | None = None
+    starts_on: date | None = None
+    expires_on: date | None = None
+    notes: str | None = None
+
+
+def _membership_dict(m, reserved: float) -> dict:
+    bal = membership_svc.balance(m, reserved)
+    return {"id": m.id, "customer": {"name": m.customer.name, "phone": m.customer.phone},
+            "venue_ids": [v.venue_id for v in m.venues], "total_hours": m.total_hours, "used_hours": m.used_hours,
+            "reserved_hours": bal["reserved"], "left_hours": bal["left"], "amount_paid": m.amount_paid,
+            "payment_method": m.payment_method, "sold_on": m.sold_on, "starts_on": m.starts_on,
+            "expires_on": m.expires_on, "status": membership_svc.state(m, bal["left"]), "notes": m.notes,
+            "created_at": m.created_at}
+
+
+@router.get("/memberships")
+def list_memberships(q: str | None = None, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
+    query = select(Membership).join(Customer, Customer.id == Membership.customer_id).order_by(Membership.id.desc())
+    if q:
+        query = query.where((Customer.phone.contains(q)) | (Customer.name.ilike(f"%{q}%")))
+    rows = list(db.scalars(query.limit(500)))
+    reserved = membership_svc._reserved(db, [m.id for m in rows])
+    return [_membership_dict(m, reserved.get(m.id, 0.0)) for m in rows]
+
+
+@router.post("/memberships")
+def create_membership(body: MembershipIn, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
+    d = today()
+    m = membership_svc.create(db, user, phone=body.phone, name=body.name, venue_ids=body.venue_ids, hours=body.hours,
+                              amount_paid=body.amount_paid, method=body.method, sold_on=body.sold_on or d,
+                              starts_on=body.starts_on or d, expires_on=body.expires_on, notes=body.notes)
+    db.commit()
+    return _membership_dict(m, 0.0)
+
+
+@router.get("/memberships/{membership_id}")
+def get_membership(membership_id: int, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
+    m = get_or_404(db, Membership, membership_id)
+    out = _membership_dict(m, membership_svc._reserved(db, [m.id]).get(m.id, 0.0))
+    out["uses"] = [{"booking_id": u.booking_id, "hours": u.hours, "used_on": u.used_on, "venue_id": b.venue_id,
+                    "time": f"{hhmm(b.start_min)}–{hhmm(b.end_min)}"}
+                   for u, b in db.execute(select(MembershipUse, Booking).join(Booking, Booking.id == MembershipUse.booking_id)
+                                          .where(MembershipUse.membership_id == m.id).order_by(MembershipUse.id))]
+    return out
+
+
+@router.post("/memberships/{membership_id}/cancel")
+def cancel_membership(membership_id: int, user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
+    m = membership_svc.cancel(db, user, get_or_404(db, Membership, membership_id))
+    db.commit()
+    return _membership_dict(m, membership_svc._reserved(db, [m.id]).get(m.id, 0.0))
 
 
 @router.get("/customers")

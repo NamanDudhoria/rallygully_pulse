@@ -109,6 +109,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
         <dt>Customer</dt><dd>{b.customer.name || <span className="subtle">Name not captured</span>} · {phoneFmt(b.customer.phone)}</dd>
         <dt>Court</dt><dd>{b.facility || <span className="subtle">Not assigned yet</span>}{b.sport ? ` · ${b.sport}` : ''}</dd>
         <dt>Booking value</dt><dd>{money(b.booking_value)}{b.platform ? <span className="subtle"> · via {b.platform}</span> : ''}</dd>
+        {b.membership_id && <><dt>Membership</dt><dd>{b.member_hours} h covered by the customer&apos;s membership</dd></>}
         {b.discount_name && <><dt>Discount</dt><dd>{b.discount_name} ({b.discount_percent}% off {money(b.list_price)})</dd></>}
         {!b.discount_name && b.list_price != null && Math.abs(b.list_price - b.booking_value) > 0.5 && <><dt>Configured price</dt><dd>{money(b.list_price)} <span className="subtle">· changed by HQ</span></dd></>}
         <dt>Collected</dt><dd>{money(b.collected_amount)}{b.payment_method ? ` · ${METHOD[b.payment_method] || b.payment_method}` : ''}</dd>
@@ -277,8 +278,9 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   const [rent, setRent] = useState({})
   const rentTotal = rentalItems.reduce((n, i) => n + (rent[i.id] || 0) * i.price, 0)
   const [quote, setQuote] = useState(null)
-  const [lookup, setLookup] = useState({ phone: '', customer: null })
+  const [lookup, setLookup] = useState({ phone: '', customer: null, membership: null })
   const existing = digitsOf(form.phone) === lookup.phone ? lookup.customer : null
+  const member = digitsOf(form.phone) === lookup.phone ? lookup.membership : null
   const [run, busy] = useAction()
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v?.target ? (v.target.type === 'checkbox' ? v.target.checked : v.target.value) : v }))
   // Moving the start keeps the slot length, so the end follows it.
@@ -297,11 +299,11 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   useEffect(() => {
     const digits = digitsOf(form.phone)
     if (digits.length < 10) return
-    api(`/api/customers/lookup?phone=${encodeURIComponent(form.phone)}`).then((r) => {
-      setLookup({ phone: digits, customer: r.found ? r.customer : null })
+    api(`/api/customers/lookup?phone=${encodeURIComponent(form.phone)}&venue_id=${venue.id}&date=${form.date}`).then((r) => {
+      setLookup({ phone: digits, customer: r.found ? r.customer : null, membership: r.membership || null })
       if (r.found) setForm((f) => ({ ...f, name: r.customer.name || f.name, email: r.customer.email || f.email }))
     }).catch(() => {})
-  }, [form.phone])
+  }, [form.phone, form.date, venue.id])
 
   const submit = async (e, close) => {
     e.preventDefault()
@@ -353,6 +355,17 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
                 onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value, discount_id: '' }))} />
             </Field>
           )}
+          {member && !form.discount_id && form.amount === '' && (() => {
+            const hrs = Math.max(0, (toMin(form.end) - toMin(form.start)) / 60)
+            const covered = Math.min(hrs, member.hours_left)
+            return (
+              <div className="callout good"><UserCheck />
+                <span><b>Member</b> · {member.hours_left} h left{member.expires_on ? ` · valid to ${member.expires_on}` : ''}. {covered >= hrs
+                  ? `This booking is covered (${hrs} h): nothing to charge.`
+                  : `${covered} h of this booking is covered; the rest is charged at the normal price.`} Hours come off after they play.</span>
+              </div>
+            )
+          })()}
           <div className="callout info" style={{ alignItems: 'baseline' }}>
             {quote?.total != null
               ? <span><b>{money(form.amount !== '' ? Number(form.amount) : quote.total)}</b>{form.discount_id && quote.amount != null ? <span className="subtle"> · {money(quote.amount)} less {discounts.find((d) => String(d.id) === String(form.discount_id))?.percent}%</span> : null}</span>

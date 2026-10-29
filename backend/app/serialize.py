@@ -92,7 +92,7 @@ def booking(db: Session, b: Booking, detail: bool = False, pre: dict | None = No
         "can_no_show": b.status == "confirmed" and b.attendance == "pending" and now_min >= b.start_min + 30,
         "no_show_from_min": b.start_min + 30,
         "refunded": float(pre["refunded"].get(b.id) or 0.0) if pre else booking_svc.refunded_total(db, b.id),
-        "platform": b.platform,
+        "platform": b.platform, "membership_id": b.membership_id, "member_hours": b.member_hours,
     }
     out["rental_total"], out["rental_due"] = pre["rentals"].get(b.id, (0.0, 0.0)) if pre else booking_svc.rental_totals(db, b.id)
     if detail:
