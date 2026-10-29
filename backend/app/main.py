@@ -10,7 +10,9 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, scheduler
 from .audit import DomainError
-from .db import ensure_schema
+from .db import SessionLocal, ensure_schema
+from .services import cash
+from .timeutil import now_local
 from .services import analytics
 from .routers import admin, analytics_routes, auth_routes, history_routes, operations, people, venues
 
@@ -18,6 +20,9 @@ from .routers import admin, analytics_routes, auth_routes, history_routes, opera
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     ensure_schema()
+    with SessionLocal() as db:  # cash tracking starts now for any venue that has no account yet
+        cash.ensure_accounts(db, now_local())
+        db.commit()
     task = asyncio.create_task(scheduler.loop()) if config.RUN_SCHEDULER else None
     stop = threading.Event()
     if config.RUN_SCHEDULER:

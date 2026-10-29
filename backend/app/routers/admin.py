@@ -10,12 +10,13 @@ from .. import audit, serialize
 from ..auth import current_user
 from ..permissions import require
 from ..db import get_db
-from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Membership, MembershipUse, Notification,
+from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Membership, MembershipUse, Notification, CashEntry,
                       Participant, PricingRule, RentalItem, SpecialDate, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
+from ..services import cash as cash_svc
 from ..services import membership as membership_svc
 from ..services import district, venue_config
-from ..timeutil import hhmm, today
+from ..timeutil import hhmm, now_local, today
 from .common import get_or_404, minutes
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -188,6 +189,7 @@ def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), 
               community_link=_community_link(body))
     db.add(v)
     db.flush()
+    cash_svc.ensure_accounts(db, now_local())
     if body.discounts:
         _sync_discounts(db, v, body.discounts)
     if body.rental_items:
@@ -427,6 +429,44 @@ def lookup(phone: str, venue_id: int | None = None, date: date | None = None,
         if hit:
             member = {"id": hit[0].id, "hours_left": hit[1], "expires_on": hit[0].expires_on}
     return {"found": bool(c), "customer": serialize.customer(c) if c else None, "membership": member}
+
+
+# ── Venue cash balances ──────────────────────────────────────────────────────
+class CashEntryIn(BaseModel):
+    kind: str  # deposit | non_deposit
+    amount: float
+    depositor_id: int | None = None
+    comment: str | None = None
+
+
+@router.get("/cash")
+def cash_balances(user: User = Depends(require("cash.manage")), db: Session = Depends(get_db)):
+    bal = cash_svc.balances(db)
+    db.commit()  # accounts created on the way
+    return [{"venue_id": v.id, "code": v.code, "name": v.name, **bal.get(v.id, {})}
+            for v in db.scalars(select(Venue).where(Venue.status == "active").order_by(Venue.id))]
+
+
+@router.get("/venues/{venue_id}/cash")
+def venue_cash(venue_id: int, user: User = Depends(require("cash.manage")), db: Session = Depends(get_db)):
+    get_or_404(db, Venue, venue_id)
+    bal = cash_svc.balances(db, [venue_id]).get(venue_id, {})
+    db.commit()
+    names = {i: n for i, n in db.execute(select(User.id, User.name))}
+    entries = [{"id": e.id, "kind": e.kind, "amount": e.amount, "depositor_id": e.depositor_id,
+                "depositor": names.get(e.depositor_id), "comment": e.comment, "by": names.get(e.created_by),
+                "created_at": e.created_at}
+               for e in db.scalars(select(CashEntry).where(CashEntry.venue_id == venue_id)
+                                   .order_by(CashEntry.id.desc()).limit(100))]
+    return {**bal, "venue_id": venue_id, "entries": entries, "daily": cash_svc.daily(db, venue_id)}
+
+
+@router.post("/venues/{venue_id}/cash")
+def add_cash_entry(venue_id: int, body: CashEntryIn, user: User = Depends(require("cash.manage")),
+                   db: Session = Depends(get_db)):
+    cash_svc.add_entry(db, user, venue_id, body.kind, body.amount, body.depositor_id, body.comment)
+    db.commit()
+    return venue_cash(venue_id, user, db)
 
 
 # ── Memberships ──────────────────────────────────────────────────────────────

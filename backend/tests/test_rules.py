@@ -935,3 +935,71 @@ def test_admins_get_the_roster_email_once_it_settles_in_the_requested_format(cli
     # a day with no roster has no leaves and no email
     quiet = (DAY + timedelta(days=4)).isoformat()
     assert client.get(f"/api/roster?date_from={quiet}&date_to={quiet}", headers=hq).json()["leaves"] == []
+
+
+def _cash_admin(client):
+    db = SessionLocal()
+    db.add(User(name="Cash Admin", email="cadm@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    return login(client, "cadm@x.com")
+
+
+def _venue_cash(client, ha, venue_id=1):
+    return client.get(f"/api/venues/{venue_id}/cash", headers=ha).json()
+
+
+def test_cash_payments_add_to_the_venue_balance_and_other_methods_do_not(client):
+    ha, hq = _cash_admin(client), login(client, "hq@x.com")
+    assert _venue_cash(client, ha)["balance"] == 0
+    cash = direct(client, hq, pay_now=True, method="cash", phone="9811111181", name="C1").json()      # 800 cash
+    direct(client, hq, start="20:00", pay_now=True, method="upi", phone="9811111182", name="C2")       # UPI: not cash
+    direct(client, hq, start="21:00", pay_now=True, method="razorpay", phone="9811111183", name="C3")  # not cash
+    b = _venue_cash(client, ha)
+    assert (b["collected"], b["balance"]) == (800, 800)
+    # equipment rentals paid in cash count too, at their own venue only
+    ha2, body, ids = _setup_rentals(client)
+    r = client.post(f"/api/bookings/{cash['id']}/rentals", headers=hq, json={"items": [{"item_id": ids["Shoes"], "quantity": 2}]}).json()
+    client.post(f"/api/bookings/{cash['id']}/rentals/pay", headers=hq, json={"method": "cash"})
+    assert _venue_cash(client, ha)["balance"] == 1000
+    assert _venue_cash(client, ha, 2)["balance"] == 0
+    # a cash refund takes cash back out; refunding a non-cash booking does not
+    assert client.post(f"/api/bookings/{cash['id']}/refund", headers=hq, json={"amount": 300, "reason": "Court was unusable"}).status_code == 200
+    assert _venue_cash(client, ha)["balance"] == 700 and _venue_cash(client, ha)["refunded"] == 300
+
+
+def test_admin_updates_cash_with_deposit_and_non_deposit_entries(client):
+    ha, hq, vm = _cash_admin(client), login(client, "hq@x.com"), login(client, "vm@x.com")
+    direct(client, hq, pay_now=True, method="cash", phone="9811111181", name="C1")
+    path = "/api/venues/1/cash"
+    assert client.post(path, headers=vm, json={"kind": "deposit", "amount": 100, "depositor_id": 2}).status_code == 403   # VMs can't
+    assert client.post(path, headers=hq, json={"kind": "deposit", "amount": 100, "depositor_id": 2}).status_code == 403   # nor plain HQ
+    assert client.post(path, headers=ha, json={"kind": "deposit", "amount": 100}).status_code == 422                      # who deposited?
+    assert client.post(path, headers=ha, json={"kind": "deposit", "amount": 0, "depositor_id": 2}).status_code == 422
+    assert client.post(path, headers=ha, json={"kind": "transfer", "amount": 5}).status_code == 422
+    assert client.post(path, headers=ha, json={"kind": "deposit", "amount": 100, "depositor_id": 1}).status_code == 422     # 1 is HQ, not a VM
+    r = client.post(path, headers=ha, json={"kind": "deposit", "amount": 500, "depositor_id": 2, "comment": "Bank, SBI Saket"})
+    assert r.status_code == 200 and r.json()["balance"] == 300 and r.json()["deposited"] == 500
+    e = r.json()["entries"][0]
+    assert (e["kind"], e["amount"], e["depositor"], e["comment"], e["by"]) == ("deposit", 500, "VM", "Bank, SBI Saket", "Cash Admin")
+    r = client.post(path, headers=ha, json={"kind": "non_deposit", "amount": 1000, "comment": "Opening float"})
+    assert r.json()["balance"] == 1300 and r.json()["added"] == 1000
+    assert [x["code"] for x in client.get("/api/cash", headers=ha).json()][:2] == ["EOK", "SKT"]
+    assert client.get("/api/cash", headers=vm).status_code == 403
+    assert _venue_cash(client, ha)["daily"][0]["collected"] == 800
+
+
+def test_cash_before_the_account_started_is_not_counted(client):
+    from app.models import CashAccount
+    from app.services import cash
+    ha, hq = _cash_admin(client), login(client, "hq@x.com")
+    direct(client, hq, pay_now=True, method="cash", phone="9811111181", name="C1")      # collected at 16:00
+    db = SessionLocal()
+    db.query(CashAccount).delete()
+    cash.ensure_accounts(db, at(17, 0))                                                  # tracking starts at 5 PM
+    db.commit()
+    db.close()
+    assert _venue_cash(client, ha)["balance"] == 0
+    timeutil.set_clock(at(17, 30))
+    direct(client, hq, start="21:00", pay_now=True, method="cash", phone="9811111182", name="C2")
+    assert _venue_cash(client, ha)["balance"] == 800

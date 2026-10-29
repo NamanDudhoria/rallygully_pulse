@@ -3,7 +3,7 @@ import { Fragment, useState } from 'react'
 import { AlertTriangle, Mail, MessageCircle, Pencil, Play, Plus, Repeat, Search, Send, Trash2 } from 'lucide-react'
 import { del, post, put } from '../lib/api'
 import { useApi } from '../lib/hooks'
-import { useAction } from '../lib/useCtx'
+import { useAction, useAuth } from '../lib/useCtx'
 import { dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, KindLabel, Skeleton, Tabs } from '../components/ui'
 import { getFix } from '../lib/attendance'
@@ -74,16 +74,19 @@ function CustomerDrawer({ id, onClose }) {
 
 // ── Configuration ────────────────────────────────────────────────────────────
 export function ConfigPage() {
+  const { can } = useAuth()
   const [tab, setTab] = useState('venues')
   return (
     <div className="stack rise">
       <div className="page-head"><div><h1>Configuration</h1></div></div>
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' }, { value: 'memberships', label: 'Memberships' },
+        ...(can('cash.manage') ? [{ value: 'cash', label: 'Cash' }] : []),
       ]} />
       {tab === 'venues' && <VenuesConfig />}
       {tab === 'pricing' && <PricingConfig />}
       {tab === 'memberships' && <MembershipsConfig />}
+      {tab === 'cash' && can('cash.manage') && <CashConfig />}
     </div>
   )
 }
@@ -387,6 +390,102 @@ function SpecialDates({ venue }) {
         ) : <p className="subtle">No overrides.</p>}
       </div>
     </div>
+  )
+}
+
+/** Each venue's cash balance: cash collected there, less refunds, less deposits. Only HQ Admins see and edit it. */
+function CashConfig() {
+  const { data, error, reload } = useApi('/api/cash')
+  const [open, setOpen] = useState(null)
+  if (error && !data) return <ErrorState error={error} onRetry={reload} />
+  return (
+    <div className="card">
+      <div className="card-head"><h2>Venue cash balances</h2></div>
+      <div className="card-body table-wrap">
+        {!data ? <Skeleton h={200} /> : (
+          <table className="table">
+            <thead><tr><th>Venue</th><th className="num">Collected</th><th className="num">Refunded</th><th className="num">Deposited</th><th className="num">Added</th><th className="num">Balance</th><th /></tr></thead>
+            <tbody>{data.map((v) => (
+              <tr key={v.venue_id} style={{ cursor: 'pointer' }} onClick={() => setOpen(v)}>
+                <td><div style={{ fontWeight: 500 }}>{v.name.replace('RallyGully ', '')}</div>{v.since && <div className="subtle" style={{ fontSize: 12 }}>Counting from {dateTime(v.since)}</div>}</td>
+                <td className="num">{money(v.collected)}</td><td className="num">{money(v.refunded)}</td>
+                <td className="num">{money(v.deposited)}</td><td className="num">{money(v.added)}</td>
+                <td className="num" style={{ fontWeight: 700, color: v.balance < 0 ? 'var(--bad)' : undefined }}>{money(v.balance)}</td>
+                <td className="num"><button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setOpen(v) }}>Update</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        <p className="subtle" style={{ fontSize: 12.5, marginTop: 12 }}>
+          Every payment recorded as cash at a venue (bookings, community games, academy, corporate, equipment rentals) is added automatically;
+          cash refunds come off. Use Update to record a deposit (cash taken out) or any other addition (cash put in).
+        </p>
+      </div>
+      {open && <CashDrawer venue={open} onClose={() => setOpen(null)} onChanged={reload} />}
+    </div>
+  )
+}
+
+function CashDrawer({ venue, onClose, onChanged }) {
+  const { data, reload } = useApi(`/api/venues/${venue.venue_id}/cash`)
+  const users = useApi('/api/users').data
+  const vms = (users || []).filter((u) => u.role === 'vm' && u.active)
+  const [run, busy] = useAction()
+  const [f, setF] = useState({ kind: 'deposit', amount: '', depositor_id: '', comment: '' })
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
+  const label = { deposit: 'Deposit', non_deposit: 'Non-deposit' }
+  return (
+    <Drawer open onClose={onClose} width={500} title={venue.name.replace('RallyGully ', '')} subtitle="Cash balance">
+      <div className="callout info" style={{ alignItems: 'baseline' }}>
+        <span>Balance <b style={{ fontSize: 18 }}>{money(data ? data.balance : venue.balance)}</b></span>
+      </div>
+      <form className="form" onSubmit={async (e) => {
+        e.preventDefault()
+        const r = await run(() => post(`/api/venues/${venue.venue_id}/cash`, {
+          kind: f.kind, amount: Number(f.amount), depositor_id: f.depositor_id ? Number(f.depositor_id) : null, comment: f.comment || null,
+        }), f.kind === 'deposit' ? 'Deposit recorded' : 'Cash added')
+        if (r) { setF({ kind: f.kind, amount: '', depositor_id: '', comment: '' }); reload(); onChanged() }
+      }}>
+        <div className="section-title">Update cash balance</div>
+        <div className="form-row">
+          <Field label="Type" help={f.kind === 'deposit' ? 'Cash taken out, for example to the bank' : 'Cash put in, for example an opening balance'}>
+            <select className="select" value={f.kind} onChange={set('kind')}><option value="deposit">Deposit</option><option value="non_deposit">Non-deposit</option></select>
+          </Field>
+          <Field label="Amount (₹)"><input className="input" type="number" min={0} step="any" value={f.amount} onChange={set('amount')} required /></Field>
+        </div>
+        <Field label={f.kind === 'deposit' ? 'Depositor' : 'Depositor (optional)'}>
+          <select className="select" value={f.depositor_id} onChange={set('depositor_id')} required={f.kind === 'deposit'}>
+            <option value="">Choose a Venue Manager…</option>
+            {vms.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Comment (optional)"><input className="input" maxLength={300} value={f.comment} onChange={set('comment')} placeholder="For example: bank, slip number" /></Field>
+        <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn btn-primary" disabled={busy || !f.amount}>Record</button></div>
+      </form>
+      <section>
+        <div className="section-title">Entries</div>
+        {!data ? <Skeleton h={80} /> : data.entries.length === 0 ? <p className="subtle">No entries yet.</p> : data.entries.map((e) => (
+          <div key={e.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <span><b>{label[e.kind]}</b>{e.depositor ? ` · ${e.depositor}` : ''}</span>
+              <b style={{ color: e.kind === 'deposit' ? 'var(--bad)' : 'var(--good)' }}>{e.kind === 'deposit' ? '−' : '+'}{money(e.amount)}</b>
+            </div>
+            <div className="subtle" style={{ fontSize: 12.5 }}>{dateTime(e.created_at)} · by {e.by}{e.comment ? ` · ${e.comment}` : ''}</div>
+          </div>
+        ))}
+      </section>
+      {data?.daily?.length > 0 && (
+        <section>
+          <div className="section-title">Cash taken, last 14 days</div>
+          {data.daily.map((d) => (
+            <div key={d.date} className="row" style={{ justifyContent: 'space-between' }}>
+              <span>{shortDate(d.date)}</span>
+              <span>{money(d.collected)}{d.refunded ? <span className="subtle"> · refunded {money(d.refunded)}</span> : null}</span>
+            </div>
+          ))}
+        </section>
+      )}
+    </Drawer>
   )
 }
 
