@@ -40,6 +40,7 @@ class DirectIn(BaseModel):
     facility_id: int
     date: date
     start: str
+    discount_id: int | None = None  # one of the venue's configured discounts
     end: str | None = None  # slot end time; the booking holds start to end
     duration: int | None = None  # older clients: minutes after start, when no end is given
     phone: str
@@ -84,7 +85,7 @@ def create_direct(body: DirectIn, user: User = Depends(current_user), db: Sessio
     b = bookings.create_direct(db, user, venue_id=body.venue_id, facility_id=body.facility_id, d=body.date,
                                start_min=minutes(body.start), end_min=_end_min(body), phone=body.phone,
                                name=body.name, amount=body.amount, pay_now=body.pay_now, method=body.method,
-                               email=body.email)
+                               email=body.email, discount_id=body.discount_id)
     db.commit()
     return serialize.booking(db, b, detail=True)
 

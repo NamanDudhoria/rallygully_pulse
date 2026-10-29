@@ -177,6 +177,7 @@ function parsePosition(text) {
 function VenueDrawer({ form, onClose, onSaved }) {
   const [run, busy] = useAction()
   const [f, setF] = useState({ code: form.code, name: form.name, location: form.location || '', status: form.status || 'active', community_link: form.community_link || '' })
+  const [discounts, setDiscounts] = useState((form.discounts || []).map((d) => ({ id: d.id, name: d.name, percent: String(d.percent) })))
   const [pos, setPos] = useState(form.latitude != null ? `${form.latitude}, ${form.longitude}` : '')
   const [locating, setLocating] = useState(false)
   const isNew = !form.id
@@ -188,7 +189,8 @@ function VenueDrawer({ form, onClose, onSaved }) {
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()
           if (coords === undefined) return
-          const body = { ...f, latitude: coords?.[0] ?? null, longitude: coords?.[1] ?? null }
+          const body = { ...f, latitude: coords?.[0] ?? null, longitude: coords?.[1] ?? null,
+            discounts: discounts.filter((d) => d.name.trim() || d.percent).map((d) => ({ id: d.id ?? null, name: d.name, percent: Number(d.percent) })) }
           const r = await run(() => (isNew ? post('/api/venues', body) : put(`/api/venues/${form.id}`, body)), isNew ? 'Venue created' : 'Venue updated')
           if (r) { onSaved(r); close() }
         }}>
@@ -212,6 +214,20 @@ function VenueDrawer({ form, onClose, onSaved }) {
           <Field label="WhatsApp community group link" help="Sent in this venue's booking confirmations. Leave blank to use the default link.">
             <input className="input" type="url" value={f.community_link} onChange={(e) => setF({ ...f, community_link: e.target.value })} placeholder="https://chat.whatsapp.com/…" />
           </Field>
+          <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Discounts</span>
+            <span className="help subtle" style={{ fontSize: 12 }}>Prices at this venue are fixed. Venue Managers can only apply one of these percentage discounts when booking; only HQ can type a different amount.</span>
+            {discounts.map((d, i) => (
+              <div key={d.id ?? `n${i}`} className="row" style={{ gap: 8 }}>
+                <input className="input grow" value={d.name} maxLength={60} placeholder="Name, e.g. Member" aria-label="Discount name"
+                  onChange={(e) => setDiscounts(discounts.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
+                <input className="input mono" style={{ width: 90 }} type="number" min={1} max={100} step="any" placeholder="%" aria-label="Percent off"
+                  value={d.percent} onChange={(e) => setDiscounts(discounts.map((x, k) => (k === i ? { ...x, percent: e.target.value } : x)))} />
+                <button type="button" className="btn btn-ghost btn-sm" aria-label="Remove discount" onClick={() => setDiscounts(discounts.filter((_, k) => k !== i))}><Trash2 /></button>
+              </div>
+            ))}
+            <div><button type="button" className="btn btn-sm" onClick={() => setDiscounts([...discounts, { id: null, name: '', percent: '' }])}><Plus /> Add discount</button></div>
+          </fieldset>
           {!isNew && (
             <Field label="Status" help="A venue can be made inactive only when it has no upcoming bookings or allocations.">
               <select className="select" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>

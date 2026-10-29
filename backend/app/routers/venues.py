@@ -10,7 +10,7 @@ from .. import serialize
 from ..auth import current_user
 from ..permissions import can, ensure_venue, roster_pairs, roster_scoped
 from ..db import get_db
-from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, CorporateEvent, Customer, Facility,
+from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, CorporateEvent, Customer, Discount, Facility,
                       OperationalBlock, User, Venue)
 from ..services import analytics, attendance, bookings, dayclose, history_overlay, inventory, roster
 from ..services.pricing import quote
@@ -35,7 +35,8 @@ def list_venues(user: User = Depends(current_user), db: Session = Depends(get_db
                                         "community.manage", "academy.manage", "events.manage")):
         return []
     return [serialize.venue(v, full=True) for v in db.scalars(q.options(selectinload(Venue.facilities),
-                                                                           selectinload(Venue.weekly_hours)))]
+                                                                           selectinload(Venue.weekly_hours),
+                                                                           selectinload(Venue.discounts)))]
 
 
 def _venue(db: Session, user: User, venue_id: int, d: date, write: bool = False) -> Venue:
@@ -182,16 +183,20 @@ def _cell(db: Session, a: Allocation) -> dict:
 
 @router.get("/{venue_id}/quote")
 def get_quote(venue_id: int, facility_id: int, date: date, start: str, end: str | None = None, duration: int = 60,
+              discount_id: int | None = None,
               user: User = Depends(current_user), db: Session = Depends(get_db)):
     _venue(db, user, venue_id, date)
     f = get_or_404(db, Facility, facility_id)
     s = minutes(start)
     e = minutes(end) if end else s + duration
     if e <= s:
-        return {"amount": None, "available": False}
+        return {"amount": None, "total": None, "available": False}
     free = not any(a for a in inventory.venue_allocations(db, venue_id, date)
                    if a.facility_id == facility_id and a.start_min < e and a.end_min > s)
-    return {"amount": quote(db, f, date, s, e), "available": free}
+    amount = quote(db, f, date, s, e)
+    disc = db.get(Discount, discount_id) if discount_id else None
+    total = round(amount * (1 - disc.percent / 100), 2) if amount is not None and disc and disc.venue_id == venue_id else amount
+    return {"amount": amount, "total": total, "available": free}
 
 
 @router.get("/{venue_id}/free")

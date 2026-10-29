@@ -10,7 +10,7 @@ from .. import audit, serialize
 from ..auth import current_user
 from ..permissions import require
 from ..db import get_db
-from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Facility, IngestionRun, Notification,
+from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Notification,
                       Participant, PricingRule, SpecialDate, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
 from ..services import district, venue_config
@@ -21,6 +21,12 @@ router = APIRouter(prefix="/api", tags=["admin"])
 
 
 # ── Venues & facilities ──────────────────────────────────────────────────────
+class DiscountIn(BaseModel):
+    id: int | None = None
+    name: str
+    percent: float
+
+
 class VenueIn(BaseModel):
     code: str
     name: str
@@ -29,6 +35,7 @@ class VenueIn(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     community_link: str | None = None
+    discounts: list[DiscountIn] | None = None  # None leaves the venue's discounts as they are
 
 
 STATUSES = ("active", "inactive")
@@ -47,6 +54,36 @@ def _community_link(body: VenueIn) -> str | None:
     if link and not link.lower().startswith("https://"):
         raise HTTPException(422, "The community group link must start with https://")
     return link[:300] or None
+
+
+def _sync_discounts(db: Session, v: Venue, items: list[DiscountIn]) -> None:
+    """Make the venue's active discounts match ``items``. Ones left out are retired, not deleted."""
+    if len(items) > 20:
+        raise HTTPException(422, "A venue can have at most 20 discounts.")
+    names = set()
+    for it in items:
+        name = it.name.strip()
+        if not name or len(name) > 60:
+            raise HTTPException(422, "Give each discount a name of up to 60 characters.")
+        if not 0 < it.percent <= 100:
+            raise HTTPException(422, f"{name}: the percentage must be above 0 and at most 100.")
+        if name.lower() in names:
+            raise HTTPException(422, f"Two discounts are called {name}.")
+        names.add(name.lower())
+    existing = {d.id: d for d in v.discounts}
+    keep = set()
+    for it in items:
+        d = existing.get(it.id) if it.id else None
+        if d:
+            d.name, d.percent, d.active = it.name.strip(), round(it.percent, 2), True
+            keep.add(d.id)
+        else:
+            db.add(Discount(venue_id=v.id, name=it.name.strip(), percent=round(it.percent, 2)))
+    for d in existing.values():
+        if d.id not in keep:
+            d.active = False
+    db.flush()
+    db.expire(v, ["discounts"])
 
 
 def _venue_fields(db: Session, body: VenueIn, venue_id: int | None = None) -> tuple[str, str]:
@@ -113,6 +150,8 @@ def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), 
               community_link=_community_link(body))
     db.add(v)
     db.flush()
+    if body.discounts:
+        _sync_discounts(db, v, body.discounts)
     for wd in range(7):
         db.add(WeeklyHours(venue_id=v.id, weekday=wd, open_min=17 * 60, close_min=23 * 60))
     audit.record(db, user, "venue.create", "venue", v.id, None, body.model_dump(), v.id)
@@ -131,6 +170,12 @@ def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require("con
     v.code, v.name, v.location, v.status = code, name, body.location.strip(), body.status
     v.latitude, v.longitude = _coords(body)
     v.community_link = _community_link(body)
+    if body.discounts is not None:
+        before_discounts = [(d.name, d.percent) for d in v.discounts if d.active]
+        _sync_discounts(db, v, body.discounts)
+        after_discounts = [(d.name, d.percent) for d in v.discounts if d.active]
+        if before_discounts != after_discounts:
+            audit.record(db, user, "venue.discounts", "venue", v.id, {"discounts": before_discounts}, {"discounts": after_discounts}, v.id)
     audit.record(db, user, "venue.update", "venue", v.id, before, serialize.venue(v), v.id)
     db.commit()
     return serialize.venue(v, full=True)

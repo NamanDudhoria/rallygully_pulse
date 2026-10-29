@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .. import audit, config
 from ..audit import DomainError
 from ..permissions import is_hq
-from ..models import Allocation, AllocationKind, Booking, Customer, Facility, Payment, Refund, User, Venue
+from ..models import Allocation, AllocationKind, Booking, Customer, Discount, Facility, Payment, Refund, User, Venue
 from ..timeutil import at_minute, hhmm, minute_of, now_local, today
 from . import customers, inventory, notify
 from .pricing import quote
@@ -52,7 +52,7 @@ def _require_not_cancelled(b: Booking) -> None:
 
 def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, d: date, start_min: int,
                   end_min: int, phone: str, name: str, amount: float | None, pay_now: bool,
-                  method: str | None, email: str | None = None) -> Booking:
+                  method: str | None, email: str | None = None, discount_id: int | None = None) -> Booking:
     if not (name or "").strip():
         raise DomainError("Customer name is required for Direct bookings.", 422)
     if not _is_hq(actor) and d < today():
@@ -63,15 +63,26 @@ def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, 
     inventory.validate_window(db, venue_id, d, start_min, end_min)
     customer, _ = customers.get_or_create(db, phone, name, email)
     expected = quote(db, fac, d, start_min, end_min)
+    disc = None
+    if discount_id is not None:
+        disc = db.get(Discount, discount_id)
+        if not disc or disc.venue_id != venue_id or not disc.active:
+            raise DomainError("That discount isn't available at this venue.", 422)
+        if amount is not None:
+            raise DomainError("Choose a discount or enter an amount, not both.", 422)
+    if amount is not None and not _is_hq(actor):
+        raise DomainError("Prices are fixed. Pick one of this venue's discounts, or ask HQ to change the price.", 403)
     if amount is None:
         if expected is None:
-            raise DomainError("No price configured for this slot — enter the amount.", 422)
-        amount = expected
+            raise DomainError("No price is configured for this slot." + ("" if _is_hq(actor) else " Ask HQ to add it under Pricing."), 422)
+        amount = round(expected * (1 - disc.percent / 100), 2) if disc else expected
     if amount < 0:
         raise DomainError("Amount cannot be negative.", 422)
     b = Booking(source="direct", customer_id=customer.id, venue_id=venue_id, facility_id=fac.id,
                 original_facility_id=fac.id, sport=fac.sport, date=d, start_min=start_min, end_min=end_min,
                 booking_value=amount, payment_status="to_collect",
+                list_price=expected, discount_name=disc.name if disc else None,
+                discount_percent=disc.percent if disc else None,
                 payment_window_end_min=default_window_end(end_min), assigned_at=now_local())
     db.add(b)
     db.flush()
@@ -278,8 +289,8 @@ def cancel(db: Session, actor: User, b: Booking, reason: str, note: str | None) 
 def change_amount(db: Session, actor: User, b: Booking, amount: float) -> Booking:
     if amount < 0:
         raise DomainError("Amount cannot be negative.", 422)
-    if b.payment_status == "paid" and not _is_hq(actor):
-        raise DomainError("Amount is locked after payment. HQ can correct it.")
+    if not _is_hq(actor):
+        raise DomainError("Only HQ can change a booking's price.", 403)
     before = _snapshot(b)
     b.booking_value = amount
     if b.payment_status == "paid":
