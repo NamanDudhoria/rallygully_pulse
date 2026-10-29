@@ -6,8 +6,8 @@ how Pulse will create the payment itself and confirm the sale only when Razorpay
 
   1. The VM builds the cart and picks "Razorpay"; Pulse records the sale as `pending` (stock reserved) and asks
      Razorpay for a payment link for the total, sent to the customer's phone.
-  2. Razorpay calls our webhook when the customer pays. Pulse checks the signature, marks the sale `confirmed`
-     and sends the receipt. If the link expires unpaid, the sale is voided and the stock goes back.
+  2. Razorpay calls our webhook when the customer pays. Pulse checks the signature and marks the sale
+     `confirmed`. If the link expires unpaid, the sale is voided and the stock goes back.
 
 To turn it on: set PULSE_RAZORPAY_KEY_ID, PULSE_RAZORPAY_KEY_SECRET and PULSE_RAZORPAY_WEBHOOK_SECRET (see
 app/config.py), uncomment this module and the webhook route in app/routers/store.py, and add a `pending` state to

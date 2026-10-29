@@ -183,6 +183,5 @@ def void(sale_id: int, body: VoidIn, user: User = Depends(require("store.manage"
 #         sale = db.get(StoreSale, int(ref.split("-", 1)[1]))
 #         if sale and sale.status == "pending":
 #             sale.status, sale.paid_at = "confirmed", now_local()
-#             store.send_receipt(db, sale)
 #             db.commit()
 #     return {"ok": True}

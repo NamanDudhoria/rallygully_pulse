@@ -86,7 +86,7 @@ def test_products_are_per_venue_and_only_hq_manages_them(c):
     assert c.get("/api/store/1/products", headers=admin).json()[0]["price"] == 35
 
 
-def test_a_sale_reduces_stock_and_sends_receipts(c):
+def test_a_sale_reduces_stock_and_sends_no_message(c):
     admin, vm = login(c, "admin@x.com"), login(c, "vm@x.com")
     water = product(c, admin).json()["id"]
     chips = product(c, admin, name="Chips", price=20, stock=5, category="Snacks").json()["id"]
@@ -99,15 +99,7 @@ def test_a_sale_reduces_stock_and_sends_receipts(c):
     stock = {p["name"]: p["stock"] for p in c.get("/api/store/1/products", headers=vm).json()}
     assert stock == {"Water 500ml": 7, "Chips": 4}
     db = SessionLocal()
-    wa = db.query(Notification).filter_by(template="store_receipt", channel="whatsapp").one()
-    mail = db.query(Notification).filter_by(template="store_receipt", channel="email").one()
-    assert wa.recipient == "9811111190" and "3 × Water 500ml" in wa.body and "₹110" in wa.body
-    assert mail.recipient == "asha@example.com" and "Total: ₹110.00" in mail.body
-    db.close()
-    # no email given: WhatsApp only
-    sale(c, vm, [{"product_id": chips, "quantity": 1}], phone="9811111191")
-    db = SessionLocal()
-    assert db.query(Notification).filter_by(template="store_receipt", channel="email").count() == 1
+    assert db.query(Notification).count() == 0          # no WhatsApp or email to the customer
     db.close()
 
 

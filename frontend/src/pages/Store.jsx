@@ -90,7 +90,7 @@ function SellTab({ venue }) {
     const r = await run(() => post(`/api/store/${venue.id}/sales`, {
       items: lines.map((x) => ({ product_id: x.p.id, quantity: x.q })), phone: who.phone, name: who.name || null,
       email: who.email || null, method,
-    }), 'Sale confirmed · receipt sent')
+    }), 'Sale confirmed')
     if (r) { setDone(r); setCart({}); setWho({ phone: '', name: '', email: '' }); reload() }
     else reload()
   }
@@ -101,7 +101,7 @@ function SellTab({ venue }) {
         {done && (
           <div className="callout good" style={{ display: 'grid', gap: 4 }}>
             <b>Receipt {done.receipt} · {money(done.total)} · {METHOD_LABEL[done.payment_method]}</b>
-            <span>{done.items.map((i) => `${i.quantity} × ${i.name}`).join(', ')}. Sent to {phoneFmt(done.customer.phone)}.</span>
+            <span>{done.items.map((i) => `${i.quantity} × ${i.name}`).join(', ')} · {phoneFmt(done.customer.phone)}</span>
           </div>
         )}
         {Object.entries(groups).map(([cat, items]) => (
@@ -134,7 +134,7 @@ function SellTab({ venue }) {
             </div>
           ))}
           <div className="row" style={{ justifyContent: 'space-between', fontSize: 18 }}><span>Total</span><b>{money(total)}</b></div>
-          <Field label="Customer phone" help="The receipt is sent here on WhatsApp">
+          <Field label="Customer phone" help="Keeps the sale on the customer's record">
             <input className="input" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={who.phone} onChange={(e) => setWho({ ...who, phone: e.target.value })} />
           </Field>
           <div className="form-row">

@@ -3,8 +3,8 @@
 Each venue has its own product list, prices and stock. HQ (Admin or HQ) sets products and prices, restocks and
 corrects stock, and voids sales; a Venue Manager sells at the venue they are rostered and clocked in at. Every
 sale takes its items out of stock in the same transaction, and a sale that would take a product below zero is
-refused as a whole. A confirmed purchase sends the customer a WhatsApp receipt and, if they gave an email, an
-email receipt. Store money is kept apart from court revenue; cash sales count in the venue's cash balance.
+refused as a whole. No message is sent to the customer. Store money is kept apart from court revenue; cash sales
+count in the venue's cash balance.
 """
 from collections import Counter
 
@@ -156,7 +156,6 @@ def sell(db: Session, actor: User, venue_id: int, items: list[tuple[int, int]], 
     audit.record(db, actor, "store.sale", "store_sale", sale.id, None,
                  {"total": sale.total, "method": method, "items": [(i.name, i.quantity) for i in sale.items]}, venue_id)
     _alert_low_stock(db, [(products[pid], before[pid]) for pid in wanted])
-    send_receipt(db, sale)
     return sale
 
 
@@ -177,34 +176,8 @@ def void_sale(db: Session, actor: User, sale: StoreSale, reason: str) -> StoreSa
 
 
 # ── Messages ─────────────────────────────────────────────────────────────────
-def _items_text(sale: StoreSale) -> str:
-    return ", ".join(f"{i.quantity} × {i.name}" for i in sale.items)
-
-
 def receipt_no(sale: StoreSale) -> str:
     return f"RG-{sale.id:05d}"
-
-
-def send_receipt(db: Session, sale: StoreSale) -> None:
-    """WhatsApp receipt to the customer, and an email one if they gave an email."""
-    v = db.get(Venue, sale.venue_id)
-    c = db.get(Customer, sale.customer_id)
-    venue = v.name.removeprefix("RallyGully ").strip()
-    total = f"₹{sale.total:,.0f}"
-    text = (f"Thanks for your purchase at RallyGully {venue}! {_items_text(sale)}. Total {total} "
-            f"({sale.payment_method.upper() if sale.payment_method == 'upi' else sale.payment_method.title()}). "
-            f"Receipt {receipt_no(sale)}.")
-    notify.whatsapp(db, c.phone, "store_receipt", text, "store_sale", sale.id,
-                    content_sid=config.TWILIO_CONTENT_SID_STORE,
-                    variables=notify.by_role(config.TWILIO_STORE_VARS, venue=venue, items=_items_text(sale),
-                                             total=total, receipt=receipt_no(sale)))
-    if c.email:
-        lines = "\n".join(f"  {i.quantity} × {i.name} @ ₹{i.unit_price:,.2f} = ₹{i.amount:,.2f}" for i in sale.items)
-        body = (f"Hi{(' ' + c.name) if c.name else ''},\n\nThanks for your purchase at RallyGully {venue}.\n\n"
-                f"Receipt: {receipt_no(sale)}\nDate: {sale.paid_at.strftime('%d %b %Y, %I:%M %p').replace(' 0', ' ')}\n\n"
-                f"{lines}\n\nTotal: ₹{sale.total:,.2f}\nPaid by: {sale.payment_method}\n\nSee you on court!\nRallyGully")
-        notify.email(db, c.email, f"Your RallyGully {venue} receipt {receipt_no(sale)}", body, "store_sale", sale.id,
-                     template="store_receipt")
 
 
 def _admins(db: Session) -> list[str]:

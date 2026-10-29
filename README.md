@@ -156,10 +156,8 @@ Each venue has its own food and drink store (RG Store in the menu). HQ (HQ Admin
 category, low-stock level and opening stock, restocks them, corrects counts with a reason, and voids sales; every
 stock change is kept on the product's history. A Venue Manager sells at the venue they are rostered and clocked in
 at: tap products, enter the customer's phone (required), pick cash / UPI / Razorpay / other, confirm. Each sale
-takes its items out of stock in one go and is refused as a whole if anything would go below zero. The customer gets
-a WhatsApp receipt (set `PULSE_TWILIO_CONTENT_SID_STORE` to an approved template with variables `venue`, `items`,
-`total`, `receipt`) and an email receipt if they gave an email. HQ is emailed when a product falls to its
-low-stock level. Store money is kept apart from court revenue; cash sales count in the venue's cash balance.
+takes its items out of stock in one go and is refused as a whole if anything would go below zero. No message is
+sent to the customer. HQ is emailed when a product falls to its low-stock level. Store money is kept apart from court revenue; cash sales count in the venue's cash balance.
 Razorpay checkout is outlined but not switched on (`backend/app/services/razorpay.py`).
 
 Before going live: set every venue's **map position** under Configuration → Venues (venues without one show a
