@@ -177,6 +177,7 @@ function parsePosition(text) {
 function VenueDrawer({ form, onClose, onSaved }) {
   const [run, busy] = useAction()
   const [f, setF] = useState({ code: form.code, name: form.name, location: form.location || '', status: form.status || 'active', community_link: form.community_link || '' })
+  const [rentals, setRentals] = useState((form.rental_items || []).map((x) => ({ id: x.id, name: x.name, price: String(x.price) })))
   const [discounts, setDiscounts] = useState((form.discounts || []).map((d) => ({ id: d.id, name: d.name, percent: String(d.percent) })))
   const [pos, setPos] = useState(form.latitude != null ? `${form.latitude}, ${form.longitude}` : '')
   const [locating, setLocating] = useState(false)
@@ -190,6 +191,7 @@ function VenueDrawer({ form, onClose, onSaved }) {
           e.preventDefault()
           if (coords === undefined) return
           const body = { ...f, latitude: coords?.[0] ?? null, longitude: coords?.[1] ?? null,
+            rental_items: rentals.filter((x) => x.name.trim() || x.price).map((x) => ({ id: x.id ?? null, name: x.name, price: Number(x.price) })),
             discounts: discounts.filter((d) => d.name.trim() || d.percent).map((d) => ({ id: d.id ?? null, name: d.name, percent: Number(d.percent) })) }
           const r = await run(() => (isNew ? post('/api/venues', body) : put(`/api/venues/${form.id}`, body)), isNew ? 'Venue created' : 'Venue updated')
           if (r) { onSaved(r); close() }
@@ -227,6 +229,20 @@ function VenueDrawer({ form, onClose, onSaved }) {
               </div>
             ))}
             <div><button type="button" className="btn btn-sm" onClick={() => setDiscounts([...discounts, { id: null, name: '', percent: '' }])}><Plus /> Add discount</button></div>
+          </fieldset>
+          <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Equipment rental prices</span>
+            <span className="help subtle" style={{ fontSize: 12 }}>Fixed prices for equipment hired at this venue (racket, shoes, balls…). Venue Managers pick an item and a quantity; only HQ changes prices here.</span>
+            {rentals.map((x, i) => (
+              <div key={x.id ?? `n${i}`} className="row" style={{ gap: 8 }}>
+                <input className="input grow" value={x.name} maxLength={60} placeholder="Item, e.g. Racket" aria-label="Item name"
+                  onChange={(e) => setRentals(rentals.map((y, k) => (k === i ? { ...y, name: e.target.value } : y)))} />
+                <input className="input mono" style={{ width: 100 }} type="number" min={1} step="any" placeholder="₹ price" aria-label="Price"
+                  value={x.price} onChange={(e) => setRentals(rentals.map((y, k) => (k === i ? { ...y, price: e.target.value } : y)))} />
+                <button type="button" className="btn btn-ghost btn-sm" aria-label="Remove item" onClick={() => setRentals(rentals.filter((_, k) => k !== i))}><Trash2 /></button>
+              </div>
+            ))}
+            <div><button type="button" className="btn btn-sm" onClick={() => setRentals([...rentals, { id: null, name: '', price: '' }])}><Plus /> Add item</button></div>
           </fieldset>
           {!isNew && (
             <Field label="Status" help="A venue can be made inactive only when it has no upcoming bookings or allocations.">

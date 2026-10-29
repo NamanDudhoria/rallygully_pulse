@@ -82,7 +82,7 @@ export const KINDS = ['district', 'direct', 'community', 'academy', 'corporate']
 /** Kinds that only imported history produces; shown only when they have revenue. */
 export const HISTORY_KINDS = ['platforms', 'other']
 
-export const METHOD = { cash: 'Cash', upi: 'UPI', card: 'Card', other: 'Other', online: 'District (online)' }
+export const METHOD = { cash: 'Cash', upi: 'UPI', razorpay: 'Razorpay', card: 'Card', other: 'Other', online: 'Online (prepaid)' }
 
 export function initials(name = '') {
   return name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?'

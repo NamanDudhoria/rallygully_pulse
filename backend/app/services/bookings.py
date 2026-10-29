@@ -8,12 +8,13 @@ from sqlalchemy.orm import Session
 from .. import audit, config
 from ..audit import DomainError
 from ..permissions import is_hq
-from ..models import Allocation, AllocationKind, Booking, Customer, Discount, Facility, Payment, Refund, User, Venue
+from ..models import (Allocation, AllocationKind, Booking, Customer, Discount, Facility, Payment, Refund, RentalCharge,
+                      RentalItem, User, Venue)
 from ..timeutil import at_minute, hhmm, minute_of, now_local, today
 from . import customers, inventory, notify
 from .pricing import quote
 
-PAYMENT_METHODS = ("cash", "upi", "card", "other")
+PAYMENT_METHODS = ("cash", "upi", "razorpay", "other")
 CANCEL_REASONS = {
     "court_unavailable": "Court unavailable",
     "maintenance": "Maintenance / facility issue",
@@ -52,7 +53,8 @@ def _require_not_cancelled(b: Booking) -> None:
 
 def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, d: date, start_min: int,
                   end_min: int, phone: str, name: str, amount: float | None, pay_now: bool,
-                  method: str | None, email: str | None = None, discount_id: int | None = None) -> Booking:
+                  method: str | None, email: str | None = None, discount_id: int | None = None,
+                  rentals: list[tuple[int, int]] | None = None) -> Booking:
     if not (name or "").strip():
         raise DomainError("Customer name is required for Direct bookings.", 422)
     if not _is_hq(actor) and d < today():
@@ -89,22 +91,31 @@ def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, 
     inventory.allocate(db, venue_id, [fac.id], d, start_min, end_min, AllocationKind.DIRECT, b.id, check_hours=False)
     audit.record(db, actor, "booking.create", "booking", b.id, None,
                  {**_snapshot(b), "source": "direct", "expected_amount": expected}, venue_id)
+    if rentals:
+        add_rentals(db, actor, b, rentals)
     if pay_now:
         record_payment(db, actor, b, method, at_creation=True)
+        if rentals:
+            pay_rentals(db, actor, b, method)
     _send_booking_whatsapp(db, b)
     return b
 
 
 def ingest_district(db: Session, *, external_ref: str, venue_id: int, d: date, start_min: int, end_min: int,
-                    amount: float, paid: bool, phone: str, sport: str | None = None) -> tuple[Booking, bool]:
-    """Idempotent on (district, external_ref). Returns (booking, created)."""
+                    amount: float, paid: bool, phone: str, sport: str | None = None, name: str | None = None,
+                    platform: str | None = None, actor: User | None = None) -> tuple[Booking, bool]:
+    """Idempotent on (district, external_ref). Returns (booking, created). ``platform`` marks an online booking
+    from somewhere other than District (entered by hand); its reference is kept as ``Platform:ref`` so ids from
+    different platforms can't collide."""
+    if platform:
+        external_ref = f"{platform}:{external_ref}"
     existing = db.scalar(select(Booking).where(Booking.source == "district", Booking.external_ref == external_ref))
     if existing:
         return existing, False
     if end_min - start_min not in (30, 60):
         raise DomainError(f"District booking {external_ref}: duration must be 30 or 60 minutes.", 422)
-    customer, _ = customers.get_or_create(db, phone)
-    b = Booking(source="district", external_ref=external_ref, customer_id=customer.id, venue_id=venue_id,
+    customer, _ = customers.get_or_create(db, phone, name)
+    b = Booking(source="district", external_ref=external_ref, platform=platform, customer_id=customer.id, venue_id=venue_id,
                 sport=sport, date=d, start_min=start_min, end_min=end_min, booking_value=amount,
                 payment_status="paid" if paid else "to_collect", payment_method="online" if paid else None,
                 collected_amount=amount if paid else 0, payment_window_end_min=default_window_end(end_min))
@@ -113,8 +124,9 @@ def ingest_district(db: Session, *, external_ref: str, venue_id: int, d: date, s
     if paid:
         db.add(Payment(source_type="booking", source_id=b.id, venue_id=venue_id, activity_date=d,
                        amount=amount, method="online", collected_at=now_local()))
-    audit.record(db, None, "booking.create", "booking", b.id, None, {**_snapshot(b), "source": "district",
-                                                                      "external_ref": external_ref}, venue_id)
+    audit.record(db, actor, "booking.create", "booking", b.id, None,
+                 {**_snapshot(b), "source": "district", "external_ref": external_ref, "platform": platform,
+                  "entered_by": actor.email if actor else None}, venue_id)
     _send_booking_whatsapp(db, b)
     return b, True
 
@@ -211,10 +223,68 @@ def mark_no_show(db: Session, actor: User, b: Booking) -> Booking:
     return b
 
 
+def _rental_lines(db: Session, booking_id: int) -> list[RentalCharge]:
+    return list(db.scalars(select(RentalCharge).where(RentalCharge.booking_id == booking_id).order_by(RentalCharge.id)))
+
+
+def rental_totals(db: Session, booking_id: int) -> tuple[float, float]:
+    """(total charged, still unpaid) for a booking's equipment rentals."""
+    lines = _rental_lines(db, booking_id)
+    return sum(x.amount for x in lines), sum(x.amount for x in lines if x.paid_at is None)
+
+
+def add_rentals(db: Session, actor: User, b: Booking, items: list[tuple[int, int]]) -> list[RentalCharge]:
+    """Charge equipment from the venue's price list. Prices are fixed: only the item and quantity are chosen."""
+    _require_not_cancelled(b)
+    if not items:
+        raise DomainError("Choose at least one item.", 422)
+    made = []
+    for item_id, qty in items:
+        item = db.get(RentalItem, item_id)
+        if not item or item.venue_id != b.venue_id or not item.active:
+            raise DomainError("That item isn't available at this venue.", 422)
+        if not 1 <= qty <= 20:
+            raise DomainError("Quantity must be between 1 and 20.", 422)
+        line = RentalCharge(booking_id=b.id, venue_id=b.venue_id, item_name=item.name, unit_price=item.price,
+                            quantity=qty, amount=round(item.price * qty, 2), created_by=actor.id if actor else None)
+        db.add(line)
+        made.append(line)
+    db.flush()
+    audit.record(db, actor, "rental.add", "booking", b.id, None,
+                 {"items": [(x.item_name, x.quantity, x.amount) for x in made]}, b.venue_id)
+    return made
+
+
+def remove_rental(db: Session, actor: User, b: Booking, rental_id: int) -> None:
+    line = db.get(RentalCharge, rental_id)
+    if not line or line.booking_id != b.id:
+        raise DomainError("Rental not found.", 404)
+    if line.paid_at is not None:
+        raise DomainError("A paid rental can't be removed.")
+    audit.record(db, actor, "rental.remove", "booking", b.id, {"item": line.item_name, "amount": line.amount}, None,
+                 b.venue_id)
+    db.delete(line)
+
+
+def pay_rentals(db: Session, actor: User, b: Booking, method: str | None) -> float:
+    """Record payment of every unpaid rental on the booking in one go. Returns the amount."""
+    if method not in PAYMENT_METHODS:
+        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
+    unpaid = [x for x in _rental_lines(db, b.id) if x.paid_at is None]
+    if not unpaid:
+        raise DomainError("There are no unpaid rentals on this booking.")
+    now = now_local()
+    for x in unpaid:
+        x.paid_method, x.paid_at = method, now
+    total = sum(x.amount for x in unpaid)
+    audit.record(db, actor, "rental.pay", "booking", b.id, None, {"amount": total, "method": method}, b.venue_id)
+    return total
+
+
 def record_payment(db: Session, actor: User, b: Booking, method: str | None, *, at_creation: bool = False) -> Booking:
     _require_not_cancelled(b)
     if method not in PAYMENT_METHODS:
-        raise DomainError("Choose a payment method: cash, UPI, card or other.", 422)
+        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
     if b.payment_status == "paid":
         raise DomainError("Already paid.")
     if not _is_hq(actor):

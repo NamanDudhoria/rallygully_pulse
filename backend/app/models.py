@@ -130,6 +130,7 @@ class Venue(Base):
     facilities: Mapped[list["Facility"]] = relationship(back_populates="venue", order_by="Facility.sort_order")
     weekly_hours: Mapped[list["WeeklyHours"]] = relationship(cascade="all, delete-orphan", order_by="WeeklyHours.weekday")
     discounts: Mapped[list["Discount"]] = relationship(order_by="Discount.id")
+    rental_items: Mapped[list["RentalItem"]] = relationship(order_by="RentalItem.id")
 
 
 class Discount(Base):
@@ -140,6 +141,17 @@ class Discount(Base):
     venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
     name: Mapped[str] = mapped_column(String(60))
     percent: Mapped[float] = mapped_column(Float)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+
+class RentalItem(Base):
+    """Equipment a venue rents out, at a fixed price. Retired, never deleted, so past charges keep their record."""
+    __tablename__ = "rental_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    name: Mapped[str] = mapped_column(String(60))
+    price: Mapped[float] = mapped_column(Float)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
@@ -208,6 +220,23 @@ class Customer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
 
+class RentalCharge(Base):
+    """Equipment rented against a booking. Its own line and its own payment: kept out of court revenue."""
+    __tablename__ = "rental_charges"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"))
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    item_name: Mapped[str] = mapped_column(String(60))
+    unit_price: Mapped[float] = mapped_column(Float)
+    quantity: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[float] = mapped_column(Float)
+    paid_method: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (Index("ix_rental_booking", "booking_id"),)
+
+
 class Allocation(Base):
     __tablename__ = "allocations"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -246,6 +275,7 @@ class Booking(Base):
     list_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # configured price before any discount
     discount_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
     discount_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    platform: Mapped[str | None] = mapped_column(String(30), nullable=True)  # online platform other than District
     payment_status: Mapped[str] = mapped_column(String(20))  # paid | to_collect | overdue
     payment_method: Mapped[str | None] = mapped_column(String(10), nullable=True)
     collected_amount: Mapped[float] = mapped_column(Float, default=0)

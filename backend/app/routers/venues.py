@@ -36,7 +36,8 @@ def list_venues(user: User = Depends(current_user), db: Session = Depends(get_db
         return []
     return [serialize.venue(v, full=True) for v in db.scalars(q.options(selectinload(Venue.facilities),
                                                                            selectinload(Venue.weekly_hours),
-                                                                           selectinload(Venue.discounts)))]
+                                                                           selectinload(Venue.discounts),
+                                                                           selectinload(Venue.rental_items)))]
 
 
 def _venue(db: Session, user: User, venue_id: int, d: date, write: bool = False) -> Venue:

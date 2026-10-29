@@ -1,12 +1,12 @@
 """Daily close (PRD §57-59): completeness checks, VM close, 11:30 PM missed-close escalation."""
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import audit, config
 from ..audit import DomainError
-from ..models import Booking, CommunityGame, Customer, DayClose, Participant, User, Venue
+from ..models import Booking, CommunityGame, Customer, DayClose, Participant, RentalCharge, User, Venue
 from ..permissions import roster_scoped
 from ..timeutil import hhmm, minute_of, now_local, tz_label
 from . import inventory, notify, roster
@@ -36,6 +36,16 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
             state = "payment overdue — collect or cancel" if b.payment_status == "overdue" else "payment not recorded"
             items.append({"type": "booking_payment", "ref_id": b.id, "message": f"{tag}: {state}",
                           "due": now_min >= b.start_min})
+    unpaid_rentals = {r[0]: r[1] for r in db.execute(
+        select(RentalCharge.booking_id, func.sum(RentalCharge.amount)).where(
+            RentalCharge.booking_id.in_([b.id for b in day_bookings]), RentalCharge.paid_at.is_(None))
+        .group_by(RentalCharge.booking_id))} if day_bookings else {}
+    for b in day_bookings:
+        if b.id in unpaid_rentals and b.attendance != "no_show":
+            who = customers.get(b.customer_id)
+            items.append({"type": "booking_payment", "ref_id": b.id, "due": True,
+                          "message": f"{b.source.title()} {hhmm(b.start_min)}–{hhmm(b.end_min)} · {who.name or who.phone}: "
+                                     f"equipment rental ₹{unpaid_rentals[b.id]:,.0f} not paid"})
     for g in games:
         for p in g.participants:
             c = customers.get(p.customer_id) if p.customer_id else None

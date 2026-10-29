@@ -11,7 +11,7 @@ from ..auth import current_user
 from ..permissions import require
 from ..db import get_db
 from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Notification,
-                      Participant, PricingRule, SpecialDate, User, Venue, WeeklyHours)
+                      Participant, PricingRule, RentalItem, SpecialDate, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
 from ..services import district, venue_config
 from ..timeutil import hhmm, today
@@ -27,6 +27,12 @@ class DiscountIn(BaseModel):
     percent: float
 
 
+class RentalItemIn(BaseModel):
+    id: int | None = None
+    name: str
+    price: float
+
+
 class VenueIn(BaseModel):
     code: str
     name: str
@@ -36,6 +42,7 @@ class VenueIn(BaseModel):
     longitude: float | None = None
     community_link: str | None = None
     discounts: list[DiscountIn] | None = None  # None leaves the venue's discounts as they are
+    rental_items: list[RentalItemIn] | None = None  # likewise for the equipment price list
 
 
 STATUSES = ("active", "inactive")
@@ -84,6 +91,36 @@ def _sync_discounts(db: Session, v: Venue, items: list[DiscountIn]) -> None:
             d.active = False
     db.flush()
     db.expire(v, ["discounts"])
+
+
+def _sync_rental_items(db: Session, v: Venue, items: list[RentalItemIn]) -> None:
+    """Make the venue's active rental items match ``items``. Ones left out are retired, not deleted."""
+    if len(items) > 30:
+        raise HTTPException(422, "A venue can have at most 30 rental items.")
+    names = set()
+    for it in items:
+        name = it.name.strip()
+        if not name or len(name) > 60:
+            raise HTTPException(422, "Give each rental item a name of up to 60 characters.")
+        if not 0 < it.price <= 100000:
+            raise HTTPException(422, f"{name}: enter a price above 0.")
+        if name.lower() in names:
+            raise HTTPException(422, f"Two rental items are called {name}.")
+        names.add(name.lower())
+    existing = {x.id: x for x in v.rental_items}
+    keep = set()
+    for it in items:
+        x = existing.get(it.id) if it.id else None
+        if x:
+            x.name, x.price, x.active = it.name.strip(), round(it.price, 2), True
+            keep.add(x.id)
+        else:
+            db.add(RentalItem(venue_id=v.id, name=it.name.strip(), price=round(it.price, 2)))
+    for x in existing.values():
+        if x.id not in keep:
+            x.active = False
+    db.flush()
+    db.expire(v, ["rental_items"])
 
 
 def _venue_fields(db: Session, body: VenueIn, venue_id: int | None = None) -> tuple[str, str]:
@@ -152,6 +189,8 @@ def create_venue(body: VenueIn, user: User = Depends(require("config.manage")), 
     db.flush()
     if body.discounts:
         _sync_discounts(db, v, body.discounts)
+    if body.rental_items:
+        _sync_rental_items(db, v, body.rental_items)
     for wd in range(7):
         db.add(WeeklyHours(venue_id=v.id, weekday=wd, open_min=17 * 60, close_min=23 * 60))
     audit.record(db, user, "venue.create", "venue", v.id, None, body.model_dump(), v.id)
@@ -170,6 +209,12 @@ def update_venue(venue_id: int, body: VenueIn, user: User = Depends(require("con
     v.code, v.name, v.location, v.status = code, name, body.location.strip(), body.status
     v.latitude, v.longitude = _coords(body)
     v.community_link = _community_link(body)
+    if body.rental_items is not None:
+        before_items = [(x.name, x.price) for x in v.rental_items if x.active]
+        _sync_rental_items(db, v, body.rental_items)
+        after_items = [(x.name, x.price) for x in v.rental_items if x.active]
+        if before_items != after_items:
+            audit.record(db, user, "venue.rental_items", "venue", v.id, {"items": before_items}, {"items": after_items}, v.id)
     if body.discounts is not None:
         before_discounts = [(d.name, d.percent) for d in v.discounts if d.active]
         _sync_discounts(db, v, body.discounts)
