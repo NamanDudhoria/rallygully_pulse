@@ -150,6 +150,16 @@ database only until that email is delivered (retried every 10 minutes). Each ven
 closing the day is the clock-out, allowed once the shift ends. HQ sees clock-in times, lateness and missing photos
 on the roster and the venue page.
 
+### RG Store
+
+Each venue has its own food and drink store (RG Store in the menu). HQ (HQ Admin and HQ) adds products with a price,
+category, low-stock level and opening stock, restocks them, corrects counts with a reason, and voids sales; every
+stock change is kept on the product's history. A Venue Manager sells at the venue they are rostered and clocked in
+at: tap products, enter the customer's phone (required), pick cash / UPI / Razorpay / other, confirm. Each sale
+takes its items out of stock in one go and is refused as a whole if anything would go below zero. No message is
+sent to the customer. HQ is emailed when a product falls to its low-stock level. Store money is kept apart from court revenue; cash sales count in the venue's cash balance.
+Razorpay checkout is outlined but not switched on (`backend/app/services/razorpay.py`).
+
 Before going live: set every venue's **map position** under Configuration → Venues (venues without one show a
 warning there, and their VMs cannot clock in), and set the SMTP variables so the photos are actually sent.
 Location and camera only work on the https address (or `localhost`). Phone location can be faked with mock-GPS

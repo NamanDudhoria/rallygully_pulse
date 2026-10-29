@@ -34,6 +34,7 @@ PERMISSIONS = {
     "config.manage": "Venues, facilities, hours, special dates and pricing",
     "roster.manage": "Daily VM roster",
     "users.manage": "Create people, set roles, send invites and reset links",
+    "store.manage": "RG Store: products, prices, restocking, stock corrections, voiding sales",
     "cash.manage": "See venue cash balances and record deposits and other changes to them",
     "audit.view": "Audit trail",
     "system.view": "Integrations: District ingestion, WhatsApp and email logs",

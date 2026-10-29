@@ -43,6 +43,10 @@ TWILIO_CONTENT_SID_ROSTER = os.getenv("PULSE_TWILIO_CONTENT_SID_ROSTER")  # VM r
 # Booking template: which of our values (venue, when, link) goes into which template variable; leave a name out to skip it.
 TWILIO_BOOKING_VARS = dict(p.split("=", 1) for p in os.getenv(
     "PULSE_TWILIO_BOOKING_VARS", "venue=venue,link=community_link").split(",") if "=" in p)
+# Razorpay (not wired in yet; see app/services/razorpay.py)
+# RAZORPAY_KEY_ID = os.getenv("PULSE_RAZORPAY_KEY_ID")
+# RAZORPAY_KEY_SECRET = os.getenv("PULSE_RAZORPAY_KEY_SECRET")
+# RAZORPAY_WEBHOOK_SECRET = os.getenv("PULSE_RAZORPAY_WEBHOOK_SECRET")
 TWILIO_ROSTER_VARS = os.getenv("PULSE_TWILIO_ROSTER_VARS", "venue_name,time-slot").split(",")
 
 # Escalation email: SMTP when configured, otherwise logged only.

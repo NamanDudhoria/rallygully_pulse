@@ -154,6 +154,68 @@ class CashEntry(Base):
     __table_args__ = (Index("ix_cash_entry_venue", "venue_id", "created_at"),)
 
 
+class StoreProduct(Base):
+    """Something the venue's RG Store sells. Each venue keeps its own list, prices and stock."""
+    __tablename__ = "store_products"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    name: Mapped[str] = mapped_column(String(80))
+    category: Mapped[str] = mapped_column(String(40), default="Other")
+    price: Mapped[float] = mapped_column(Float)
+    stock: Mapped[int] = mapped_column(Integer, default=0)
+    low_stock_level: Mapped[int] = mapped_column(Integer, default=5)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (UniqueConstraint("venue_id", "name"),)
+
+
+class StoreStockMove(Base):
+    """Every change to a product's stock: restock, sale, correction or a voided sale coming back."""
+    __tablename__ = "store_stock_moves"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("store_products.id"))
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    kind: Mapped[str] = mapped_column(String(10))  # restock | sale | adjust | void
+    quantity: Mapped[int] = mapped_column(Integer)  # + into stock, - out of stock
+    stock_after: Mapped[int] = mapped_column(Integer)
+    unit_cost: Mapped[float | None] = mapped_column(Float, nullable=True)  # restocks: what HQ paid per unit
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    sale_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (Index("ix_stock_move_product", "product_id", "created_at"),)
+
+
+class StoreSale(Base):
+    """A confirmed RG Store purchase. Kept out of court revenue; cash sales count in the venue's cash balance."""
+    __tablename__ = "store_sales"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
+    total: Mapped[float] = mapped_column(Float)
+    payment_method: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(10), default="confirmed")  # confirmed | voided (razorpay: pending)
+    paid_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    sold_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    voided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    razorpay_ref: Mapped[str | None] = mapped_column(String(60), nullable=True)  # for the Razorpay integration
+    items: Mapped[list["StoreSaleItem"]] = relationship(cascade="all, delete-orphan", order_by="StoreSaleItem.id")
+    __table_args__ = (Index("ix_store_sale_venue", "venue_id", "paid_at"),)
+
+
+class StoreSaleItem(Base):
+    __tablename__ = "store_sale_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sale_id: Mapped[int] = mapped_column(ForeignKey("store_sales.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("store_products.id"))
+    name: Mapped[str] = mapped_column(String(80))  # as sold
+    unit_price: Mapped[float] = mapped_column(Float)
+    quantity: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[float] = mapped_column(Float)
+
+
 class RosterAlert(Base):
     """Records that Operations was warned about an unrostered venue-day (sent once)."""
     __tablename__ = "roster_alerts"

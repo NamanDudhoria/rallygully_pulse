@@ -14,7 +14,7 @@ from .db import SessionLocal, ensure_schema
 from .services import cash
 from .timeutil import now_local
 from .services import analytics
-from .routers import admin, analytics_routes, auth_routes, history_routes, operations, people, venues
+from .routers import admin, analytics_routes, auth_routes, history_routes, operations, people, store, venues
 
 
 @contextlib.asynccontextmanager
@@ -47,7 +47,7 @@ async def domain_error(_req: Request, exc: DomainError):
 
 
 for r in (auth_routes.router, venues.router, operations.router, analytics_routes.router, admin.router,
-          people.router, history_routes.router):
+          people.router, history_routes.router, store.router):
     app.include_router(r)
 
 
