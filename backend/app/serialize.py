@@ -1,9 +1,9 @@
 """Response shaping. Kept separate so routers stay thin."""
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from .models import (AcademyOccurrence, AcademySeries, Allocation, Booking, CommunityGame, CorporateEvent, Customer,
-                     Facility, OperationalBlock, Refund, User, Venue)
+                     Facility, OperationalBlock, Refund, RentalCharge, User, Venue)
 from .services import bookings as booking_svc
 from .services.community import game_state, participant_dict
 from .services.inventory import facilities_of
@@ -20,6 +20,7 @@ def venue(v: Venue, full: bool = False) -> dict:
            "latitude": v.latitude, "longitude": v.longitude, "community_link": v.community_link}
     if full:
         out["discounts"] = [{"id": x.id, "name": x.name, "percent": x.percent} for x in v.discounts if x.active]
+        out["rental_items"] = [{"id": x.id, "name": x.name, "price": x.price} for x in v.rental_items if x.active]
         out["facilities"] = [facility(f) for f in v.facilities]
         out["weekly_hours"] = [{"weekday": w.weekday, "open_min": w.open_min, "close_min": w.close_min,
                                 "closed": w.closed} for w in v.weekly_hours]
@@ -58,6 +59,10 @@ def booking_lookups(db: Session, rows: list[Booking]) -> dict:
         "facilities": dict(db.execute(select(Facility.id, Facility.name).where(Facility.id.in_(fids))).all()) if fids else {},
         "refunded": dict(db.execute(select(Refund.booking_id, func.sum(Refund.amount)).where(
             Refund.booking_id.in_(ids), Refund.status == "processed").group_by(Refund.booking_id)).all()) if ids else {},
+        "rentals": {r[0]: (float(r[1]), float(r[2])) for r in db.execute(select(
+            RentalCharge.booking_id, func.sum(RentalCharge.amount),
+            func.sum(case((RentalCharge.paid_at.is_(None), RentalCharge.amount), else_=0.0))).where(
+            RentalCharge.booking_id.in_(ids)).group_by(RentalCharge.booking_id))} if ids else {},
     }
 
 
@@ -87,9 +92,14 @@ def booking(db: Session, b: Booking, detail: bool = False, pre: dict | None = No
         "can_no_show": b.status == "confirmed" and b.attendance == "pending" and now_min >= b.start_min + 30,
         "no_show_from_min": b.start_min + 30,
         "refunded": float(pre["refunded"].get(b.id) or 0.0) if pre else booking_svc.refunded_total(db, b.id),
+        "platform": b.platform,
     }
+    out["rental_total"], out["rental_due"] = pre["rentals"].get(b.id, (0.0, 0.0)) if pre else booking_svc.rental_totals(db, b.id)
     if detail:
         out["assignments"] = booking_svc.assignment_history(db, b)
+        out["rentals"] = [{"id": x.id, "item": x.item_name, "quantity": x.quantity, "unit_price": x.unit_price,
+                           "amount": x.amount, "paid_method": x.paid_method, "paid_at": x.paid_at}
+                          for x in booking_svc._rental_lines(db, b.id)]
         from .models import Refund
         out["refunds"] = [{"id": r.id, "amount": r.amount, "reason": r.reason, "status": r.status,
                            "processed_by": r.processed_by, "processed_at": r.processed_at}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Check, ClipboardPaste, Clock, FileSpreadsheet, UserCheck, UserX, Wallet, XCircle, RotateCcw, Undo2, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, ClipboardPaste, Clock, FileSpreadsheet, Minus, Plus, UserCheck, UserX, Wallet, XCircle, RotateCcw, Undo2, Trash2 } from 'lucide-react'
 import { api, del, patch, post } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
@@ -8,12 +8,65 @@ import { KIND, METHOD, dateTime, hhmm, money, phoneFmt, range12, time12 } from '
 import { Badge, Drawer, Field, KindLabel, Seg } from './ui'
 import { attendBadge, payBadge } from './badges'
 
-const METHODS = ['cash', 'upi', 'card', 'other'].map((m) => ({ value: m, label: METHOD[m] }))
+const METHODS = ['cash', 'upi', 'razorpay', 'other'].map((m) => ({ value: m, label: METHOD[m] }))
 
 const digitsOf = (p) => p.replace(/\D/g, '')
 
 function useReasons() {
   return useApi('/api/meta/reasons').data
+}
+
+/** Equipment rented against a booking: fixed prices from the venue's list, paid on their own (not court revenue). */
+function RentalsSection({ b, items, live, act, busy }) {
+  const [pick, setPick] = useState({ item: '', qty: 1 })
+  const [method, setMethod] = useState('cash')
+  const lines = b.rentals || []
+  if (!live && !lines.length) return null
+  return (
+    <section>
+      <div className="section-title">Equipment rentals{b.rental_total ? ` · ${money(b.rental_total)}` : ''}</div>
+      {lines.length > 0 && (
+        <div className="stack" style={{ gap: 6, marginBottom: 10 }}>
+          {lines.map((x) => (
+            <div key={x.id} className="row" style={{ justifyContent: 'space-between' }}>
+              <span>{x.quantity} × {x.item} <span className="subtle">· {money(x.unit_price)} each</span></span>
+              <span className="row" style={{ gap: 8 }}>
+                <b>{money(x.amount)}</b>
+                {x.paid_at ? <span className="badge good">{METHOD[x.paid_method] || x.paid_method}</span>
+                  : live && <button className="btn btn-ghost btn-sm" aria-label={`Remove ${x.item}`} disabled={busy}
+                    onClick={() => act(() => del(`/api/bookings/${b.id}/rentals/${x.id}`), 'Rental removed')}><Trash2 /></button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {live && (
+        items.length ? (
+          <div className="row">
+            <select className="select" style={{ flex: 1 }} value={pick.item} onChange={(e) => setPick({ ...pick, item: e.target.value })} aria-label="Equipment">
+              <option value="">Add equipment…</option>
+              {items.map((i) => <option key={i.id} value={i.id}>{i.name} · {money(i.price)}</option>)}
+            </select>
+            <input className="input" type="number" min={1} max={20} value={pick.qty} style={{ width: 70 }} aria-label="Quantity"
+              onChange={(e) => setPick({ ...pick, qty: e.target.value })} />
+            <button className="btn" disabled={!pick.item || busy}
+              onClick={async () => { if (await act(() => post(`/api/bookings/${b.id}/rentals`, { items: [{ item_id: Number(pick.item), quantity: Number(pick.qty) || 1 }] }), 'Rental added')) setPick({ item: '', qty: 1 }) }}>
+              <Plus /> Add
+            </button>
+          </div>
+        ) : <p className="subtle" style={{ fontSize: 12.5 }}>No rental items are set up for this venue (Configuration → Venues).</p>
+      )}
+      {live && b.rental_due > 0 && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <Seg value={method} onChange={setMethod} options={METHODS} label="Rental payment method" />
+          <button className="btn btn-primary" disabled={busy}
+            onClick={() => act(() => post(`/api/bookings/${b.id}/rentals/pay`, { method }), `Rental payment recorded · ${METHOD[method]}`)}>
+            <Wallet /> Collect {money(b.rental_due)}
+          </button>
+        </div>
+      )}
+    </section>
+  )
 }
 
 /** District/Direct booking: court assignment, attendance, payment, cancellation, refunds. */
@@ -30,6 +83,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
   const [windowEnd, setWindowEnd] = useState('')
   const [amount, setAmount] = useState('')
   const [refund, setRefund] = useState({ amount: '', reason: '' })
+  const venues = useApi(b ? '/api/venues' : null).data
   const free = useApi(b && b.status === 'confirmed' && operate
     ? `/api/venues/${b.venue_id}/free?date=${b.date}&start=${hhmm(b.start_min)}&end=${hhmm(b.end_min)}` : null).data
 
@@ -54,7 +108,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
       <dl className="kv">
         <dt>Customer</dt><dd>{b.customer.name || <span className="subtle">Name not captured</span>} · {phoneFmt(b.customer.phone)}</dd>
         <dt>Court</dt><dd>{b.facility || <span className="subtle">Not assigned yet</span>}{b.sport ? ` · ${b.sport}` : ''}</dd>
-        <dt>Booking value</dt><dd>{money(b.booking_value)}</dd>
+        <dt>Booking value</dt><dd>{money(b.booking_value)}{b.platform ? <span className="subtle"> · via {b.platform}</span> : ''}</dd>
         {b.discount_name && <><dt>Discount</dt><dd>{b.discount_name} ({b.discount_percent}% off {money(b.list_price)})</dd></>}
         {!b.discount_name && b.list_price != null && Math.abs(b.list_price - b.booking_value) > 0.5 && <><dt>Configured price</dt><dd>{money(b.list_price)} <span className="subtle">· changed by HQ</span></dd></>}
         <dt>Collected</dt><dd>{money(b.collected_amount)}{b.payment_method ? ` · ${METHOD[b.payment_method] || b.payment_method}` : ''}</dd>
@@ -134,6 +188,8 @@ export function BookingDrawer({ id, onClose, onChanged }) {
           </div>
         </section>
       )}
+
+      <RentalsSection b={b} items={venues?.find((v) => v.id === b.venue_id)?.rental_items || []} live={live} act={act} busy={busy} />
 
       {live && (b.attendance !== 'attended' || isHQ) && (
         <section>
@@ -217,6 +273,9 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   const discounts = venue.discounts || []
   const facilities = venue.facilities.filter((f) => f.status === 'active')
   const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), end: hhmm(start + 60), phone: '', name: '', email: '', amount: '', discount_id: '', pay_now: false, method: 'upi' })
+  const rentalItems = venue.rental_items || []
+  const [rent, setRent] = useState({})
+  const rentTotal = rentalItems.reduce((n, i) => n + (rent[i.id] || 0) * i.price, 0)
   const [quote, setQuote] = useState(null)
   const [lookup, setLookup] = useState({ phone: '', customer: null })
   const existing = digitsOf(form.phone) === lookup.phone ? lookup.customer : null
@@ -250,6 +309,7 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
       ...form, venue_id: venue.id, facility_id: Number(form.facility_id),
       amount: form.amount === '' ? null : Number(form.amount), discount_id: form.discount_id ? Number(form.discount_id) : null,
       method: form.pay_now ? form.method : null,
+      rentals: rentalItems.filter((i) => rent[i.id] > 0).map((i) => ({ item_id: i.id, quantity: rent[i.id] })),
     }), form.email ? 'Direct booking created · WhatsApp and email sent' : 'Direct booking created · WhatsApp sent')
     if (r) { onDone?.(r); close() }
   }
@@ -298,11 +358,89 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
               ? <span><b>{money(form.amount !== '' ? Number(form.amount) : quote.total)}</b>{form.discount_id && quote.amount != null ? <span className="subtle"> · {money(quote.amount)} less {discounts.find((d) => String(d.id) === String(form.discount_id))?.percent}%</span> : null}</span>
               : <span>{isHQ ? 'No price configured for this slot. Enter the amount above.' : 'No price is configured for this slot. Ask HQ to add it under Pricing.'}</span>}
           </div>
+          {rentalItems.length > 0 && (
+            <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Equipment rental{rentTotal ? ` · ${money(rentTotal)}` : ''}</span>
+              {rentalItems.map((i) => (
+                <div key={i.id} className="row" style={{ justifyContent: 'space-between' }}>
+                  <span>{i.name} <span className="subtle">· {money(i.price)}</span></span>
+                  <span className="row" style={{ gap: 6 }}>
+                    <button type="button" className="btn btn-sm" aria-label={`Fewer ${i.name}`} disabled={!rent[i.id]} onClick={() => setRent({ ...rent, [i.id]: Math.max(0, (rent[i.id] || 0) - 1) })}><Minus /></button>
+                    <b style={{ minWidth: 20, textAlign: 'center' }}>{rent[i.id] || 0}</b>
+                    <button type="button" className="btn btn-sm" aria-label={`More ${i.name}`} disabled={(rent[i.id] || 0) >= 20} onClick={() => setRent({ ...rent, [i.id]: (rent[i.id] || 0) + 1 })}><Plus /></button>
+                  </span>
+                </div>
+              ))}
+            </fieldset>
+          )}
           <label className="check"><input type="checkbox" checked={form.pay_now} onChange={set('pay_now')} /> Paid now</label>
+          {form.pay_now && rentTotal > 0 && <p className="subtle" style={{ fontSize: 12.5 }}>Paid now covers the court and the equipment ({money(rentTotal)}).</p>}
           {form.pay_now && <Seg value={form.method} onChange={set('method')} options={METHODS} label="Payment method" />}
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={close}>Cancel</button>
             <button className="btn btn-primary" disabled={busy || badTimes || (quote && !quote.available) || (!isHQ && quote?.total == null)}>Create booking</button>
+          </div>
+        </form>
+      )}
+    </Drawer>
+  )
+}
+
+const PLATFORMS = ['District', 'Hudle', 'Playo', 'Khelomore', 'Other']
+
+/** A booking made on District or another online platform, entered by hand. The court is assigned on arrival. */
+export function OnlineBookingDrawer({ venue, date, onClose, onDone }) {
+  const [run, busy] = useAction()
+  const sports = [...new Set(venue.facilities.filter((x) => x.status === 'active').map((x) => x.sport))]
+  const [f, setF] = useState({ platform: 'District', other: '', external_ref: '', date, start: '18:00', end: '19:00', amount: '', paid: true, phone: '', name: '', sport: '' })
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }))
+  const setStart = (e) => setF((x) => {
+    const len = Math.max(30, toMin(x.end) - toMin(x.start))
+    const [h, m] = e.target.value.split(':').map(Number)
+    return Number.isNaN(h) ? { ...x, start: e.target.value } : { ...x, start: e.target.value, end: hhmm(h * 60 + m + len) }
+  })
+  const len = toMin(f.end) - toMin(f.start)
+  const badLen = len !== 30 && len !== 60
+  const platform = f.platform === 'Other' ? f.other.trim() : f.platform
+  return (
+    <Drawer open onClose={onClose} title="Add an online booking" subtitle={`${venue.name} · entered by hand from the platform`}>
+      {(close) => (
+        <form className="form" onSubmit={async (e) => {
+          e.preventDefault()
+          const r = await run(() => post('/api/bookings/online', {
+            platform, external_ref: f.external_ref, venue_id: venue.id, date: f.date, start: f.start, end: f.end,
+            amount: Number(f.amount), paid: f.paid, phone: f.phone, name: f.name || null, sport: f.sport || null,
+          }), 'Online booking added')
+          if (r) { onDone?.(r); close() }
+        }}>
+          <div className="form-row">
+            <Field label="Platform">
+              <select className="select" value={f.platform} onChange={set('platform')}>{PLATFORMS.map((p) => <option key={p}>{p}</option>)}</select>
+            </Field>
+            {f.platform === 'Other'
+              ? <Field label="Platform name"><input className="input" value={f.other} onChange={set('other')} maxLength={30} required /></Field>
+              : <Field label="Booking ID" help="As shown on the platform"><input className="input mono" value={f.external_ref} onChange={set('external_ref')} required /></Field>}
+          </div>
+          {f.platform === 'Other' && <Field label="Booking ID" help="As shown on the platform"><input className="input mono" value={f.external_ref} onChange={set('external_ref')} required /></Field>}
+          <div className="form-row">
+            <Field label="Date"><input className="input" type="date" value={f.date} onChange={set('date')} required /></Field>
+            <Field label="From"><input className="input" type="time" step={1800} value={f.start} onChange={setStart} required /></Field>
+            <Field label="To" error={badLen ? 'Online bookings are 30 or 60 minutes' : null}><input className="input" type="time" step={1800} value={f.end} onChange={set('end')} required /></Field>
+          </div>
+          <div className="form-row">
+            <Field label="Amount (₹)" help="What the platform shows for this booking"><input className="input" type="number" min={0} step="any" value={f.amount} onChange={set('amount')} required /></Field>
+            <Field label="Sport (optional)">
+              <select className="select" value={f.sport} onChange={set('sport')}><option value="">Not stated</option>{sports.map((s) => <option key={s}>{s}</option>)}</select>
+            </Field>
+          </div>
+          <label className="check"><input type="checkbox" checked={f.paid} onChange={set('paid')} /> Already paid on the platform (untick if the customer pays at the venue)</label>
+          <div className="form-row">
+            <Field label="Customer phone"><input className="input" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={f.phone} onChange={set('phone')} required /></Field>
+            <Field label="Customer name (optional)"><input className="input" value={f.name} onChange={set('name')} /></Field>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn" onClick={close}>Cancel</button>
+            <button className="btn btn-primary" disabled={busy || badLen || !platform}>Add booking</button>
           </div>
         </form>
       )}

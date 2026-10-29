@@ -10,7 +10,7 @@ import { GameDrawer } from '../components/drawers'
 import { payBadge } from '../components/badges'
 
 const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const METHODS = ['cash', 'upi', 'card', 'other'].map((m) => ({ value: m, label: METHOD[m] }))
+const METHODS = ['cash', 'upi', 'razorpay', 'other'].map((m) => ({ value: m, label: METHOD[m] }))
 
 function VenuePicker({ venues, value, onChange }) {
   return (

@@ -365,9 +365,9 @@ def test_partial_payment_impossible(client):
     vm = login(client, "vm@x.com")
     b = direct(client, vm).json()
     timeutil.set_clock(at(19))
-    paid = client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "card"}).json()
+    paid = client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "razorpay"}).json()
     assert paid["collected_amount"] == paid["booking_value"]
-    assert client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "card"}).status_code == 409
+    assert client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "razorpay"}).status_code == 409
 
 
 def _game(client, hq, capacity=8):
@@ -689,3 +689,85 @@ def test_admins_are_emailed_when_a_vm_has_not_checked_in_by_shift_start(client):
     # the first VM clocked in (fixture), so no alert for them; clocking in late doesn't send another
     timeutil.set_clock(at(17, 0))
     assert tick() == 0
+
+
+def _setup_rentals(client):
+    """HQ admin sets Court prices' rental list on the venue; returns (admin headers, item ids by name)."""
+    db = SessionLocal()
+    db.add(User(name="Admin", email="adm3@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha = login(client, "adm3@x.com")
+    v = next(x for x in client.get("/api/venues", headers=ha).json() if x["id"] == 1)
+    body = {k: v[k] for k in ("code", "name", "location", "status", "latitude", "longitude")}
+    r = client.put("/api/venues/1", headers=ha, json={**body, "rental_items": [
+        {"name": "Racket", "price": 50}, {"name": "Shoes", "price": 100}]})
+    assert r.status_code == 200
+    return ha, body, {x["name"]: x["id"] for x in r.json()["rental_items"]}
+
+
+def test_rental_prices_are_fixed_per_venue_and_validated(client):
+    ha, body, ids = _setup_rentals(client)
+    assert client.put("/api/venues/1", headers=ha, json={**body, "rental_items": [{"name": "Free", "price": 0}]}).status_code == 422
+    assert client.put("/api/venues/1", headers=ha, json={**body, "rental_items": [{"name": "A", "price": 5}, {"name": "a", "price": 6}]}).status_code == 422
+    r = client.put("/api/venues/1", headers=ha, json={**body, "rental_items": [{"id": ids["Racket"], "name": "Racket", "price": 60}]})
+    assert [(x["name"], x["price"]) for x in r.json()["rental_items"]] == [("Racket", 60)]  # Shoes retired
+    assert client.put("/api/venues/1", headers=ha, json=body).json()["rental_items"][0]["name"] == "Racket"  # omitted = unchanged
+
+
+def test_rentals_are_separate_lines_with_their_own_payment(client):
+    ha, body, ids = _setup_rentals(client)
+    vm = login(client, "vm@x.com")
+    b = direct(client, vm, rentals=[{"item_id": ids["Racket"], "quantity": 2}]).json()
+    assert (b["booking_value"], b["rental_total"], b["rental_due"]) == (800, 100, 100)  # court revenue is untouched
+    assert b["rentals"][0]["amount"] == 100 and b["rentals"][0]["paid_method"] is None
+    more = client.post(f"/api/bookings/{b['id']}/rentals", headers=vm, json={"items": [{"item_id": ids["Shoes"], "quantity": 1}]}).json()
+    assert more["rental_total"] == 200 and len(more["rentals"]) == 2
+    assert client.post(f"/api/bookings/{b['id']}/rentals", headers=vm, json={"items": [{"item_id": 99999, "quantity": 1}]}).status_code == 422
+    assert client.post(f"/api/bookings/{b['id']}/rentals", headers=vm, json={"items": [{"item_id": ids["Shoes"], "quantity": 0}]}).status_code == 422
+    # the open rental blocks the day close until it is paid or removed
+    timeutil.set_clock(at(23, 0))
+    st = client.get("/api/venues/1/close", headers=vm).json()
+    assert any("equipment rental" in m["message"] for m in st["missing"])
+    gone = client.delete(f"/api/bookings/{b['id']}/rentals/{more['rentals'][1]['id']}", headers=vm).json()
+    assert gone["rental_total"] == 100
+    assert client.post(f"/api/bookings/{b['id']}/rentals/pay", headers=vm, json={"method": "card"}).status_code == 422
+    paid = client.post(f"/api/bookings/{b['id']}/rentals/pay", headers=vm, json={"method": "razorpay"}).json()
+    assert paid["rental_due"] == 0 and paid["rentals"][0]["paid_method"] == "razorpay"
+    assert paid["payment_status"] == "to_collect"  # the court itself is still owed
+    assert client.delete(f"/api/bookings/{b['id']}/rentals/{paid['rentals'][0]['id']}", headers=vm).status_code == 409  # paid: stays
+    assert client.post(f"/api/bookings/{b['id']}/rentals/pay", headers=vm, json={"method": "cash"}).status_code == 409  # nothing unpaid
+
+
+def test_paid_now_covers_court_and_rentals(client):
+    ha, body, ids = _setup_rentals(client)
+    vm = login(client, "hq@x.com")  # HQ can take payment at booking time; a VM only from 30 min before the start
+    b = direct(client, vm, pay_now=True, method="upi", rentals=[{"item_id": ids["Shoes"], "quantity": 1}]).json()
+    assert b["payment_status"] == "paid" and b["rental_due"] == 0 and b["rentals"][0]["paid_method"] == "upi"
+
+
+def test_payment_methods_are_cash_upi_razorpay_other(client):
+    vm = login(client, "hq@x.com")
+    assert direct(client, vm, pay_now=True, method="card", phone="9811111130", name="Q").status_code == 422
+    for i, m in enumerate(("cash", "upi", "razorpay", "other")):
+        r = direct(client, vm, start=f"{17 + i}:00", pay_now=True, method=m, phone=f"98111112{i}0", name="N")
+        assert r.status_code == 200 and r.json()["payment_method"] == m
+
+
+def test_online_booking_entered_by_hand(client):
+    vm = login(client, "vm@x.com")
+    base = {"venue_id": 1, "date": DAY.isoformat(), "start": "18:00", "end": "19:00", "amount": 650, "phone": "9811111140", "name": "Online Olly"}
+    r = client.post("/api/bookings/online", headers=vm, json={**base, "platform": "District", "external_ref": "D-1001"})
+    assert r.status_code == 200
+    b = r.json()
+    assert b["source"] == "district" and b["external_ref"] == "D-1001" and b["platform"] is None
+    assert b["booking_value"] == 650 and b["payment_status"] == "paid" and b["facility_id"] is None  # court on arrival
+    assert client.post("/api/bookings/online", headers=vm, json={**base, "platform": "District", "external_ref": "D-1001"}).status_code == 409
+    h = client.post("/api/bookings/online", headers=vm, json={**base, "platform": "Hudle", "external_ref": "D-1001", "start": "19:00", "end": "20:00", "paid": False})
+    assert h.status_code == 200 and h.json()["platform"] == "Hudle" and h.json()["payment_status"] == "to_collect"
+    assert h.json()["external_ref"] == "Hudle:D-1001"   # same id on another platform is a different booking
+    assert client.post("/api/bookings/online", headers=vm, json={**base, "external_ref": "X", "end": "18:30", "start": "18:00"}).status_code == 200
+    assert client.post("/api/bookings/online", headers=vm, json={**base, "external_ref": "Y", "end": "19:45"}).status_code == 422  # off the half-hour
+    assert client.post("/api/bookings/online", headers=vm, json={**base, "external_ref": "Z", "end": "20:30"}).status_code == 422  # District is 30 or 60 min
+    assert client.post("/api/bookings/online", headers=vm, json={**base, "external_ref": " ", }).status_code == 422
+    assert client.post("/api/bookings/online", headers=vm, json={**base, "venue_id": 2, "external_ref": "S1"}).status_code == 403  # not their venue

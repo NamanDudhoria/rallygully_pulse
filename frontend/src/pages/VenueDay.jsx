@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, CalendarRange, CheckCircle2, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
-  MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
+  MapPin, Globe, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
 import { useApi, useBaseline } from '../lib/hooks'
@@ -15,7 +15,7 @@ import Analytics from './Analytics'
 import TodayBand from '../components/TodayBand'
 import BaselinePicker from '../components/BaselinePicker'
 import AvailabilityGrid, { GridLegend } from '../components/AvailabilityGrid'
-import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, DirectBookingDrawer, GameDrawer } from '../components/drawers'
+import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, DirectBookingDrawer, GameDrawer, OnlineBookingDrawer } from '../components/drawers'
 import { WINDOWS, attendBadge, closeBadge, payBadge } from '../components/badges'
 import { ClockInGate, MyShift } from '../components/ClockIn'
 import { clockTime } from '../lib/attendance'
@@ -67,6 +67,7 @@ export default function VenueDay() {
           </p>
         </div>
         <div className="row">
+          {canOperate && d.hours && <button className="btn" onClick={() => setDrawer({ type: 'online' })}><Globe /> Online booking</button>}
           <DateNav value={date} onChange={setDate} />
         </div>
       </div>
@@ -106,6 +107,7 @@ export default function VenueDay() {
       {drawer?.type === 'booking' && <BookingDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
       {drawer?.type === 'game' && <GameDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
       {drawer?.type === 'direct' && <DirectBookingDrawer venue={d.venue} date={date} facilityId={drawer.facilityId} start={drawer.start} onClose={() => setDrawer(null)} onDone={refresh} />}
+      {drawer?.type === 'online' && <OnlineBookingDrawer venue={d.venue} date={date} onClose={() => setDrawer(null)} onDone={refresh} />}
       {drawer?.type === 'block' && <BlockDrawer venue={d.venue} date={date} blockId={drawer.blockId} onClose={() => setDrawer(null)} onDone={refresh} />}
       {drawer?.type === 'info' && <AllocationInfoDrawer cell={drawer.cell} onClose={() => setDrawer(null)} />}
     </div>

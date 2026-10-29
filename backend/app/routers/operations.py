@@ -14,7 +14,8 @@ from ..permissions import can, ensure_venue, require, roster_pairs, roster_scope
 from ..db import get_db
 from ..models import (AcademyOccurrence, AcademySeries, Booking, CommunityGame, CorporateEvent, OperationalBlock,
                       Participant, User)
-from ..services import activities, bookings, community, player_import
+from ..services import activities, bookings, community, inventory, player_import
+from ..timeutil import today
 from .common import get_or_404, minutes
 
 router = APIRouter(prefix="/api", tags=["operations"])
@@ -35,12 +36,33 @@ def _scoped(db: Session, q, model, user: User, venue_id: int | None):
 
 
 # ── Bookings ─────────────────────────────────────────────────────────────────
+class RentalLineIn(BaseModel):
+    item_id: int
+    quantity: int = 1
+
+
+class OnlineIn(BaseModel):
+    """A booking made on District or another online platform, entered by hand."""
+    platform: str = "District"
+    external_ref: str
+    venue_id: int
+    date: date
+    start: str
+    end: str
+    amount: float = Field(ge=0)
+    paid: bool = True   # prepaid on the platform; otherwise collected at the venue
+    phone: str
+    name: str | None = None
+    sport: str | None = None
+
+
 class DirectIn(BaseModel):
     venue_id: int
     facility_id: int
     date: date
     start: str
     discount_id: int | None = None  # one of the venue's configured discounts
+    rentals: list[RentalLineIn] = []
     end: str | None = None  # slot end time; the booking holds start to end
     duration: int | None = None  # older clients: minutes after start, when no end is given
     phone: str
@@ -85,7 +107,65 @@ def create_direct(body: DirectIn, user: User = Depends(current_user), db: Sessio
     b = bookings.create_direct(db, user, venue_id=body.venue_id, facility_id=body.facility_id, d=body.date,
                                start_min=minutes(body.start), end_min=_end_min(body), phone=body.phone,
                                name=body.name, amount=body.amount, pay_now=body.pay_now, method=body.method,
-                               email=body.email, discount_id=body.discount_id)
+                               email=body.email, discount_id=body.discount_id,
+                               rentals=[(r.item_id, r.quantity) for r in body.rentals])
+    db.commit()
+    return serialize.booking(db, b, detail=True)
+
+
+@router.post("/bookings/online")
+def create_online(body: OnlineIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Enter a District or other online-platform booking by hand. Idempotent on the platform's booking id."""
+    ensure_venue(db, user, body.venue_id, body.date, write=True)
+    ref, platform = body.external_ref.strip(), body.platform.strip()
+    if not ref:
+        raise HTTPException(422, "Enter the platform's booking ID.")
+    if not 2 <= len(platform) <= 30:
+        raise HTTPException(422, "Enter the platform name (for example District, Hudle or Playo).")
+    if platform.lower() == "district":
+        platform = None
+    if user.role == "vm" and body.date < today():
+        raise HTTPException(409, "Venue Managers can only enter bookings for today or later.")
+    s, e = minutes(body.start), minutes(body.end)
+    inventory.validate_window(db, body.venue_id, body.date, s, e)
+    b, created = bookings.ingest_district(db, external_ref=ref, venue_id=body.venue_id, d=body.date, start_min=s,
+                                          end_min=e, amount=body.amount, paid=body.paid, phone=body.phone,
+                                          sport=(body.sport or "").strip() or None, name=body.name,
+                                          platform=platform, actor=user)
+    if not created:
+        raise HTTPException(409, "That booking ID is already in Pulse.")
+    db.commit()
+    return serialize.booking(db, b, detail=True)
+
+
+class RentalsIn(BaseModel):
+    items: list[RentalLineIn]
+
+
+class RentalPayIn(BaseModel):
+    method: str
+
+
+@router.post("/bookings/{booking_id}/rentals")
+def add_rentals(booking_id: int, body: RentalsIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    b = _booking(db, user, booking_id)
+    bookings.add_rentals(db, user, b, [(r.item_id, r.quantity) for r in body.items])
+    db.commit()
+    return serialize.booking(db, b, detail=True)
+
+
+@router.delete("/bookings/{booking_id}/rentals/{rental_id}")
+def remove_rental(booking_id: int, rental_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    b = _booking(db, user, booking_id)
+    bookings.remove_rental(db, user, b, rental_id)
+    db.commit()
+    return serialize.booking(db, b, detail=True)
+
+
+@router.post("/bookings/{booking_id}/rentals/pay")
+def pay_rentals(booking_id: int, body: RentalPayIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    b = _booking(db, user, booking_id)
+    bookings.pay_rentals(db, user, b, body.method)
     db.commit()
     return serialize.booking(db, b, detail=True)
 
