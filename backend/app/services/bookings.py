@@ -51,10 +51,8 @@ def _require_not_cancelled(b: Booking) -> None:
 
 
 def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, d: date, start_min: int,
-                  duration: int, phone: str, name: str, amount: float | None, pay_now: bool,
+                  end_min: int, phone: str, name: str, amount: float | None, pay_now: bool,
                   method: str | None, email: str | None = None) -> Booking:
-    if duration not in (30, 60):
-        raise DomainError("Direct bookings are 30 or 60 minutes.", 422)
     if not (name or "").strip():
         raise DomainError("Customer name is required for Direct bookings.", 422)
     if not _is_hq(actor) and d < today():
@@ -62,7 +60,6 @@ def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, 
     fac = db.get(Facility, facility_id)
     if not fac or fac.venue_id != venue_id:
         raise DomainError("Facility not found at this venue.", 422)
-    end_min = start_min + duration
     inventory.validate_window(db, venue_id, d, start_min, end_min)
     customer, _ = customers.get_or_create(db, phone, name, email)
     expected = quote(db, fac, d, start_min, end_min)

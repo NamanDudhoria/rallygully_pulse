@@ -74,5 +74,8 @@ def quote(db: Session, facility: Facility, d: date, start: int, end: int) -> flo
         return book.price(facility, d, start, duration)
     total = 0.0
     for slot in range(start, end, 30):
-        total += book.unit_value(facility, d, slot, today())
+        unit = book.price(facility, d, slot, 30, today())
+        if unit is None:
+            return None  # a half-hour with no configured price: the person enters the amount
+        total += unit
     return total

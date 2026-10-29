@@ -40,7 +40,8 @@ class DirectIn(BaseModel):
     facility_id: int
     date: date
     start: str
-    duration: int = 60
+    end: str | None = None  # slot end time; the booking holds start to end
+    duration: int | None = None  # older clients: minutes after start, when no end is given
     phone: str
     name: str
     amount: float | None = None
@@ -73,11 +74,15 @@ def list_bookings(venue_id: int | None = None, date_from: date | None = None, da
     return serialize.bookings(db, rows)
 
 
+def _end_min(body: DirectIn) -> int:
+    return minutes(body.end) if body.end else minutes(body.start) + (body.duration or 60)
+
+
 @router.post("/bookings/direct")
 def create_direct(body: DirectIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     ensure_venue(db, user, body.venue_id, body.date, write=True)
     b = bookings.create_direct(db, user, venue_id=body.venue_id, facility_id=body.facility_id, d=body.date,
-                               start_min=minutes(body.start), duration=body.duration, phone=body.phone,
+                               start_min=minutes(body.start), end_min=_end_min(body), phone=body.phone,
                                name=body.name, amount=body.amount, pay_now=body.pay_now, method=body.method,
                                email=body.email)
     db.commit()

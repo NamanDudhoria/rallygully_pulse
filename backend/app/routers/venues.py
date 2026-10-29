@@ -181,14 +181,17 @@ def _cell(db: Session, a: Allocation) -> dict:
 
 
 @router.get("/{venue_id}/quote")
-def get_quote(venue_id: int, facility_id: int, date: date, start: str, duration: int = 60,
+def get_quote(venue_id: int, facility_id: int, date: date, start: str, end: str | None = None, duration: int = 60,
               user: User = Depends(current_user), db: Session = Depends(get_db)):
     _venue(db, user, venue_id, date)
     f = get_or_404(db, Facility, facility_id)
     s = minutes(start)
+    e = minutes(end) if end else s + duration
+    if e <= s:
+        return {"amount": None, "available": False}
     free = not any(a for a in inventory.venue_allocations(db, venue_id, date)
-                   if a.facility_id == facility_id and a.start_min < s + duration and a.end_min > s)
-    return {"amount": quote(db, f, date, s, s + duration), "available": free}
+                   if a.facility_id == facility_id and a.start_min < e and a.end_min > s)
+    return {"amount": quote(db, f, date, s, e), "available": free}
 
 
 @router.get("/{venue_id}/free")

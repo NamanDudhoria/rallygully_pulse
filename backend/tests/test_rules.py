@@ -94,7 +94,24 @@ def test_slot_boundaries_and_hours(client):
     h = login(client, "vm@x.com")
     assert direct(client, h, start="19:15").status_code == 422
     assert direct(client, h, start="16:00").status_code == 409  # before opening
-    assert direct(client, h, duration=90).status_code == 422
+    assert direct(client, h, end="19:00").status_code == 422        # empty slot
+    assert direct(client, h, end="18:30").status_code == 422        # ends before it starts
+    assert direct(client, h, end="20:15").status_code == 422        # end must be on :00 / :30
+    assert direct(client, h, start="22:00", end="23:30").status_code == 409  # runs past closing
+
+
+def test_slot_is_start_to_end_and_blocks_those_times(client):
+    h = login(client, "vm@x.com")
+    r = direct(client, h, start="19:00", end="20:30", phone="9811111119", name="Long")
+    assert r.status_code == 200
+    b = r.json()
+    assert (b["start_min"], b["end_min"]) == (19 * 60, 20 * 60 + 30)
+    assert b["booking_value"] == 1200  # three half-hours at 400 each, from the 800 / 60 min price
+    # the whole 7:00-8:30 slot is closed on that court; the half-hour after it is free
+    assert direct(client, h, start="20:00", end="21:00", phone="9811111118", name="Late").status_code == 409
+    assert direct(client, h, start="20:30", end="21:00", phone="9811111117", name="After").status_code == 200
+    q = client.get(f"/api/venues/1/quote?facility_id=1&date={DAY}&start=19:00&end=20:00", headers=h).json()
+    assert q["available"] is False
 
 
 def test_price_from_config_and_editable(client):

@@ -207,20 +207,29 @@ export function BookingDrawer({ id, onClose, onChanged }) {
   )
 }
 
-/** Direct on-ground booking created from an available slot (PRD §20). */
+const toMin = (t) => { const [h, m] = (t || '').split(':').map(Number); return h * 60 + m }
+
+/** Direct on-ground booking created from an available slot (PRD §20): the slot runs from a start to an end time. */
 export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, onDone }) {
   const facilities = venue.facilities.filter((f) => f.status === 'active')
-  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), duration: 60, phone: '', name: '', email: '', amount: '', pay_now: false, method: 'upi' })
+  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), end: hhmm(start + 60), phone: '', name: '', email: '', amount: '', pay_now: false, method: 'upi' })
   const [quote, setQuote] = useState(null)
   const [lookup, setLookup] = useState({ phone: '', customer: null })
   const existing = digitsOf(form.phone) === lookup.phone ? lookup.customer : null
   const [run, busy] = useAction()
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v?.target ? (v.target.type === 'checkbox' ? v.target.checked : v.target.value) : v }))
+  // Moving the start keeps the slot length, so the end follows it.
+  const setStart = (e) => setForm((f) => {
+    const [h, m] = e.target.value.split(':').map(Number)
+    const len = Math.max(30, toMin(f.end) - toMin(f.start))
+    return Number.isNaN(h) ? { ...f, start: e.target.value } : { ...f, start: e.target.value, end: hhmm(h * 60 + m + len) }
+  })
+  const badTimes = toMin(form.end) <= toMin(form.start)
 
   useEffect(() => {
-    const q = `/api/venues/${venue.id}/quote?facility_id=${form.facility_id}&date=${form.date}&start=${form.start}&duration=${form.duration}`
+    const q = `/api/venues/${venue.id}/quote?facility_id=${form.facility_id}&date=${form.date}&start=${form.start}&end=${form.end}`
     api(q).then(setQuote).catch(() => setQuote(null))
-  }, [venue.id, form.facility_id, form.date, form.start, form.duration])
+  }, [venue.id, form.facility_id, form.date, form.start, form.end])
 
   useEffect(() => {
     const digits = digitsOf(form.phone)
@@ -234,7 +243,7 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   const submit = async (e, close) => {
     e.preventDefault()
     const r = await run(() => post('/api/bookings/direct', {
-      ...form, venue_id: venue.id, facility_id: Number(form.facility_id), duration: Number(form.duration),
+      ...form, venue_id: venue.id, facility_id: Number(form.facility_id),
       amount: form.amount === '' ? null : Number(form.amount), method: form.pay_now ? form.method : null,
     }), form.email ? 'Direct booking created · WhatsApp and email sent' : 'Direct booking created · WhatsApp sent')
     if (r) { onDone?.(r); close() }
@@ -254,10 +263,8 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
             <Field label="Date"><input className="input" type="date" value={form.date} onChange={set('date')} /></Field>
           </div>
           <div className="form-row">
-            <Field label="Start"><input className="input" type="time" step={1800} value={form.start} onChange={set('start')} /></Field>
-            <Field label="Duration">
-              <Seg value={Number(form.duration)} onChange={set('duration')} options={[{ value: 30, label: '30 min' }, { value: 60, label: '60 min' }]} label="Duration" />
-            </Field>
+            <Field label="From"><input className="input" type="time" step={1800} value={form.start} onChange={setStart} required /></Field>
+            <Field label="To" error={badTimes ? 'End must be after the start' : null}><input className="input" type="time" step={1800} value={form.end} onChange={set('end')} required /></Field>
           </div>
           {quote && !quote.available && <div className="callout bad"><AlertTriangle />This facility is not free for that time.</div>}
           <Field label="Customer phone" help={existing ? `Existing customer${existing.name_locked ? ' — name locked' : ''}` : 'Phone is the customer identity'}>
@@ -276,7 +283,7 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
           {form.pay_now && <Seg value={form.method} onChange={set('method')} options={METHODS} label="Payment method" />}
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={close}>Cancel</button>
-            <button className="btn btn-primary" disabled={busy || (quote && !quote.available)}>Create booking</button>
+            <button className="btn btn-primary" disabled={busy || badTimes || (quote && !quote.available)}>Create booking</button>
           </div>
         </form>
       )}
