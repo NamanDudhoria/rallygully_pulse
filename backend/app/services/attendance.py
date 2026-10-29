@@ -12,12 +12,12 @@ import binascii
 import math
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from .. import audit, config
 from ..audit import DomainError
-from ..models import Notification, User, Venue, VmAttendance, VmRoster
+from ..models import AttendancePhoto, Notification, User, Venue, VmAttendance, VmRoster
 from ..timeutil import at_minute, minute_of, now_local, tz_label
 from . import notify, roster
 
@@ -146,39 +146,72 @@ def _decode_photo(data_url: str) -> bytes:
     return raw
 
 
-def add_photo(db: Session, user: User, venue_id: int, data_url: str) -> VmAttendance:
-    """Store the venue photo, unlock the venue, and email Operations straight away."""
+REQUIRED_PHOTOS = ("venue", "branding", "toilets")
+OPTIONAL_PHOTOS = ("other",)
+PHOTO_LABELS = {"venue": "Venue", "branding": "Branding", "toilets": "Toilets", "other": "Other"}
+
+
+def add_photos(db: Session, user: User, venue_id: int, photos: dict[str, str | None]) -> VmAttendance:
+    """Store the clock-in photos, unlock the venue, and email Operations straight away. The venue, branding and
+    toilets photos are compulsory; "other" is optional. Nothing is kept unless all the compulsory ones are there."""
     a = record(db, user.id, venue_id, now_local().date())
     if not a:
         raise DomainError("Clock in first.", 409)
     if a.photo_at:
-        raise DomainError("The venue photo has already been sent.", 409)
-    a.photo_bytes = _decode_photo(data_url)
-    a.photo_at = now_local()
-    audit.record(db, user, "attendance.photo", "attendance", a.id, None, {"bytes": len(a.photo_bytes)}, venue_id)
+        raise DomainError("The photos have already been sent.", 409)
+    unknown = [k for k in photos if k not in REQUIRED_PHOTOS + OPTIONAL_PHOTOS]
+    if unknown:
+        raise DomainError("Unknown photo type.", 422)
+    missing = [PHOTO_LABELS[k].lower() for k in REQUIRED_PHOTOS if not photos.get(k)]
+    if missing:
+        raise DomainError(f"Take all three photos: venue, branding and toilets. Still missing: {', '.join(missing)}.", 422)
+    raw = {k: _decode_photo(photos[k]) for k in REQUIRED_PHOTOS + OPTIONAL_PHOTOS if photos.get(k)}
+    now = now_local()
+    for kind, data in raw.items():
+        db.add(AttendancePhoto(attendance_id=a.id, kind=kind, data=data, taken_at=now))
+    a.photo_at = now
+    audit.record(db, user, "attendance.photo", "attendance", a.id, None,
+                 {"photos": list(raw), "bytes": sum(len(x) for x in raw.values())}, venue_id)
+    db.flush()
     send_photo(db, a)
     return a
 
 
+def _photos_of(db: Session, a: VmAttendance) -> list[AttendancePhoto]:
+    order = {k: i for i, k in enumerate(REQUIRED_PHOTOS + OPTIONAL_PHOTOS)}
+    rows = list(db.scalars(select(AttendancePhoto).where(AttendancePhoto.attendance_id == a.id)))
+    return sorted(rows, key=lambda p: order.get(p.kind, 99))
+
+
 def send_photo(db: Session, a: VmAttendance) -> None:
-    """Email the clock-in photo to Operations. Delivered → the photo is deleted; otherwise it waits for a retry."""
+    """Email the clock-in photos to Operations in one message. Delivered: the photos are deleted; otherwise they
+    wait for a retry."""
     u, v = db.get(User, a.user_id), db.get(Venue, a.venue_id)
     when = a.clock_in_at.strftime("%I:%M %p").lstrip("0") + f" {tz_label()}"
     late = f" — {a.late_min} min late" if a.late_min else ""
+    rows = [p for p in _photos_of(db, a) if p.data]
+    legacy = not rows and a.photo_bytes  # a single photo sent before the three-photo check-in
     subject = f"[Pulse] {u.name} clocked in at {v.name}, {a.date.strftime('%a %d %b')} {when}{late}"
     accuracy = f"±{a.in_accuracy_m:.0f} m" if a.in_accuracy_m is not None else "not reported"
+    first = u.name.split()[0].lower()
+    attach = [(f"{v.code}-{a.date.isoformat()}-{first}-{p.kind}.jpg", p.data, "image", "jpeg") for p in rows]
+    if legacy:
+        attach = [(f"{v.code}-{a.date.isoformat()}-{first}.jpg", a.photo_bytes, "image", "jpeg")]
+    listing = "\n".join(f"  {i}. {PHOTO_LABELS[p.kind]}" for i, p in enumerate(rows, 1)) if rows else "  1. Venue"
     body = (f"{u.name} clocked in at {v.name}.\n\n"
             f"Date: {a.date.strftime('%A %d %B %Y')}\n"
             f"Clock-in: {when}" + (f" (shift starts {_t12(a.shift_start_min)}{late})" if a.shift_start_min is not None else "") + "\n"
             f"Distance from venue: {a.in_distance_m:.0f} m (phone accuracy {accuracy})\n"
             f"Location: https://maps.google.com/?q={a.in_lat:.6f},{a.in_lng:.6f}\n"
-            f"Photo taken: {a.photo_at.strftime('%I:%M %p').lstrip('0')} {tz_label()} (attached)\n")
-    filename = f"{v.code}-{a.date.isoformat()}-{u.name.split()[0].lower()}.jpg"
+            f"Photos taken: {a.photo_at.strftime('%I:%M %p').lstrip('0')} {tz_label()}\n\n"
+            f"Attached ({len(attach)}):\n{listing}\n")
     n = notify.email(db, config.ATTENDANCE_EMAIL, subject, body, ref_type="attendance", ref_id=a.id,
-                     template="attendance_photo", attachments=[(filename, a.photo_bytes, "image", "jpeg")])
+                     template="attendance_photo", attachments=attach)
     a.photo_status, a.photo_error, a.photo_attempted_at = n.status, n.error, now_local()
     if n.status == "sent":
         a.photo_sent_at, a.photo_bytes = a.photo_attempted_at, None
+        for p in rows:
+            p.data = None
 
 
 def retry_photos(db: Session) -> int:
@@ -186,8 +219,9 @@ def retry_photos(db: Session) -> int:
     if not config.SMTP_HOST:
         return 0
     cutoff = now_local() - RETRY_EVERY
+    held = exists().where(AttendancePhoto.attendance_id == VmAttendance.id, AttendancePhoto.data.is_not(None))
     pending = list(db.scalars(select(VmAttendance).where(
-        VmAttendance.photo_bytes.is_not(None),
+        VmAttendance.photo_bytes.is_not(None) | held,
         (VmAttendance.photo_attempted_at.is_(None)) | (VmAttendance.photo_attempted_at <= cutoff))))
     for a in pending:
         send_photo(db, a)

@@ -18,6 +18,7 @@ SKT = (28.5245, 77.2066)   # another venue in the same VM's cluster, ~5 km away
 NEAR = (28.5590, 77.2481)  # ~210 m north of EOK
 FAR = (28.5841, 77.2481)   # ~3 km north of EOK
 JPEG = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"0" * 2000).decode()
+PHOTOS = {"venue": JPEG, "branding": JPEG, "toilets": JPEG}  # the three compulsory photos
 
 
 def at(h, m=0, d=DAY):
@@ -75,7 +76,7 @@ def test_venue_stays_closed_until_clock_in_and_photo(c):
     r = c.post("/api/venues/1/clock-in", headers=vm, json=fix(NEAR))
     assert r.status_code == 200 and r.json()["clocked_in"] and not r.json()["unlocked"]
     assert c.get(f"/api/venues/1/day?date={DAY}", headers=vm).status_code == 428  # photo still owed
-    r = c.post("/api/venues/1/clock-in/photo", headers=vm, json={"image": JPEG})
+    r = c.post("/api/venues/1/clock-in/photos", headers=vm, json=PHOTOS)
     assert r.status_code == 200 and r.json()["unlocked"]
     assert c.get(f"/api/venues/1/day?date={DAY}", headers=vm).status_code == 200
     assert c.get("/api/auth/me", headers=vm).json()["roster"][0]["clocked_in"] is True
@@ -94,7 +95,7 @@ def test_clock_in_refused_away_from_venue(c):
 def test_each_venue_needs_its_own_clock_in(c):
     vm = login(c, "vm@x.com")
     c.post("/api/venues/1/clock-in", headers=vm, json=fix(NEAR))
-    c.post("/api/venues/1/clock-in/photo", headers=vm, json={"image": JPEG})
+    c.post("/api/venues/1/clock-in/photos", headers=vm, json=PHOTOS)
     assert c.get(f"/api/venues/2/day?date={DAY}", headers=vm).status_code == 428
     assert c.post("/api/venues/2/clock-in", headers=vm, json=fix(NEAR)).status_code == 409  # Saket is ~4 km away
 
@@ -118,26 +119,36 @@ def test_venue_without_map_position_cannot_be_clocked_into(c):
     assert not st["can_clock_in"] and "map location" in st["blocker"]
 
 
-def test_photo_must_be_a_camera_jpeg(c):
+def test_three_photos_are_compulsory_and_must_be_camera_jpegs(c):
     vm = login(c, "vm@x.com")
-    assert c.post("/api/venues/1/clock-in/photo", headers=vm, json={"image": JPEG}).status_code == 409  # no clock-in
+    assert c.post("/api/venues/1/clock-in/photos", headers=vm, json=PHOTOS).status_code == 409  # no clock-in
     c.post("/api/venues/1/clock-in", headers=vm, json=fix(NEAR))
     png = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n" + b"0" * 100).decode()
-    assert c.post("/api/venues/1/clock-in/photo", headers=vm, json={"image": png}).status_code == 422
-    assert c.post("/api/venues/1/clock-in/photo", headers=vm, json={"image": "nonsense"}).status_code == 422
+    assert c.post("/api/venues/1/clock-in/photos", headers=vm, json={**PHOTOS, "branding": png}).status_code == 422
+    assert c.post("/api/venues/1/clock-in/photos", headers=vm, json={**PHOTOS, "venue": "nonsense"}).status_code == 422
+    r = c.post("/api/venues/1/clock-in/photos", headers=vm, json={"venue": JPEG, "branding": JPEG})
+    assert r.status_code == 422 and "toilets" in r.json()["detail"]
+    assert c.post("/api/venues/1/clock-in/photos", headers=vm, json={"venue": JPEG}).status_code == 422
+    # nothing was kept by the refused attempts: the venue is still closed and the full set still works
+    assert c.get(f"/api/venues/1/day?date={DAY}", headers=vm).status_code == 428
+    assert c.post("/api/venues/1/clock-in/photos", headers=vm, json=PHOTOS).status_code == 200
+    assert c.post("/api/venues/1/clock-in/photos", headers=vm, json=PHOTOS).status_code == 409   # only once
 
 
-def test_photo_is_emailed_and_kept_only_until_delivered(c, monkeypatch):
+def test_photos_are_emailed_together_and_kept_only_until_delivered(c, monkeypatch):
+    from app.models import AttendancePhoto
     vm = login(c, "vm@x.com")
     c.post("/api/venues/1/clock-in", headers=vm, json=fix(NEAR))
-    r = c.post("/api/venues/1/clock-in/photo", headers=vm, json={"image": JPEG})
+    r = c.post("/api/venues/1/clock-in/photos", headers=vm, json={**PHOTOS, "other": JPEG})   # the optional fourth
     assert r.json()["photo_delivery"] == "simulated"  # no SMTP configured in tests
     db = SessionLocal()
-    a = db.query(VmAttendance).one()
-    assert a.photo_bytes and a.photo_bytes.startswith(b"\xff\xd8\xff")  # held for a retry
+    kept = db.query(AttendancePhoto).order_by(AttendancePhoto.id).all()
+    assert [p.kind for p in kept] == ["venue", "branding", "toilets", "other"]
+    assert all(p.data and p.data.startswith(b"\xff\xd8\xff") for p in kept)  # held for a retry
     n = db.query(Notification).filter_by(template="attendance_photo").one()
     assert n.recipient == config.ATTENDANCE_EMAIL and "Rohit Kumar clocked in at East of Kailash" in n.body
     assert "Clock-in: 4:30 PM IST" in n.body  # the pinned clock is 16:30 venue time
+    assert "Attached (4):\n  1. Venue\n  2. Branding\n  3. Toilets\n  4. Other" in n.body
     assert "base64" not in n.body and "maps.google.com" in n.body
     db.close()
 
@@ -158,16 +169,28 @@ def test_photo_is_emailed_and_kept_only_until_delivered(c, monkeypatch):
     assert attendance.retry_photos(db) == 1
     db.commit()
     a = db.query(VmAttendance).one()
-    assert a.photo_status == "sent" and a.photo_bytes is None and a.photo_sent_at is not None  # deleted once sent
+    assert a.photo_status == "sent" and a.photo_sent_at is not None
+    assert all(p.data is None for p in db.query(AttendancePhoto))  # deleted once sent
     db.close()
     att = [p for p in sent[0].iter_attachments()]
-    assert len(att) == 1 and att[0].get_content_type() == "image/jpeg" and att[0].get_filename().startswith("EOK-2026-10-07")
+    assert [x.get_filename() for x in att] == [f"EOK-2026-10-07-rohit-{k}.jpg" for k in ("venue", "branding", "toilets", "other")]
+    assert all(x.get_content_type() == "image/jpeg" for x in att)
+
+
+def test_optional_photo_can_be_left_out(c):
+    vm = login(c, "vm@x.com")
+    c.post("/api/venues/1/clock-in", headers=vm, json=fix(NEAR))
+    assert c.post("/api/venues/1/clock-in/photos", headers=vm, json=PHOTOS).status_code == 200
+    db = SessionLocal()
+    n = db.query(Notification).filter_by(template="attendance_photo").one()
+    assert "Attached (3):\n  1. Venue\n  2. Branding\n  3. Toilets" in n.body and "Other" not in n.body
+    db.close()
 
 
 def test_clock_out_and_what_hq_sees(c):
     vm, hq = login(c, "vm@x.com"), login(c, "hq@x.com")
     c.post("/api/venues/1/clock-in", headers=vm, json=fix(NEAR))
-    c.post("/api/venues/1/clock-in/photo", headers=vm, json={"image": JPEG})
+    c.post("/api/venues/1/clock-in/photos", headers=vm, json=PHOTOS)
     timeutil.set_clock(at(23, 5))
     r = c.post("/api/venues/1/clock-out", headers=vm, json=fix(FAR))
     assert r.status_code == 200 and r.json()["clocked_out"]

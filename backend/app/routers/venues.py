@@ -231,8 +231,12 @@ class FixIn(BaseModel):
     accuracy: float | None = None
 
 
-class PhotoIn(BaseModel):
-    image: str = Field(max_length=5_000_000)  # data:image/jpeg;base64,...
+class PhotosIn(BaseModel):
+    """The clock-in photos, each a data:image/jpeg;base64,... string. venue, branding and toilets are compulsory."""
+    venue: str | None = Field(default=None, max_length=5_000_000)
+    branding: str | None = Field(default=None, max_length=5_000_000)
+    toilets: str | None = Field(default=None, max_length=5_000_000)
+    other: str | None = Field(default=None, max_length=5_000_000)
 
 
 def _vm(user: User) -> None:
@@ -257,10 +261,10 @@ def clock_in(venue_id: int, body: FixIn, user: User = Depends(current_user), db:
     return attendance.state(db, user, venue_id, a.date)
 
 
-@router.post("/{venue_id}/clock-in/photo")
-def clock_in_photo(venue_id: int, body: PhotoIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+@router.post("/{venue_id}/clock-in/photos")
+def clock_in_photos(venue_id: int, body: PhotosIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     _vm(user)
-    a = attendance.add_photo(db, user, venue_id, body.image)
+    a = attendance.add_photos(db, user, venue_id, body.model_dump())
     db.commit()
     return {**attendance.state(db, user, venue_id, a.date), "photo_delivery": a.photo_status}
 
