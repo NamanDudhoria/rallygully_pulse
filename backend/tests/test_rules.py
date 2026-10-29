@@ -973,7 +973,6 @@ def test_admin_updates_cash_with_deposit_and_non_deposit_entries(client):
     direct(client, hq, pay_now=True, method="cash", phone="9811111181", name="C1")
     path = "/api/venues/1/cash"
     assert client.post(path, headers=vm, json={"kind": "deposit", "amount": 100, "depositor_id": 2}).status_code == 403   # VMs can't
-    assert client.post(path, headers=hq, json={"kind": "deposit", "amount": 100, "depositor_id": 2}).status_code == 403   # nor plain HQ
     assert client.post(path, headers=ha, json={"kind": "deposit", "amount": 100}).status_code == 422                      # who deposited?
     assert client.post(path, headers=ha, json={"kind": "deposit", "amount": 0, "depositor_id": 2}).status_code == 422
     assert client.post(path, headers=ha, json={"kind": "transfer", "amount": 5}).status_code == 422
@@ -987,6 +986,13 @@ def test_admin_updates_cash_with_deposit_and_non_deposit_entries(client):
     assert [x["code"] for x in client.get("/api/cash", headers=ha).json()][:2] == ["EOK", "SKT"]
     assert client.get("/api/cash", headers=vm).status_code == 403
     assert _venue_cash(client, ha)["daily"][0]["collected"] == 800
+    # plain HQ can see and update cash as well; Venue Managers still can't
+    assert client.get("/api/cash", headers=hq).status_code == 200
+    assert client.post(path, headers=hq, json={"kind": "deposit", "amount": 50, "depositor_id": 2}).status_code == 200
+    assert client.post(path, headers=hq, json={"kind": "non_deposit", "amount": 50}).json()["balance"] == 1300
+    assert client.get("/api/cash", headers=vm).status_code == 403
+    assert client.get("/api/memberships", headers=hq).status_code == 200     # and memberships, as before
+    assert client.get("/api/memberships", headers=vm).status_code == 403
 
 
 def test_cash_before_the_account_started_is_not_counted(client):

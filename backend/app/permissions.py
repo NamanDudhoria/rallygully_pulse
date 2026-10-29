@@ -42,7 +42,7 @@ PERMISSIONS = {
 _ALL = set(PERMISSIONS)
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "hq_admin": _ALL,
-    "hq": _ALL - {"users.manage", "cash.manage"},
+    "hq": _ALL - {"users.manage"},
     "community": {"portfolio.view", "venue.view", "community.manage", "customers.view"},
     "academy": {"portfolio.view", "venue.view", "academy.manage"},
     "vm": {"venue.operate"},
