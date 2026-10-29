@@ -133,6 +133,27 @@ class AttendancePhoto(Base):
     __table_args__ = (UniqueConstraint("attendance_id", "kind"),)
 
 
+class CashAccount(Base):
+    """A venue's cash balance counts the cash collected there from ``started_at`` onward, plus HQ's entries."""
+    __tablename__ = "cash_accounts"
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class CashEntry(Base):
+    """An HQ Admin's change to a venue's cash balance: a deposit takes cash out, a non-deposit puts cash in."""
+    __tablename__ = "cash_entries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    kind: Mapped[str] = mapped_column(String(12))  # deposit | non_deposit
+    amount: Mapped[float] = mapped_column(Float)  # always positive
+    depositor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    comment: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (Index("ix_cash_entry_venue", "venue_id", "created_at"),)
+
+
 class RosterAlert(Base):
     """Records that Operations was warned about an unrostered venue-day (sent once)."""
     __tablename__ = "roster_alerts"
