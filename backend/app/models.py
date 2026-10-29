@@ -237,6 +237,45 @@ class RentalCharge(Base):
     __table_args__ = (Index("ix_rental_booking", "booking_id"),)
 
 
+class Membership(Base):
+    """Hours one person bought in a single payment, usable at the chosen venues. A booking by that person is
+    covered from the balance: hours are reserved when booked and deducted once the booking is played."""
+    __tablename__ = "memberships"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
+    total_hours: Mapped[float] = mapped_column(Float)
+    used_hours: Mapped[float] = mapped_column(Float, default=0.0)
+    amount_paid: Mapped[float] = mapped_column(Float)
+    payment_method: Mapped[str] = mapped_column(String(10))
+    sold_on: Mapped[date] = mapped_column(Date)
+    starts_on: Mapped[date] = mapped_column(Date)
+    expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active | cancelled
+    notes: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    venues: Mapped[list["MembershipVenue"]] = relationship(cascade="all, delete-orphan")
+    customer: Mapped[Customer] = relationship()
+
+
+class MembershipVenue(Base):
+    __tablename__ = "membership_venues"
+    membership_id: Mapped[int] = mapped_column(ForeignKey("memberships.id"), primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"), primary_key=True)
+
+
+class MembershipUse(Base):
+    """Hours taken from a membership by a played booking. One row per booking, so marking attendance twice
+    can't deduct twice."""
+    __tablename__ = "membership_uses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    membership_id: Mapped[int] = mapped_column(ForeignKey("memberships.id"))
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), unique=True)
+    hours: Mapped[float] = mapped_column(Float)
+    used_on: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+
 class Allocation(Base):
     __tablename__ = "allocations"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -276,6 +315,8 @@ class Booking(Base):
     discount_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
     discount_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     platform: Mapped[str | None] = mapped_column(String(30), nullable=True)  # online platform other than District
+    membership_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # membership that covers this booking
+    member_hours: Mapped[float | None] = mapped_column(Float, nullable=True)  # hours of it covered by the membership
     payment_status: Mapped[str] = mapped_column(String(20))  # paid | to_collect | overdue
     payment_method: Mapped[str | None] = mapped_column(String(10), nullable=True)
     collected_amount: Mapped[float] = mapped_column(Float, default=0)

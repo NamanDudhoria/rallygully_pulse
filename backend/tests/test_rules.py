@@ -771,3 +771,100 @@ def test_online_booking_entered_by_hand(client):
     assert client.post("/api/bookings/online", headers=vm, json={**base, "external_ref": "Z", "end": "20:30"}).status_code == 422  # District is 30 or 60 min
     assert client.post("/api/bookings/online", headers=vm, json={**base, "external_ref": " ", }).status_code == 422
     assert client.post("/api/bookings/online", headers=vm, json={**base, "venue_id": 2, "external_ref": "S1"}).status_code == 403  # not their venue
+
+
+def _member(client, hq, phone="9811111150", hours=3, venues=(1,), **kw):
+    body = {"phone": phone, "name": "Mia Member", "venue_ids": list(venues), "hours": hours, "amount_paid": 2400,
+            "method": "upi", **kw}
+    return client.post("/api/memberships", headers=hq, json=body)
+
+
+def test_membership_is_created_by_admin_with_the_mass_payment_recorded(client):
+    db = SessionLocal()
+    db.add(User(name="Admin", email="adm4@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha, vm = login(client, "adm4@x.com"), login(client, "vm@x.com")
+    assert client.post("/api/memberships", headers=vm, json={}).status_code == 403   # not for VMs
+    assert _member(client, ha, hours=0.25).status_code == 422                       # half-hour steps
+    assert _member(client, ha, method="card").status_code == 422
+    assert _member(client, ha, venues=()).status_code == 422
+    assert _member(client, ha, expires_on="2026-01-01", starts_on="2026-10-01").status_code == 422
+    r = _member(client, ha, expires_on="2026-12-31")
+    assert r.status_code == 200
+    m = r.json()
+    assert (m["total_hours"], m["left_hours"], m["amount_paid"], m["status"]) == (3, 3, 2400, "active")
+    assert m["customer"] == {"name": "Mia Member", "phone": "9811111150"}
+    assert len(client.get("/api/memberships", headers=ha).json()) == 1
+
+
+def test_member_booking_is_free_and_hours_come_off_after_play(client):
+    db = SessionLocal()
+    db.add(User(name="Admin", email="adm4@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha, vm = login(client, "adm4@x.com"), login(client, "vm@x.com")
+    mid = _member(client, ha, hours=3).json()["id"]
+    lk = client.get(f"/api/customers/lookup?phone=9811111150&venue_id=1&date={DAY}", headers=vm).json()
+    assert lk["membership"]["hours_left"] == 3                       # a member is recognised from the number
+    b = direct(client, vm, phone="9811111150", name="Mia Member").json()
+    assert (b["booking_value"], b["payment_status"], b["payment_method"], b["member_hours"]) == (0, "paid", "membership", 1)
+    assert b["list_price"] == 800 and b["collected_amount"] == 0 and b["membership_id"] == mid
+    d = client.get(f"/api/memberships/{mid}", headers=ha).json()
+    assert (d["used_hours"], d["reserved_hours"], d["left_hours"]) == (0, 1, 2)   # reserved, not yet deducted
+    client.post(f"/api/bookings/{b['id']}/attended", headers=vm)
+    client.post(f"/api/bookings/{b['id']}/attended", headers=vm)                  # twice must not deduct twice
+    d = client.get(f"/api/memberships/{mid}", headers=ha).json()
+    assert (d["used_hours"], d["reserved_hours"], d["left_hours"]) == (1, 0, 2) and len(d["uses"]) == 1
+    # a different number is charged as usual
+    assert direct(client, vm, start="20:00", phone="9811111151", name="Other").json()["booking_value"] == 800
+
+
+def test_short_balance_covers_what_is_left_and_charges_the_rest(client):
+    db = SessionLocal()
+    db.add(User(name="Admin", email="adm4@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha, vm = login(client, "adm4@x.com"), login(client, "vm@x.com")
+    _member(client, ha, hours=0.5)
+    b = direct(client, vm, phone="9811111150", name="Mia Member").json()   # 60 min booked, 30 min of hours
+    assert (b["member_hours"], b["payment_status"]) == (0.5, "to_collect")
+    assert b["booking_value"] == 400                                        # the uncovered half-hour, at the normal price
+
+
+def test_membership_respects_venue_expiry_and_cancellation_of_bookings(client):
+    db = SessionLocal()
+    db.add(User(name="Admin", email="adm4@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha, vm = login(client, "adm4@x.com"), login(client, "vm@x.com")
+    expired = _member(client, ha, phone="9811111160", starts_on="2026-01-01", expires_on="2026-10-01")  # ended before DAY
+    other = _member(client, ha, phone="9811111161", venues=(2,))                                         # Saket only
+    assert expired.status_code == 200 and other.status_code == 200
+    for ph in ("9811111160", "9811111161"):
+        assert direct(client, vm, phone=ph, name="X", start="19:00" if ph.endswith("0") else "20:00").json()["booking_value"] == 800
+    ok = _member(client, ha, phone="9811111162", hours=2).json()
+    b = direct(client, vm, start="21:00", phone="9811111162", name="Y").json()
+    client.post(f"/api/bookings/{b['id']}/attended", headers=vm)
+    assert client.get(f"/api/memberships/{ok['id']}", headers=ha).json()["used_hours"] == 1
+    hq = login(client, "hq@x.com")
+    assert client.post(f"/api/bookings/{b['id']}/cancel", headers=hq, json={"reason": "venue_closed"}).status_code == 200
+    d = client.get(f"/api/memberships/{ok['id']}", headers=ha).json()
+    assert (d["used_hours"], d["left_hours"]) == (0, 2)                      # hours are given back
+    assert client.post(f"/api/memberships/{ok['id']}/cancel", headers=ha).json()["status"] == "cancelled"
+    assert direct(client, vm, start="22:00", phone="9811111162", name="Y").json()["booking_value"] == 800   # no longer covers
+
+
+def test_member_recognised_at_attendance_on_an_unpaid_booking(client):
+    db = SessionLocal()
+    db.add(User(name="Admin", email="adm4@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha, vm = login(client, "adm4@x.com"), login(client, "vm@x.com")
+    b = direct(client, vm, phone="9811111170", name="Late Joiner").json()    # booked before becoming a member
+    assert b["booking_value"] == 800 and b["membership_id"] is None
+    mid = _member(client, ha, phone="9811111170", hours=2).json()["id"]
+    assert client.post(f"/api/bookings/{b['id']}/attended", headers=vm).status_code == 200
+    got = client.get(f"/api/bookings/{b['id']}", headers=vm).json()
+    assert (got["booking_value"], got["payment_status"], got["membership_id"]) == (0, "paid", mid)
+    assert client.get(f"/api/memberships/{mid}", headers=ha).json()["used_hours"] == 1

@@ -79,10 +79,11 @@ export function ConfigPage() {
     <div className="stack rise">
       <div className="page-head"><div><h1>Configuration</h1></div></div>
       <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' },
+        { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' }, { value: 'memberships', label: 'Memberships' },
       ]} />
       {tab === 'venues' && <VenuesConfig />}
       {tab === 'pricing' && <PricingConfig />}
+      {tab === 'memberships' && <MembershipsConfig />}
     </div>
   )
 }
@@ -386,6 +387,140 @@ function SpecialDates({ venue }) {
         ) : <p className="subtle">No overrides.</p>}
       </div>
     </div>
+  )
+}
+
+const MEMBER_STATUS = { active: ['good', 'Active'], expired: ['warn', 'Expired'], used_up: ['info', 'Hours used up'], cancelled: ['bad', 'Cancelled'] }
+const PAY_METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['razorpay', 'Razorpay'], ['other', 'Other']]
+
+/** Memberships: hours one person bought in a single payment. Their bookings are covered from the balance. */
+function MembershipsConfig() {
+  const [q, setQ] = useState('')
+  const { data, error, reload } = useApi(`/api/memberships${q ? `?q=${encodeURIComponent(q)}` : ''}`)
+  const venues = useApi('/api/venues').data
+  const [open, setOpen] = useState(null) // 'new' | membership id
+  const code = (id) => venues?.find((v) => v.id === id)?.code || id
+  if (error && !data) return <ErrorState error={error} onRetry={reload} />
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Memberships</h2>
+        <div className="row">
+          <input className="input" style={{ width: 200, minHeight: 32 }} placeholder="Search name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search memberships" />
+          <button className="btn btn-primary" onClick={() => setOpen('new')}><Plus /> New membership</button>
+        </div>
+      </div>
+      <div className="card-body table-wrap">
+        {!data ? <Skeleton h={160} /> : data.length === 0 ? <Empty title="No memberships yet">When someone buys hours in one payment, add it here. Their bookings are then covered automatically.</Empty> : (
+          <table className="table">
+            <thead><tr><th>Member</th><th>Venues</th><th className="num">Hours left</th><th className="num">Paid</th><th>Valid until</th><th>Status</th></tr></thead>
+            <tbody>{data.map((m) => {
+              const [tone, label] = MEMBER_STATUS[m.status] || ['info', m.status]
+              return (
+                <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => setOpen(m.id)}>
+                  <td><div style={{ fontWeight: 500 }}>{m.customer.name}</div><div className="subtle" style={{ fontSize: 12 }}>{phoneFmt(m.customer.phone)}</div></td>
+                  <td className="mono">{m.venue_ids.map(code).join(', ')}</td>
+                  <td className="num"><b>{m.left_hours}</b> <span className="subtle">of {m.total_hours}</span></td>
+                  <td className="num">{money(m.amount_paid)}</td>
+                  <td className="nowrap">{m.expires_on ? shortDate(m.expires_on) : 'No expiry'}</td>
+                  <td><Badge tone={tone}>{label}</Badge></td>
+                </tr>
+              )
+            })}</tbody>
+          </table>
+        )}
+      </div>
+      {open === 'new' && venues && <MembershipDrawer venues={venues} onClose={() => setOpen(null)} onSaved={() => { setOpen(null); reload() }} />}
+      {open && open !== 'new' && <MembershipDetail id={open} venues={venues || []} onClose={() => setOpen(null)} onChanged={reload} />}
+    </div>
+  )
+}
+
+function MembershipDrawer({ venues, onClose, onSaved }) {
+  const [run, busy] = useAction()
+  const [f, setF] = useState({ phone: '', name: '', venue_ids: [], hours: '', amount_paid: '', method: 'upi', sold_on: todayISO(), starts_on: todayISO(), expires_on: '', notes: '' })
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
+  return (
+    <Drawer open onClose={onClose} title="New membership" subtitle="Hours bought in one payment, for one person">
+      {(close) => (
+        <form className="form" onSubmit={async (e) => {
+          e.preventDefault()
+          const r = await run(() => post('/api/memberships', {
+            ...f, hours: Number(f.hours), amount_paid: Number(f.amount_paid), expires_on: f.expires_on || null, notes: f.notes || null,
+          }), 'Membership added. Their bookings are now covered.')
+          if (r) { onSaved(); close() }
+        }}>
+          <div className="form-row">
+            <Field label="Phone" help="This is how the member is recognised"><input className="input" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={f.phone} onChange={set('phone')} required /></Field>
+            <Field label="Name"><input className="input" value={f.name} onChange={set('name')} required /></Field>
+          </div>
+          <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Valid at</span>
+            <div className="row">
+              {venues.map((v) => (
+                <label key={v.id} className="check badge" style={{ height: 32, padding: '0 10px' }}>
+                  <input type="checkbox" checked={f.venue_ids.includes(v.id)}
+                    onChange={(e) => setF({ ...f, venue_ids: e.target.checked ? [...f.venue_ids, v.id] : f.venue_ids.filter((x) => x !== v.id) })} />
+                  {v.name.replace('RallyGully ', '')}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="form-row">
+            <Field label="Hours bought" help="In steps of 0.5"><input className="input" type="number" min={0.5} step={0.5} value={f.hours} onChange={set('hours')} required /></Field>
+            <Field label="Amount paid (₹)"><input className="input" type="number" min={0} step="any" value={f.amount_paid} onChange={set('amount_paid')} required /></Field>
+          </div>
+          <div className="form-row">
+            <Field label="Paid by"><select className="select" value={f.method} onChange={set('method')}>{PAY_METHODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+            <Field label="Sold on"><input className="input" type="date" value={f.sold_on} onChange={set('sold_on')} required /></Field>
+          </div>
+          <div className="form-row">
+            <Field label="Starts on"><input className="input" type="date" value={f.starts_on} onChange={set('starts_on')} required /></Field>
+            <Field label="Expires on (optional)"><input className="input" type="date" value={f.expires_on} onChange={set('expires_on')} /></Field>
+          </div>
+          <Field label="Notes (optional)"><input className="input" maxLength={200} value={f.notes} onChange={set('notes')} /></Field>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn" onClick={close}>Cancel</button>
+            <button className="btn btn-primary" disabled={busy || !f.venue_ids.length}>Add membership</button>
+          </div>
+        </form>
+      )}
+    </Drawer>
+  )
+}
+
+function MembershipDetail({ id, venues, onClose, onChanged }) {
+  const { data: m, reload } = useApi(`/api/memberships/${id}`)
+  const [run, busy] = useAction()
+  const code = (vid) => venues.find((v) => v.id === vid)?.code || vid
+  if (!m) return <Drawer open onClose={onClose} title="Membership"><p className="subtle">Loading…</p></Drawer>
+  const [tone, label] = MEMBER_STATUS[m.status] || ['info', m.status]
+  return (
+    <Drawer open onClose={onClose} title={m.customer.name} subtitle={`${phoneFmt(m.customer.phone)} · ${m.venue_ids.map(code).join(', ')}`}>
+      <div className="row"><Badge tone={tone}>{label}</Badge></div>
+      <dl className="kv">
+        <dt>Hours left</dt><dd><b>{m.left_hours}</b> of {m.total_hours}</dd>
+        <dt>Played</dt><dd>{m.used_hours} h</dd>
+        <dt>Booked, not played yet</dt><dd>{m.reserved_hours} h</dd>
+        <dt>Paid</dt><dd>{money(m.amount_paid)} · {PAY_METHODS.find(([v]) => v === m.payment_method)?.[1] || m.payment_method} · {shortDate(m.sold_on)}</dd>
+        <dt>Valid</dt><dd>{shortDate(m.starts_on)} to {m.expires_on ? shortDate(m.expires_on) : 'no expiry'}</dd>
+        {m.notes && <><dt>Notes</dt><dd>{m.notes}</dd></>}
+      </dl>
+      <section>
+        <div className="section-title">Hours used</div>
+        {m.uses.length ? m.uses.map((u) => (
+          <div key={u.booking_id} className="row" style={{ justifyContent: 'space-between' }}>
+            <span>{shortDate(u.used_on)} · {code(u.venue_id)} · {u.time}</span><b>{u.hours} h</b>
+          </div>
+        )) : <p className="subtle">No hours used yet.</p>}
+      </section>
+      {m.status !== 'cancelled' && (
+        <div><button className="btn" disabled={busy} onClick={async () => {
+          if (!window.confirm('Cancel this membership? Their remaining hours will no longer cover bookings.')) return
+          if (await run(() => post(`/api/memberships/${m.id}/cancel`), 'Membership cancelled')) { reload(); onChanged() }
+        }}>Cancel membership</button></div>
+      )}
+    </Drawer>
   )
 }
 

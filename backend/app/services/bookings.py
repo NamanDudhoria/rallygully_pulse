@@ -11,7 +11,7 @@ from ..permissions import is_hq
 from ..models import (Allocation, AllocationKind, Booking, Customer, Discount, Facility, Payment, Refund, RentalCharge,
                       RentalItem, User, Venue)
 from ..timeutil import at_minute, hhmm, minute_of, now_local, today
-from . import customers, inventory, notify
+from . import customers, inventory, membership, notify
 from .pricing import quote
 
 PAYMENT_METHODS = ("cash", "upi", "razorpay", "other")
@@ -72,6 +72,7 @@ def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, 
             raise DomainError("That discount isn't available at this venue.", 422)
         if amount is not None:
             raise DomainError("Choose a discount or enter an amount, not both.", 422)
+    manual_price = amount is not None
     if amount is not None and not _is_hq(actor):
         raise DomainError("Prices are fixed. Pick one of this venue's discounts, or ask HQ to change the price.", 403)
     if amount is None:
@@ -91,10 +92,13 @@ def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, 
     inventory.allocate(db, venue_id, [fac.id], d, start_min, end_min, AllocationKind.DIRECT, b.id, check_hours=False)
     audit.record(db, actor, "booking.create", "booking", b.id, None,
                  {**_snapshot(b), "source": "direct", "expected_amount": expected}, venue_id)
+    if disc is None and not manual_price:
+        membership.cover(db, actor, b)  # a member's booking is covered from their hours
     if rentals:
         add_rentals(db, actor, b, rentals)
     if pay_now:
-        record_payment(db, actor, b, method, at_creation=True)
+        if b.payment_status != "paid":
+            record_payment(db, actor, b, method, at_creation=True)
         if rentals:
             pay_rentals(db, actor, b, method)
     _send_booking_whatsapp(db, b)
@@ -169,6 +173,7 @@ def assign_court(db: Session, actor: User, b: Booking, facility_id: int) -> Book
     b.sport = fac.sport
     b.assigned_at = now_local()
     b.attendance = "attended"
+    membership.on_attended(db, actor, b)
     audit.record(db, actor, "booking.assign_court", "booking", b.id, before, _snapshot(b), b.venue_id)
     return b
 
@@ -202,6 +207,7 @@ def mark_attended(db: Session, actor: User, b: Booking) -> Booking:
         raise DomainError("Assign a court to check the customer in.", 422)
     before = _snapshot(b)
     b.attendance = "attended"
+    membership.on_attended(db, actor, b)
     audit.record(db, actor, "booking.attended", "booking", b.id, before, _snapshot(b), b.venue_id)
     return b
 
@@ -352,6 +358,7 @@ def cancel(db: Session, actor: User, b: Booking, reason: str, note: str | None) 
     b.cancel_note = (note or "").strip() or None
     b.cancelled_at = now_local()
     inventory.release(db, b.source, b.id)
+    membership.release(db, actor, b)
     audit.record(db, actor, "booking.cancel", "booking", b.id, before, _snapshot(b), b.venue_id)
     return b
 
