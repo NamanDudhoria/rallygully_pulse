@@ -1,7 +1,7 @@
 """Venue cash balances.
 
 A venue's balance is the cash collected there since its account started (bookings, community games, academy,
-corporate and equipment rentals paid in cash), less cash refunds, less deposits, plus non-deposit additions
+corporate, equipment rentals and RG Store sales paid in cash), less cash refunds, less deposits, plus non-deposit additions
 entered by an HQ Admin. Collections are read from the payment records themselves, so a corrected or voided
 payment corrects the balance too.
 """
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .. import audit
 from ..audit import DomainError
-from ..models import (Booking, CashAccount, CashEntry, Payment, Refund, RentalCharge, User, Venue)
+from ..models import (Booking, CashAccount, CashEntry, Payment, Refund, RentalCharge, StoreSale, User, Venue)
 from ..timeutil import now_local
 
 BEGINNING = datetime(2000, 1, 1)  # an account created after the fact counts everything recorded so far
@@ -44,6 +44,10 @@ def balances(db: Session, venue_ids: list[int] | None = None) -> dict[int, dict]
               .join(CashAccount, CashAccount.venue_id == RentalCharge.venue_id)
               .where(RentalCharge.paid_method == "cash", RentalCharge.paid_at >= CashAccount.started_at)
               .group_by(RentalCharge.venue_id))
+    shop_q = (select(StoreSale.venue_id, func.sum(StoreSale.total)).join(CashAccount, CashAccount.venue_id == StoreSale.venue_id)
+              .where(StoreSale.payment_method == "cash", StoreSale.status == "confirmed",
+                     StoreSale.paid_at >= CashAccount.started_at)
+              .group_by(StoreSale.venue_id))
     ref_q = (select(Booking.venue_id, func.sum(Refund.amount)).join(Booking, Booking.id == Refund.booking_id)
              .join(CashAccount, CashAccount.venue_id == Booking.venue_id)
              .where(Booking.payment_method == "cash", Refund.status == "processed",
@@ -52,9 +56,11 @@ def balances(db: Session, venue_ids: list[int] | None = None) -> dict[int, dict]
     entries = db.execute(select(CashEntry.venue_id, CashEntry.kind, func.sum(CashEntry.amount))
                          .group_by(CashEntry.venue_id, CashEntry.kind)).all()
     if venue_ids is not None:
-        pay_q, rent_q, ref_q = (q.where(col.in_(venue_ids)) for q, col in
-                                ((pay_q, Payment.venue_id), (rent_q, RentalCharge.venue_id), (ref_q, Booking.venue_id)))
+        pay_q, rent_q, shop_q, ref_q = (q.where(col.in_(venue_ids)) for q, col in
+                                        ((pay_q, Payment.venue_id), (rent_q, RentalCharge.venue_id),
+                                         (shop_q, StoreSale.venue_id), (ref_q, Booking.venue_id)))
     pay, rent, ref = _by_venue(db.execute(pay_q)), _by_venue(db.execute(rent_q)), _by_venue(db.execute(ref_q))
+    shop = _by_venue(db.execute(shop_q))
     dep = {v: float(t) for v, k, t in entries if k == "deposit"}
     add = {v: float(t) for v, k, t in entries if k == "non_deposit"}
     out = {}
@@ -62,7 +68,7 @@ def balances(db: Session, venue_ids: list[int] | None = None) -> dict[int, dict]
         v = a.venue_id
         if venue_ids is not None and v not in venue_ids:
             continue
-        collected = round(pay.get(v, 0.0) + rent.get(v, 0.0), 2)
+        collected = round(pay.get(v, 0.0) + rent.get(v, 0.0) + shop.get(v, 0.0), 2)
         out[v] = {"since": a.started_at if a.started_at > BEGINNING else None, "collected": collected,
                   "refunded": round(ref.get(v, 0.0), 2), "deposited": round(dep.get(v, 0.0), 2),
                   "added": round(add.get(v, 0.0), 2),
@@ -82,6 +88,10 @@ def daily(db: Session, venue_id: int, days: int = 14) -> list[dict]:
     for d, t in db.execute(select(func.date(RentalCharge.paid_at), func.sum(RentalCharge.amount)).where(
             RentalCharge.venue_id == venue_id, RentalCharge.paid_method == "cash", RentalCharge.paid_at >= start)
             .group_by(func.date(RentalCharge.paid_at))):
+        rows.setdefault(str(d), {"date": str(d), "collected": 0.0, "refunded": 0.0})["collected"] += float(t)
+    for d, t in db.execute(select(func.date(StoreSale.paid_at), func.sum(StoreSale.total)).where(
+            StoreSale.venue_id == venue_id, StoreSale.payment_method == "cash", StoreSale.status == "confirmed",
+            StoreSale.paid_at >= start).group_by(func.date(StoreSale.paid_at))):
         rows.setdefault(str(d), {"date": str(d), "collected": 0.0, "refunded": 0.0})["collected"] += float(t)
     for d, t in db.execute(select(func.date(Refund.processed_at), func.sum(Refund.amount)).join(
             Booking, Booking.id == Refund.booking_id).where(
