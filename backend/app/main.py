@@ -56,6 +56,19 @@ def health():
     return {"status": "ok"}
 
 
+@app.middleware("http")
+async def cache_headers(request: Request, call_next):
+    """Built files under /assets have a content hash in their name, so browsers may keep them for a year and
+    repeat visits load instantly; the page itself is always re-checked so a new release shows straight away."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/assets/") and response.status_code == 200:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif not path.startswith("/api/") and response.headers.get("content-type", "").startswith("text/html"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 # Serve the built frontend (frontend/dist) when present, so one process runs the whole app.
 _dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
 if os.path.isdir(_dist):
