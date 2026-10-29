@@ -129,6 +129,19 @@ class Venue(Base):
     community_link: Mapped[str | None] = mapped_column(String(300), nullable=True)  # WhatsApp group for this venue
     facilities: Mapped[list["Facility"]] = relationship(back_populates="venue", order_by="Facility.sort_order")
     weekly_hours: Mapped[list["WeeklyHours"]] = relationship(cascade="all, delete-orphan", order_by="WeeklyHours.weekday")
+    discounts: Mapped[list["Discount"]] = relationship(order_by="Discount.id")
+
+
+class Discount(Base):
+    """A percentage off the configured price that a booking at this venue may use. Retired, never deleted,
+    so bookings that used it keep their record."""
+    __tablename__ = "discounts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    name: Mapped[str] = mapped_column(String(60))
+    percent: Mapped[float] = mapped_column(Float)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
 
 class Facility(Base):
@@ -230,6 +243,9 @@ class Booking(Base):
     start_min: Mapped[int] = mapped_column(Integer)
     end_min: Mapped[int] = mapped_column(Integer)
     booking_value: Mapped[float] = mapped_column(Float)
+    list_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # configured price before any discount
+    discount_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    discount_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     payment_status: Mapped[str] = mapped_column(String(20))  # paid | to_collect | overdue
     payment_method: Mapped[str | None] = mapped_column(String(10), nullable=True)
     collected_amount: Mapped[float] = mapped_column(Float, default=0)

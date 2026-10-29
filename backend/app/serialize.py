@@ -19,6 +19,7 @@ def venue(v: Venue, full: bool = False) -> dict:
     out = {"id": v.id, "code": v.code, "name": v.name, "location": v.location, "status": v.status,
            "latitude": v.latitude, "longitude": v.longitude, "community_link": v.community_link}
     if full:
+        out["discounts"] = [{"id": x.id, "name": x.name, "percent": x.percent} for x in v.discounts if x.active]
         out["facilities"] = [facility(f) for f in v.facilities]
         out["weekly_hours"] = [{"weekday": w.weekday, "open_min": w.open_min, "close_min": w.close_min,
                                 "closed": w.closed} for w in v.weekly_hours]
@@ -78,6 +79,7 @@ def booking(db: Session, b: Booking, detail: bool = False, pre: dict | None = No
         "original_facility_id": b.original_facility_id, "original_facility": _fac_name(db, b.original_facility_id, names),
         "sport": b.sport, "date": b.date, "start_min": b.start_min, "end_min": b.end_min,
         "time": f"{hhmm(b.start_min)}–{hhmm(b.end_min)}", "booking_value": b.booking_value,
+        "list_price": b.list_price, "discount_name": b.discount_name, "discount_percent": b.discount_percent,
         "collected_amount": b.collected_amount, "payment_status": b.payment_status, "payment_method": b.payment_method,
         "payment_window_start_min": b.start_min - 30, "payment_window_end_min": b.payment_window_end_min,
         "attendance": b.attendance, "status": b.status, "cancel_reason": b.cancel_reason, "cancel_note": b.cancel_note,

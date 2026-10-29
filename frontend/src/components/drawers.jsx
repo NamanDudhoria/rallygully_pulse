@@ -55,6 +55,8 @@ export function BookingDrawer({ id, onClose, onChanged }) {
         <dt>Customer</dt><dd>{b.customer.name || <span className="subtle">Name not captured</span>} · {phoneFmt(b.customer.phone)}</dd>
         <dt>Court</dt><dd>{b.facility || <span className="subtle">Not assigned yet</span>}{b.sport ? ` · ${b.sport}` : ''}</dd>
         <dt>Booking value</dt><dd>{money(b.booking_value)}</dd>
+        {b.discount_name && <><dt>Discount</dt><dd>{b.discount_name} ({b.discount_percent}% off {money(b.list_price)})</dd></>}
+        {!b.discount_name && b.list_price != null && Math.abs(b.list_price - b.booking_value) > 0.5 && <><dt>Configured price</dt><dd>{money(b.list_price)} <span className="subtle">· changed by HQ</span></dd></>}
         <dt>Collected</dt><dd>{money(b.collected_amount)}{b.payment_method ? ` · ${METHOD[b.payment_method] || b.payment_method}` : ''}</dd>
         {b.refunded > 0 && <><dt>Refunded</dt><dd>{money(b.refunded)}</dd></>}
         {unpaid && <><dt>Payment window</dt><dd>{time12(b.payment_window_start_min)} – {time12(b.payment_window_end_min)}</dd></>}
@@ -154,9 +156,9 @@ export function BookingDrawer({ id, onClose, onChanged }) {
         </section>
       )}
 
-      {(isHQ || b.payment_status !== 'paid') && live && (
+      {isHQ && live && (
         <section>
-          <div className="section-title">Adjust amount{isHQ && b.payment_status === 'paid' ? ' (HQ correction)' : ''}</div>
+          <div className="section-title">Adjust amount{b.payment_status === 'paid' ? ' (HQ correction)' : ''}</div>
           <div className="row">
             <input className="input" type="number" min={0} placeholder={String(b.booking_value)} value={amount}
               onChange={(e) => setAmount(e.target.value)} style={{ width: 140 }} aria-label="Amount" />
@@ -207,20 +209,31 @@ export function BookingDrawer({ id, onClose, onChanged }) {
   )
 }
 
-/** Direct on-ground booking created from an available slot (PRD §20). */
+const toMin = (t) => { const [h, m] = (t || '').split(':').map(Number); return h * 60 + m }
+
+/** Direct on-ground booking created from an available slot (PRD §20): the slot runs from a start to an end time. */
 export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, onDone }) {
+  const { isHQ } = useAuth()
+  const discounts = venue.discounts || []
   const facilities = venue.facilities.filter((f) => f.status === 'active')
-  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), duration: 60, phone: '', name: '', email: '', amount: '', pay_now: false, method: 'upi' })
+  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), end: hhmm(start + 60), phone: '', name: '', email: '', amount: '', discount_id: '', pay_now: false, method: 'upi' })
   const [quote, setQuote] = useState(null)
   const [lookup, setLookup] = useState({ phone: '', customer: null })
   const existing = digitsOf(form.phone) === lookup.phone ? lookup.customer : null
   const [run, busy] = useAction()
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v?.target ? (v.target.type === 'checkbox' ? v.target.checked : v.target.value) : v }))
+  // Moving the start keeps the slot length, so the end follows it.
+  const setStart = (e) => setForm((f) => {
+    const [h, m] = e.target.value.split(':').map(Number)
+    const len = Math.max(30, toMin(f.end) - toMin(f.start))
+    return Number.isNaN(h) ? { ...f, start: e.target.value } : { ...f, start: e.target.value, end: hhmm(h * 60 + m + len) }
+  })
+  const badTimes = toMin(form.end) <= toMin(form.start)
 
   useEffect(() => {
-    const q = `/api/venues/${venue.id}/quote?facility_id=${form.facility_id}&date=${form.date}&start=${form.start}&duration=${form.duration}`
+    const q = `/api/venues/${venue.id}/quote?facility_id=${form.facility_id}&date=${form.date}&start=${form.start}&end=${form.end}${form.discount_id ? `&discount_id=${form.discount_id}` : ''}`
     api(q).then(setQuote).catch(() => setQuote(null))
-  }, [venue.id, form.facility_id, form.date, form.start, form.duration])
+  }, [venue.id, form.facility_id, form.date, form.start, form.end, form.discount_id])
 
   useEffect(() => {
     const digits = digitsOf(form.phone)
@@ -234,8 +247,9 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   const submit = async (e, close) => {
     e.preventDefault()
     const r = await run(() => post('/api/bookings/direct', {
-      ...form, venue_id: venue.id, facility_id: Number(form.facility_id), duration: Number(form.duration),
-      amount: form.amount === '' ? null : Number(form.amount), method: form.pay_now ? form.method : null,
+      ...form, venue_id: venue.id, facility_id: Number(form.facility_id),
+      amount: form.amount === '' ? null : Number(form.amount), discount_id: form.discount_id ? Number(form.discount_id) : null,
+      method: form.pay_now ? form.method : null,
     }), form.email ? 'Direct booking created · WhatsApp and email sent' : 'Direct booking created · WhatsApp sent')
     if (r) { onDone?.(r); close() }
   }
@@ -254,10 +268,8 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
             <Field label="Date"><input className="input" type="date" value={form.date} onChange={set('date')} /></Field>
           </div>
           <div className="form-row">
-            <Field label="Start"><input className="input" type="time" step={1800} value={form.start} onChange={set('start')} /></Field>
-            <Field label="Duration">
-              <Seg value={Number(form.duration)} onChange={set('duration')} options={[{ value: 30, label: '30 min' }, { value: 60, label: '60 min' }]} label="Duration" />
-            </Field>
+            <Field label="From"><input className="input" type="time" step={1800} value={form.start} onChange={setStart} required /></Field>
+            <Field label="To" error={badTimes ? 'End must be after the start' : null}><input className="input" type="time" step={1800} value={form.end} onChange={set('end')} required /></Field>
           </div>
           {quote && !quote.available && <div className="callout bad"><AlertTriangle />This facility is not free for that time.</div>}
           <Field label="Customer phone" help={existing ? `Existing customer${existing.name_locked ? ' — name locked' : ''}` : 'Phone is the customer identity'}>
@@ -269,14 +281,28 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
           <Field label="Customer email (optional)" help="If given, the booking confirmation is emailed too">
             <input className="input" type="email" autoComplete="off" placeholder="name@example.com" value={form.email} onChange={set('email')} />
           </Field>
-          <Field label="Amount" help={quote?.amount != null ? `Configured price ${money(quote.amount)} for ${fac?.sport} — edit for a discount` : 'No price configured — enter the amount'}>
-            <input className="input" type="number" min={0} placeholder={quote?.amount ?? ''} value={form.amount} onChange={set('amount')} />
+          <Field label="Discount" help={discounts.length ? 'Percentage off the configured price' : 'No discounts are set up for this venue (Configuration → Venues)'}>
+            <select className="select" value={form.discount_id} disabled={!discounts.length} onChange={(e) => setForm((f) => ({ ...f, discount_id: e.target.value, amount: '' }))}>
+              <option value="">No discount</option>
+              {discounts.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.percent}% off</option>)}
+            </select>
           </Field>
+          {isHQ && (
+            <Field label="Amount (HQ)" help={quote?.amount != null ? `Configured price ${money(quote.amount)} for ${fac?.sport}. Typing an amount here replaces it.` : 'No price configured — enter the amount'}>
+              <input className="input" type="number" min={0} placeholder={quote?.total ?? ''} value={form.amount} disabled={!!form.discount_id}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value, discount_id: '' }))} />
+            </Field>
+          )}
+          <div className="callout info" style={{ alignItems: 'baseline' }}>
+            {quote?.total != null
+              ? <span><b>{money(form.amount !== '' ? Number(form.amount) : quote.total)}</b>{form.discount_id && quote.amount != null ? <span className="subtle"> · {money(quote.amount)} less {discounts.find((d) => String(d.id) === String(form.discount_id))?.percent}%</span> : null}</span>
+              : <span>{isHQ ? 'No price configured for this slot. Enter the amount above.' : 'No price is configured for this slot. Ask HQ to add it under Pricing.'}</span>}
+          </div>
           <label className="check"><input type="checkbox" checked={form.pay_now} onChange={set('pay_now')} /> Paid now</label>
           {form.pay_now && <Seg value={form.method} onChange={set('method')} options={METHODS} label="Payment method" />}
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={close}>Cancel</button>
-            <button className="btn btn-primary" disabled={busy || (quote && !quote.available)}>Create booking</button>
+            <button className="btn btn-primary" disabled={busy || badTimes || (quote && !quote.available) || (!isHQ && quote?.total == null)}>Create booking</button>
           </div>
         </form>
       )}

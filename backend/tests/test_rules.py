@@ -94,15 +94,65 @@ def test_slot_boundaries_and_hours(client):
     h = login(client, "vm@x.com")
     assert direct(client, h, start="19:15").status_code == 422
     assert direct(client, h, start="16:00").status_code == 409  # before opening
-    assert direct(client, h, duration=90).status_code == 422
+    assert direct(client, h, end="19:00").status_code == 422        # empty slot
+    assert direct(client, h, end="18:30").status_code == 422        # ends before it starts
+    assert direct(client, h, end="20:15").status_code == 422        # end must be on :00 / :30
+    assert direct(client, h, start="22:00", end="23:30").status_code == 409  # runs past closing
 
 
-def test_price_from_config_and_editable(client):
+def test_slot_is_start_to_end_and_blocks_those_times(client):
+    h = login(client, "vm@x.com")
+    r = direct(client, h, start="19:00", end="20:30", phone="9811111119", name="Long")
+    assert r.status_code == 200
+    b = r.json()
+    assert (b["start_min"], b["end_min"]) == (19 * 60, 20 * 60 + 30)
+    assert b["booking_value"] == 1200  # 60 min at 800 + 30 min at half the 60-min price
+    # the whole 7:00-8:30 slot is closed on that court; the half-hour after it is free
+    assert direct(client, h, start="20:00", end="21:00", phone="9811111118", name="Late").status_code == 409
+    assert direct(client, h, start="20:30", end="21:00", phone="9811111117", name="After").status_code == 200
+    q = client.get(f"/api/venues/1/quote?facility_id=1&date={DAY}&start=19:00&end=20:00", headers=h).json()
+    assert q["available"] is False
+
+
+def test_price_is_fixed_for_vms_and_hq_can_override(client):
     h = login(client, "vm@x.com")
     b = direct(client, h).json()
-    assert b["booking_value"] == 800 and b["sport"] == "Pickleball"
-    b2 = direct(client, h, facility=3, amount=1200).json()
-    assert b2["booking_value"] == 1200
+    assert b["booking_value"] == 800 and b["sport"] == "Pickleball" and b["list_price"] == 800
+    assert b["discount_name"] is None
+    assert direct(client, h, facility=3, amount=1200, phone="9811111113", name="C").status_code == 403  # VM can't type a price
+    assert client.post(f"/api/bookings/{b['id']}/amount", headers=h, json={"amount": 500}).status_code == 403
+    hq = login(client, "hq@x.com")
+    b2 = direct(client, hq, facility=3, amount=1200, phone="9811111113", name="C").json()
+    assert b2["booking_value"] == 1200 and b2["list_price"] == 1600  # HQ override; the configured price is kept on record
+    assert client.post(f"/api/bookings/{b['id']}/amount", headers=hq, json={"amount": 700}).json()["booking_value"] == 700
+
+
+def test_venue_discounts_are_configured_and_applied(client):
+    db = SessionLocal()
+    db.add(User(name="Admin", email="adm2@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha, hv = login(client, "adm2@x.com"), login(client, "vm@x.com")
+    v = next(x for x in client.get("/api/venues", headers=ha).json() if x["id"] == 1)
+    body = {k: v[k] for k in ("code", "name", "location", "status", "latitude", "longitude")}
+    assert client.put("/api/venues/1", headers=ha, json={**body, "discounts": [{"name": "Bad", "percent": 120}]}).status_code == 422
+    assert client.put("/api/venues/1", headers=ha, json={**body, "discounts": [{"name": "A", "percent": 10}, {"name": "a", "percent": 5}]}).status_code == 422
+    r = client.put("/api/venues/1", headers=ha, json={**body, "discounts": [{"name": "Member 10%", "percent": 10}, {"name": "Staff 25%", "percent": 25}]})
+    assert [(d["name"], d["percent"]) for d in r.json()["discounts"]] == [("Member 10%", 10), ("Staff 25%", 25)]
+    ids = {d["name"]: d["id"] for d in r.json()["discounts"]}
+    q = client.get(f"/api/venues/1/quote?facility_id=1&date={DAY}&start=19:00&end=20:00&discount_id={ids['Staff 25%']}", headers=hv).json()
+    assert q["amount"] == 800 and q["total"] == 600
+    b = direct(client, hv, discount_id=ids["Staff 25%"]).json()
+    assert (b["booking_value"], b["list_price"], b["discount_name"], b["discount_percent"]) == (600, 800, "Staff 25%", 25)
+    assert direct(client, hv, start="20:00", discount_id=ids["Member 10%"], amount=100, phone="9811111114", name="D").status_code == 422  # both
+    # leaving a discount out retires it: it can't be used again, and the booking that used it keeps its record
+    r = client.put("/api/venues/1", headers=ha, json={**body, "discounts": [{"id": ids["Member 10%"], "name": "Member 10%", "percent": 10}]})
+    assert [d["name"] for d in r.json()["discounts"]] == ["Member 10%"]
+    assert direct(client, hv, start="21:00", discount_id=ids["Staff 25%"], phone="9811111115", name="E").status_code == 422
+    assert client.put("/api/venues/1", headers=ha, json=body).json()["discounts"][0]["name"] == "Member 10%"  # omitted = unchanged
+    # a discount from another venue is refused
+    other = client.post("/api/venues", headers=ha, json={"code": "ZZZ", "name": "Zed", "discounts": [{"name": "Z", "percent": 5}]}).json()
+    assert direct(client, hv, start="22:00", discount_id=other["discounts"][0]["id"], phone="9811111116", name="F").status_code == 422
 
 
 def test_booking_confirmation_is_emailed_when_customer_has_an_email(client):
@@ -557,3 +607,20 @@ def test_vm_is_whatsapped_tomorrows_allotment_at_1130pm(client, monkeypatch):
     assert json.loads(urllib.parse.parse_qs(sent[1].data.decode())["ContentVariables"][0])["time-slot"] == "6:00 PM to 10:00 PM"
     timeutil.set_clock(at(0, 5, DAY + timedelta(days=1)))  # after midnight "tomorrow" is a new day: nothing sent
     assert tick() == 0
+
+
+def test_long_slot_is_priced_as_hours_plus_a_half_hour(client):
+    from app.models import PricingRule
+    db = SessionLocal()
+    db.add(PricingRule(venue_id=1, sport="Pickleball", weekdays="0123456", start_min=0, end_min=1440,
+                       duration_min=30, amount=500, effective_from=date(2026, 1, 1)))
+    db.commit()
+    db.close()
+    h = login(client, "vm@x.com")
+    def price(start, end):
+        return client.get(f"/api/venues/1/quote?facility_id=1&date={DAY}&start={start}&end={end}", headers=h).json()["amount"]
+    assert price("19:00", "19:30") == 500
+    assert price("19:00", "20:00") == 800
+    assert price("19:00", "20:30") == 1300   # 800 for the hour + 500 for the half-hour, not 3 x 500
+    assert price("19:00", "21:30") == 2100   # 800 + 800 + 500
+    assert price("19:00", "21:00") == 1600

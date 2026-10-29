@@ -72,7 +72,14 @@ def quote(db: Session, facility: Facility, d: date, start: int, end: int) -> flo
     duration = end - start
     if duration in (30, 60):
         return book.price(facility, d, start, duration)
-    total = 0.0
-    for slot in range(start, end, 30):
-        total += book.unit_value(facility, d, slot, today())
+    # Prices exist for 30 and 60 minutes only, so a longer slot is whole hours from the start plus a
+    # half-hour if one is left over, each at its own configured price.
+    total, slot = 0.0, start
+    while slot < end:
+        step = 60 if end - slot >= 60 else 30
+        part = book.price(facility, d, slot, step, today())
+        if part is None:
+            return None  # a part with no configured price: the person enters the amount
+        total += part
+        slot += step
     return total
