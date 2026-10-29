@@ -122,6 +122,17 @@ class RosterMail(Base):
     sent_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AttendancePhoto(Base):
+    """One of the photos a VM sends when clocking in. The bytes are kept only until the email is delivered."""
+    __tablename__ = "attendance_photos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    attendance_id: Mapped[int] = mapped_column(ForeignKey("vm_attendance.id"))
+    kind: Mapped[str] = mapped_column(String(10))  # venue | branding | toilets | other
+    data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    taken_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (UniqueConstraint("attendance_id", "kind"),)
+
+
 class RosterAlert(Base):
     """Records that Operations was warned about an unrostered venue-day (sent once)."""
     __tablename__ = "roster_alerts"
