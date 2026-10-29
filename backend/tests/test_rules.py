@@ -106,7 +106,7 @@ def test_slot_is_start_to_end_and_blocks_those_times(client):
     assert r.status_code == 200
     b = r.json()
     assert (b["start_min"], b["end_min"]) == (19 * 60, 20 * 60 + 30)
-    assert b["booking_value"] == 1200  # three half-hours at 400 each, from the 800 / 60 min price
+    assert b["booking_value"] == 1200  # 60 min at 800 + 30 min at half the 60-min price
     # the whole 7:00-8:30 slot is closed on that court; the half-hour after it is free
     assert direct(client, h, start="20:00", end="21:00", phone="9811111118", name="Late").status_code == 409
     assert direct(client, h, start="20:30", end="21:00", phone="9811111117", name="After").status_code == 200
@@ -574,3 +574,20 @@ def test_vm_is_whatsapped_tomorrows_allotment_at_1130pm(client, monkeypatch):
     assert json.loads(urllib.parse.parse_qs(sent[1].data.decode())["ContentVariables"][0])["time-slot"] == "6:00 PM to 10:00 PM"
     timeutil.set_clock(at(0, 5, DAY + timedelta(days=1)))  # after midnight "tomorrow" is a new day: nothing sent
     assert tick() == 0
+
+
+def test_long_slot_is_priced_as_hours_plus_a_half_hour(client):
+    from app.models import PricingRule
+    db = SessionLocal()
+    db.add(PricingRule(venue_id=1, sport="Pickleball", weekdays="0123456", start_min=0, end_min=1440,
+                       duration_min=30, amount=500, effective_from=date(2026, 1, 1)))
+    db.commit()
+    db.close()
+    h = login(client, "vm@x.com")
+    def price(start, end):
+        return client.get(f"/api/venues/1/quote?facility_id=1&date={DAY}&start={start}&end={end}", headers=h).json()["amount"]
+    assert price("19:00", "19:30") == 500
+    assert price("19:00", "20:00") == 800
+    assert price("19:00", "20:30") == 1300   # 800 for the hour + 500 for the half-hour, not 3 x 500
+    assert price("19:00", "21:30") == 2100   # 800 + 800 + 500
+    assert price("19:00", "21:00") == 1600
