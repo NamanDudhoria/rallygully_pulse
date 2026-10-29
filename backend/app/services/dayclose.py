@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from .. import audit, config
 from ..audit import DomainError
 from ..models import Booking, CommunityGame, Customer, DayClose, Participant, User, Venue
+from ..permissions import roster_scoped
 from ..timeutil import hhmm, minute_of, now_local, tz_label
 from . import inventory, notify, roster
 
@@ -88,6 +89,9 @@ def close_day(db: Session, actor: User, venue_id: int, d: date) -> DayClose:
         raise DomainError("You can't close a future day.")
     if inventory.hours_for(db, venue_id, d) is None:
         raise DomainError("The venue is not operating on this day.")
+    if roster_scoped(actor):
+        from . import attendance
+        attendance.require_shift_over(db, actor, venue_id, d, "close the day")
     items = missing_items(db, venue_id, d)
     if items:
         raise DomainError(f"{len(items)} item(s) still need resolving before close.")
@@ -104,6 +108,9 @@ def close_day(db: Session, actor: User, venue_id: int, d: date) -> DayClose:
         db.add(dc)
     db.flush()
     audit.record(db, actor, "day.close", "day_close", dc.id, None, {"date": d, "status": dc.status}, venue_id)
+    if roster_scoped(actor):
+        from . import attendance
+        attendance.close_out(db, actor, venue_id, d)  # closing the day is the VM's out-attendance
     return dc
 
 

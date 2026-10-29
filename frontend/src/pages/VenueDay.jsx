@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, BarChart3, CalendarRange, CheckCircle2, ClipboardCheck, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
+  AlertTriangle, BarChart3, CalendarRange, CheckCircle2, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
   MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
@@ -61,7 +61,7 @@ export default function VenueDay() {
               ? <Badge icon={UserCheck}>On duty: {d.on_duty.map((x) => `${x.custom ? `${x.name} ${range12(x.start_min, x.end_min)}` : x.name}${dutyNote(x, d.is_today)}`).join(', ')}</Badge>
               : d.hours && <Badge tone="warn" icon={UserX}>No VM rostered</Badge>}
             {user?.role === 'vm' && d.is_today && (
-              <MyShift venueId={id} attendance={d.on_duty?.find((x) => x.user_id === user.id)?.attendance} onChanged={refresh} />
+              <MyShift attendance={d.on_duty?.find((x) => x.user_id === user.id)?.attendance} />
             )}
             {!canOperate && <Badge tone="info" icon={Eye}>View only</Badge>}
           </p>
@@ -485,8 +485,10 @@ function CommunityTab({ d, onOpen }) {
 
 function CloseTab({ d, date, canOperate, onOpen, onClosed }) {
   const [run, busy] = useAction()
+  const { user } = useAuth()
   const st = d.day_close
   const done = st.status === 'closed' || st.status === 'closed_late'
+  const myShift = user?.role === 'vm' ? d.on_duty?.find((x) => x.user_id === user.id) : null
   return (
     <div className="grid g-main">
       <div className="card">
@@ -494,6 +496,7 @@ function CloseTab({ d, date, canOperate, onOpen, onClosed }) {
         <div className="card-body stack">
           {!st.operating && <div className="callout info">The venue is not operating on this date.</div>}
           {done && <div className="callout good"><CheckCircle2 />Closed {st.closed_at ? `at ${new Date(st.closed_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}` : ''}. HQ can still correct records; analytics update automatically.</div>}
+          {!done && myShift?.end_min != null && date >= todayISO() && <div className="callout info"><Clock />Closing the day is your out-attendance and is allowed once your shift ends at {time12(myShift.end_min)}.</div>}
           {st.status === 'missed' && <div className="callout bad"><AlertTriangle />Missed the {st.deadline} deadline — Operations was notified. Resolve the items and close late.</div>}
           {!done && st.operating && (
             st.missing.length ? (
