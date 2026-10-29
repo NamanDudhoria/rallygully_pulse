@@ -23,6 +23,7 @@ def _tick(run_district: bool) -> None:
         dayclose.escalate_missed(db)
         roster.alert_gaps(db)
         roster.send_tomorrow(db)
+        roster.send_digests(db)
         attendance.retry_photos(db)
         attendance.alert_missing_checkin(db)
         db.commit()

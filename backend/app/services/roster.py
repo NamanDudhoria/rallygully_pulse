@@ -4,6 +4,7 @@ The roster gates VM access (permissions.ensure_venue). To keep that from silentl
 locking a venue out, Operations is emailed each evening about tomorrow's operating
 venues that have no VM rostered.
 """
+import hashlib
 from datetime import date, timedelta
 
 from sqlalchemy import select
@@ -12,8 +13,8 @@ from sqlalchemy.orm import Session
 from .. import audit, config
 from ..timeutil import hhmm
 from ..audit import DomainError
-from ..models import Notification, RosterAlert, User, Venue, VmAssignment, VmRoster
-from ..timeutil import minute_of, now_local
+from ..models import Notification, RosterAlert, RosterMail, User, Venue, VmAssignment, VmLeave, VmRoster
+from ..timeutil import minute_of, now_local, today
 from . import inventory, notify
 
 
@@ -22,6 +23,103 @@ def window(db: Session, r: VmRoster) -> tuple[int, int] | None:
     if r.start_min is not None and r.end_min is not None:
         return r.start_min, r.end_min
     return inventory.hours_for(db, r.venue_id, r.date)
+
+
+def touch(db: Session, d: date) -> None:
+    """The roster for ``d`` changed: note when (the admins are emailed once it settles) and refresh who is on leave."""
+    if d < today():
+        return
+    row = db.get(RosterMail, d)
+    if not row:
+        row = RosterMail(date=d, changed_at=now_local(), sent_count=0)
+        db.add(row)
+    row.changed_at = now_local()
+    db.flush()
+    sync_leaves(db, d)
+
+
+def sync_leaves(db: Session, d: date) -> None:
+    """Record every active VM with no venue on ``d`` as on leave, or on their weekly off. Only for days that have a
+    roster: until someone is rostered, nobody is "on leave"."""
+    rostered = set(db.scalars(select(VmRoster.user_id).where(VmRoster.date == d)))
+    want = {}
+    if rostered:
+        for u in db.scalars(select(User).where(User.role == "vm", User.active.is_(True))):
+            if u.id not in rostered:
+                want[u.id] = "week_off" if u.week_off == d.weekday() else "leave"
+    have = {x.user_id: x for x in db.scalars(select(VmLeave).where(VmLeave.date == d))}
+    for uid, x in have.items():
+        if want.get(uid) != x.kind:
+            db.delete(x)
+    for uid, kind in want.items():
+        if uid not in have or have[uid].kind != kind:
+            db.add(VmLeave(user_id=uid, date=d, kind=kind))
+    db.flush()
+
+
+def _vname(v: Venue) -> str:
+    return v.name.removeprefix("RallyGully ").strip()
+
+
+def _clock(minute: int) -> str:
+    h, m = divmod(minute % 1440, 60)
+    return f"{h % 12 or 12}{f':{m:02d}' if m else ''}{'am' if h < 12 else 'pm'}"
+
+
+def build_message(db: Session, d: date) -> str | None:
+    """The day's roster as the admins read it: shifts by venue, then who is off. None if nobody is rostered."""
+    rows = list(db.execute(select(VmRoster, User, Venue).join(User, User.id == VmRoster.user_id)
+                           .join(Venue, Venue.id == VmRoster.venue_id).where(VmRoster.date == d)
+                           .order_by(Venue.id, User.name)))
+    if not rows:
+        return None
+    groups: dict[str, dict] = {"Morning": {}, "Evening": {}}
+    for r, u, v in rows:
+        w = window(db, r)
+        start = w[0] if w else (r.start_min if r.start_min is not None else 17 * 60)
+        label = f" ({_clock(w[0])}-{_clock(w[1])})" if r.start_min is not None and w else ""
+        groups["Morning" if start < 12 * 60 else "Evening"].setdefault((v.id, label), (v, []))[1].append(u.name)
+    lines = [f"Roster Date - {d.day} {d:%B %Y} ( {d:%A} )", ""]
+    for name, items in groups.items():
+        if items:
+            lines += [f"{name} Shift", ""]
+            lines += [f"* {_vname(v)} – {' + '.join(names)}{label}" for (_, label), (v, names) in items.items()]
+            lines.append("")
+    off = list(db.execute(select(VmLeave, User).join(User, User.id == VmLeave.user_id).where(VmLeave.date == d)
+                          .order_by(User.name)))
+    for kind, title in (("week_off", "Week off :-"), ("leave", "Leave :-")):
+        names = [u.name for x, u in off if x.kind == kind]
+        if names:
+            lines.append(f"{title} {', '.join(names)}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def send_digests(db: Session) -> int:
+    """Email every active HQ Admin the roster for each day that was created or changed and has since been quiet for
+    ROSTER_MAIL_DELAY_MIN minutes (so building a roster entry by entry sends one email, not one per entry). A later
+    change sends an updated one. Returns days emailed."""
+    now = now_local()
+    due = list(db.scalars(select(RosterMail).where(
+        RosterMail.date >= today(), RosterMail.changed_at <= now - timedelta(minutes=config.ROSTER_MAIL_DELAY_MIN))
+        .order_by(RosterMail.date)))
+    admins = [e for e in db.scalars(select(User.email).where(User.role == "hq_admin", User.active.is_(True))
+                                    .order_by(User.id))] or [config.OPS_EMAIL]
+    sent = 0
+    for row in due:
+        if row.sent_at and row.sent_at >= row.changed_at:
+            continue
+        sync_leaves(db, row.date)
+        body = build_message(db, row.date)
+        digest = hashlib.sha256(body.encode()).hexdigest() if body else None
+        row.sent_at = now
+        if not body or digest == row.sent_hash:
+            continue  # nobody rostered, or the change left the roster as it was
+        subject = f"Roster – {row.date:%A} {row.date.day} {row.date:%B %Y}" + (" (updated)" if row.sent_count else "")
+        for to in admins:
+            notify.email(db, to, subject, body, "roster_day", row.date.toordinal(), template="roster_digest")
+        row.sent_hash, row.sent_count = digest, row.sent_count + 1
+        sent += 1
+    return sent
 
 
 def _time12(minute: int) -> str:
@@ -92,6 +190,7 @@ def add(db: Session, actor: User, venue_id: int, user_id: int, d: date,
     db.flush()
     audit.record(db, actor, "roster.add", "roster", r.id, None,
                  {"venue_id": venue_id, "user": u.email, "date": d, "start": start_min, "end": end_min}, venue_id)
+    touch(db, d)
     return r
 
 
@@ -100,6 +199,7 @@ def set_shift(db: Session, actor: User, r: VmRoster, start_min: int | None, end_
     before = {"start": r.start_min, "end": r.end_min}
     r.start_min, r.end_min = start_min, end_min
     audit.record(db, actor, "roster.shift", "roster", r.id, before, {"start": start_min, "end": end_min}, r.venue_id)
+    touch(db, r.date)
     return r
 
 
@@ -108,6 +208,8 @@ def remove(db: Session, actor: User, r: VmRoster) -> None:
     audit.record(db, actor, "roster.remove", "roster", r.id, {"venue_id": r.venue_id, "user": u.email if u else None,
                                                              "date": r.date}, None, r.venue_id)
     db.delete(r)
+    db.flush()
+    touch(db, r.date)
 
 
 def copy_range(db: Session, actor: User, src_start: date, dst_start: date, days: int) -> int:
@@ -115,6 +217,7 @@ def copy_range(db: Session, actor: User, src_start: date, dst_start: date, days:
     if not 1 <= days <= 31:
         raise DomainError("Copy between 1 and 31 days.", 422)
     n = 0
+    touched: set[date] = set()
     for r in list(db.scalars(select(VmRoster).where(VmRoster.date >= src_start,
                                                      VmRoster.date < src_start + timedelta(days=days)))):
         target = dst_start + (r.date - src_start)
@@ -126,7 +229,10 @@ def copy_range(db: Session, actor: User, src_start: date, dst_start: date, days:
             db.add(VmRoster(venue_id=r.venue_id, user_id=r.user_id, date=target, start_min=r.start_min,
                             end_min=r.end_min, created_by=actor.id))
             n += 1
+            touched.add(target)
     db.flush()
+    for t in sorted(touched):
+        touch(db, t)
     audit.record(db, actor, "roster.copy", "roster", None, None,
                  {"from": src_start, "to": dst_start, "days": days, "added": n})
     return n

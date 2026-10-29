@@ -32,7 +32,7 @@ export function PeoplePage() {
     <div className="stack rise">
       <div className="page-head">
         <div><h1>People &amp; access</h1></div>
-        <button className="btn btn-primary" onClick={() => setEdit({ name: '', email: '', phone: '', role: 'vm', venue_ids: [], active: true })}><Plus /> Add person</button>
+        <button className="btn btn-primary" onClick={() => setEdit({ name: '', email: '', phone: '', week_off: null, role: 'vm', venue_ids: [], active: true })}><Plus /> Add person</button>
       </div>
       <div className="spread">
         <div className="seg wrap" role="group" aria-label="Filter by role">
@@ -123,7 +123,7 @@ function PersonDrawer({ person, roles, venues, onClose, onSaved }) {
           )}
           <form className="form" onSubmit={async (e) => {
             e.preventDefault()
-            const body = { name: f.name, email: f.email, phone: f.phone || null, role: f.role, venue_ids: f.role === 'vm' ? f.venue_ids : [], active: f.active }
+            const body = { name: f.name, email: f.email, phone: f.phone || null, week_off: f.role === 'vm' && f.week_off !== null && f.week_off !== '' ? Number(f.week_off) : null, role: f.role, venue_ids: f.role === 'vm' ? f.venue_ids : [], active: f.active }
             const r = await run(() => (isNew ? post('/api/users', body) : put(`/api/users/${person.id}`, body)), isNew ? null : 'Saved')
             if (!r) return
             onSaved()
@@ -134,9 +134,17 @@ function PersonDrawer({ person, roles, venues, onClose, onSaved }) {
               <input className="input" type="email" value={f.email} disabled={!isNew} onChange={(e) => setF({ ...f, email: e.target.value })} required />
             </Field>
             {f.role === 'vm' && (
-              <Field label="WhatsApp number" help="Optional. Tomorrow's venue and shift is sent here at 11:30 PM.">
-                <input className="input" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-              </Field>
+              <>
+                <Field label="WhatsApp number" help="Optional. Tomorrow's venue and shift is sent here at 11:30 PM.">
+                  <input className="input" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+                </Field>
+                <Field label="Weekly off" help="On this day, a VM with no venue shows as Week off in the roster email; any other day without a venue is Leave.">
+                  <select className="select" value={f.week_off ?? ''} onChange={(e) => setF({ ...f, week_off: e.target.value === '' ? null : Number(e.target.value) })}>
+                    <option value="">None</option>
+                    {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d, i) => <option key={d} value={i}>{d}</option>)}
+                  </select>
+                </Field>
+              </>
             )}
             <Field label="Role" help={self ? "You can't change your own role." : roleInfo ? `Can: ${roleInfo.permissions.map((p) => roles.permissions[p].split(':')[0]).join(' · ')}` : null}>
               <select className="select" value={f.role} disabled={self} onChange={(e) => setF({ ...f, role: e.target.value })}>
@@ -369,7 +377,10 @@ function RosterByVm({ data, today, shown, busy, onAdd, onShift }) {
                       {on.map((e) => (
                         <ShiftChip key={e.id} e={e} label={vname(data.venues.find((v) => v.id === e.venue_id)?.code || '')} onShift={onShift} />
                       ))}
-                      {!on.length && <span className="subtle" style={{ fontSize: 12 }}>Off</span>}
+                      {!on.length && (() => {
+                        const lv = (data.leaves || []).find((x) => x.user_id === m.id && x.date === d)
+                        return <span className="subtle" style={{ fontSize: 12 }}>{lv ? (lv.kind === 'week_off' ? 'Week off' : 'Leave') : 'Off'}</span>
+                      })()}
                       {addable.length > 0 && (
                         <select className="select" value="" style={{ minHeight: 28, padding: '2px 6px', fontSize: 12.5 }}
                           aria-label={`Roster ${m.name} on ${d}`} disabled={busy}

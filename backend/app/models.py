@@ -36,6 +36,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(12))  # see permissions.ROLES
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 10-digit mobile; WhatsApp roster alerts
+    week_off: Mapped[int | None] = mapped_column(Integer, nullable=True)  # VM's weekly day off, 0 = Monday
     # Bumped on password change / deactivation: every previously issued session stops working.
     token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
@@ -98,6 +99,27 @@ class VmAttendance(Base):
     out_accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     out_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     __table_args__ = (UniqueConstraint("user_id", "venue_id", "date"), Index("ix_attendance_date", "date"))
+
+
+class VmLeave(Base):
+    """A VM with no venue on a day the roster exists: on leave (or on their weekly off). Kept up to date as the
+    roster changes."""
+    __tablename__ = "vm_leaves"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    date: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(10))  # leave | week_off
+    __table_args__ = (UniqueConstraint("user_id", "date"), Index("ix_leave_date", "date"))
+
+
+class RosterMail(Base):
+    """Per roster day: when it last changed and what was last emailed to the admins."""
+    __tablename__ = "roster_mails"
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    changed_at: Mapped[datetime] = mapped_column(DateTime)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sent_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class RosterAlert(Base):

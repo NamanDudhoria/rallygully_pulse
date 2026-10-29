@@ -56,6 +56,7 @@ OPS_EMAIL = os.getenv("PULSE_OPS_EMAIL", "ops@rallygully.com")
 APP_URL = os.getenv("PULSE_APP_URL", "http://localhost:8000")
 # Evening-before check for venues with no VM rostered for tomorrow (IST minute of day).
 ROSTER_ALERT_MIN = int(os.getenv("PULSE_ROSTER_ALERT_MIN", str(20 * 60)))
+ROSTER_MAIL_DELAY_MIN = int(os.getenv("PULSE_ROSTER_MAIL_DELAY_MIN", "5"))  # quiet time after the last roster change before admins are emailed
 VM_ALERT_MIN = int(os.getenv("PULSE_VM_ALERT_MIN", str(23 * 60 + 30)))  # each VM is told tomorrow's venue and shift
 
 # Anyone who knows the default key can mint a valid session for any user, so a deployed app must not use it.
