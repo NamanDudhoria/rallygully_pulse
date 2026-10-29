@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import audit, serialize
 from ..auth import create_auth_token, link_for
 from ..db import get_db
-from ..models import User, Venue, VmAssignment, VmRoster
+from ..models import User, Venue, VmAssignment, VmLeave, VmRoster
 from ..permissions import PERMISSIONS, ROLE_PERMISSIONS, ROLES, require
 from ..services import attendance, inventory, roster
 from ..services.customers import normalize_phone
@@ -27,9 +27,12 @@ class UserIn(BaseModel):
     venue_ids: list[int] = []
     active: bool = True
     phone: str | None = None
+    week_off: int | None = None  # a VM's weekly day off: 0 = Monday … 6 = Sunday
 
 
 def _validate(db: Session, body: UserIn) -> None:
+    if body.week_off is not None and not 0 <= body.week_off <= 6:
+        raise HTTPException(422, "Weekly off must be a day of the week.")
     if body.role not in ROLES:
         raise HTTPException(422, f"Role must be one of: {', '.join(ROLES)}")
     if not body.name.strip():
@@ -66,6 +69,7 @@ def create_user(body: UserIn, user: User = Depends(require("users.manage")), db:
     if db.scalar(select(User).where(func.lower(User.email) == email)):
         raise HTTPException(409, "Someone with that email already exists.")
     u = User(name=body.name.strip(), email=email, role=body.role, password_hash=None,
+             week_off=body.week_off if body.role == "vm" else None,
              phone=(normalize_phone(body.phone) if (body.phone or "").strip() else None))
     u.venues = [VmAssignment(venue_id=v) for v in body.venue_ids] if body.role == "vm" else []
     db.add(u)
@@ -87,6 +91,7 @@ def update_user(uid: int, body: UserIn, user: User = Depends(require("users.mana
     role_changed = body.role != u.role
     u.name, u.role = body.name.strip(), body.role
     u.phone = normalize_phone(body.phone) if (body.phone or "").strip() else None
+    u.week_off = body.week_off if body.role == "vm" else None
     if u.active and not body.active:
         u.token_version = (u.token_version or 0) + 1  # sign them out immediately
     u.active = body.active
@@ -97,11 +102,15 @@ def update_user(uid: int, body: UserIn, user: User = Depends(require("users.mana
         u.token_version = (u.token_version or 0) + 1  # new permissions apply from their next sign-in
     db.flush()
     # Leaving a venue team (or the VM role) removes future roster entries there.
-    dropped = 0
+    dropped, dates = 0, set()
     for r in db.scalars(select(VmRoster).where(VmRoster.user_id == u.id, VmRoster.date >= today())):
         if r.venue_id not in new_team or not u.active:
             db.delete(r)
+            dates.add(r.date)
             dropped += 1
+    db.flush()
+    for d in sorted(dates):
+        roster.touch(db, d)
     audit.record(db, user, "user.update", "user", u.id, before, {**serialize.user(u), "roster_removed": dropped})
     db.commit()
     return serialize.user(u)
@@ -169,6 +178,9 @@ def get_roster(date_from: date, date_to: date, user: User = Depends(require("ros
                     "hours": {x.isoformat(): inventory.hours_for(db, v.id, x) for x in days}}
                    for v in venues],
         "entries": [{**_entry(db, r, u), "attendance": seen.get((u.id, r.venue_id, r.date))} for r, u in entries],
+        "leaves": [{"user_id": x.user_id, "name": n, "date": x.date, "kind": x.kind} for x, n in db.execute(
+            select(VmLeave, User.name).join(User, User.id == VmLeave.user_id).where(
+                VmLeave.date >= date_from, VmLeave.date <= date_to).order_by(VmLeave.date, User.name))],
         "tomorrow_gaps": [v.name for v in roster.gaps(db, today() + timedelta(days=1))],
         "vms": [{"id": u.id, "name": u.name, "email": u.email} for u in db.scalars(
             select(User).where(User.role == "vm", User.active.is_(True)).order_by(User.name))],

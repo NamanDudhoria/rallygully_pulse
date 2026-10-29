@@ -868,3 +868,70 @@ def test_member_recognised_at_attendance_on_an_unpaid_booking(client):
     got = client.get(f"/api/bookings/{b['id']}", headers=vm).json()
     assert (got["booking_value"], got["payment_status"], got["membership_id"]) == (0, "paid", mid)
     assert client.get(f"/api/memberships/{mid}", headers=ha).json()["used_hours"] == 1
+
+
+def test_admins_get_the_roster_email_once_it_settles_in_the_requested_format(client):
+    from app.models import Notification
+    from app.services import roster as roster_svc
+    db = SessionLocal()
+    db.add_all([User(name="Admin One", email="ra1@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"),
+                User(name="Admin Two", email="ra2@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"),
+                User(name="HQ Only", email="rh@x.com", password_hash=hash_password("pulse1234"), role="hq")])
+    vm = db.query(User).filter_by(email="vm@x.com").one()
+    vm.name = "Mohit"
+    others = {}
+    for n, wo in (("Aditya", None), ("Suraj", None), ("Gaurav", (DAY + timedelta(days=2)).weekday()), ("Shubham", None)):
+        u = User(name=n, email=f"{n.lower()}@x.com", password_hash=hash_password("pulse1234"), role="vm", week_off=wo)
+        db.add(u)
+        db.flush()
+        others[n] = u.id
+        db.add_all([VmAssignment(user_id=u.id, venue_id=1), VmAssignment(user_id=u.id, venue_id=2)])
+    db.commit()
+    vm_id = vm.id
+    db.close()
+    hq = login(client, "hq@x.com")
+    day = (DAY + timedelta(days=2)).isoformat()      # a Friday
+    post = lambda **b: client.post("/api/roster", headers=hq, json={"date": day, **b})
+    assert post(venue_id=1, user_id=vm_id).status_code == 200                                        # Mohit, EOK, evening
+    assert post(venue_id=1, user_id=others["Aditya"]).status_code == 200                             # + Aditya, same shift
+    assert post(venue_id=2, user_id=others["Suraj"], start="09:00", end="17:00").status_code == 200  # Saket, 9am-5pm
+
+    def tick():
+        db = SessionLocal()
+        n = roster_svc.send_digests(db)
+        db.commit()
+        db.close()
+        return n
+
+    timeutil.set_clock(at(16, 2))
+    assert tick() == 0                                   # still inside the quiet period: one email, not one per entry
+    timeutil.set_clock(at(16, 10))
+    assert tick() == 1
+    db = SessionLocal()
+    mails = db.query(Notification).filter_by(template="roster_digest").order_by(Notification.id).all()
+    assert sorted(m.recipient for m in mails) == ["ra1@x.com", "ra2@x.com"]   # every admin, not plain HQ
+    assert mails[0].body.startswith("Roster – Friday")
+    body = mails[0].body.split("\n\n", 1)[1]
+    assert body.splitlines() == [
+        "Roster Date - 9 October 2026 ( Friday )", "", "Morning Shift", "", "* Saket – Suraj (9am-5pm)", "",
+        "Evening Shift", "", "* East of Kailash – Aditya + Mohit", "",
+        "Week off :- Gaurav", "Leave :- Shubham"]
+    db.close()
+    assert tick() == 0                                   # nothing changed: nothing more is sent
+    # leaves are kept in the database too
+    leaves = client.get(f"/api/roster?date_from={day}&date_to={day}", headers=hq).json()["leaves"]
+    assert sorted((x["name"], x["kind"]) for x in leaves) == [("Gaurav", "week_off"), ("Shubham", "leave")]
+    # a change sends an updated email, and a person given a venue stops being on leave
+    assert post(venue_id=2, user_id=others["Shubham"]).status_code == 200
+    timeutil.set_clock(at(16, 20))
+    assert tick() == 1
+    db = SessionLocal()
+    last = db.query(Notification).filter_by(template="roster_digest").order_by(Notification.id.desc()).first()
+    assert last.body.startswith("Roster – Friday 9 October 2026 (updated)")
+    assert "Leave :-" not in last.body and "Saket – Shubham, Suraj" not in last.body
+    db.close()
+    leaves = client.get(f"/api/roster?date_from={day}&date_to={day}", headers=hq).json()["leaves"]
+    assert [(x["name"], x["kind"]) for x in leaves] == [("Gaurav", "week_off")]
+    # a day with no roster has no leaves and no email
+    quiet = (DAY + timedelta(days=4)).isoformat()
+    assert client.get(f"/api/roster?date_from={quiet}&date_to={quiet}", headers=hq).json()["leaves"] == []
