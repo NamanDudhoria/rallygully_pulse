@@ -35,6 +35,7 @@ PERMISSIONS = {
     "roster.manage": "Daily VM roster",
     "users.manage": "Create people, set roles, send invites and reset links",
     "store.manage": "RG Store: products, prices, restocking, stock corrections, voiding sales",
+    "expenses.manage": "Log and review company expenses (HQ, Community, Academy)",
     "cash.manage": "See venue cash balances and record deposits and other changes to them",
     "audit.view": "Audit trail",
     "system.view": "Integrations: District ingestion, WhatsApp and email logs",
@@ -44,8 +45,8 @@ _ALL = set(PERMISSIONS)
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "hq_admin": _ALL,
     "hq": _ALL - {"users.manage"},
-    "community": {"portfolio.view", "venue.view", "community.manage", "customers.view"},
-    "academy": {"portfolio.view", "venue.view", "academy.manage"},
+    "community": {"portfolio.view", "venue.view", "community.manage", "customers.view", "expenses.manage"},
+    "academy": {"portfolio.view", "venue.view", "academy.manage", "expenses.manage"},
     "vm": {"venue.operate"},
 }
 

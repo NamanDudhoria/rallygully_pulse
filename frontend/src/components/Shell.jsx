@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity, BarChart3, BookOpen, Building2, CalendarDays, CalendarRange, ClipboardList, GraduationCap, KeyRound,
-  History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, ShoppingBag, Sun, Users, UsersRound, Briefcase, Plug, Banknote,
+  History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, ShoppingBag, Sun, Users, UsersRound, Briefcase, Plug, Banknote, Receipt,
 } from 'lucide-react'
 import logo from '../assets/logo.svg'
 import { post } from '../lib/api'
@@ -100,6 +100,7 @@ export default function Shell() {
               can('events.manage') && link('/events', Briefcase, 'Corporate / Private'),
               can('roster.manage') && link('/roster', CalendarRange, 'VM roster'),
               can('store.manage') && link('/store', ShoppingBag, 'RG Store'),
+              can('expenses.manage') && link('/expenses', Receipt, 'Expenses'),
             ])}
             {section('Intelligence', [can('customers.view') && link('/customers', Activity, 'Customers')])}
             {section('System', [
