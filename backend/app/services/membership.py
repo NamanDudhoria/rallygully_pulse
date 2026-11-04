@@ -117,7 +117,7 @@ def release(db: Session, actor: User | None, b: Booking) -> None:
 
 def create(db: Session, actor: User, *, phone: str, name: str, venue_ids: list[int], hours: float, amount_paid: float,
            method: str, sold_on: date, starts_on: date, expires_on: date | None, notes: str | None) -> Membership:
-    from .bookings import PAYMENT_METHODS
+    from .bookings import METHOD_TEXT, PAYMENT_METHODS
     if not (name or "").strip():
         raise DomainError("Enter the member's name.", 422)
     if not venue_ids:
@@ -129,7 +129,7 @@ def create(db: Session, actor: User, *, phone: str, name: str, venue_ids: list[i
     if amount_paid < 0:
         raise DomainError("The amount paid can't be negative.", 422)
     if method not in PAYMENT_METHODS:
-        raise DomainError("Choose how the membership was paid: cash, UPI, Razorpay or other.", 422)
+        raise DomainError(f"Choose how the membership was paid: {METHOD_TEXT}.", 422)
     if expires_on and expires_on < starts_on:
         raise DomainError("The expiry date can't be before the start date.", 422)
     customer, _ = customers.get_or_create(db, phone, name)

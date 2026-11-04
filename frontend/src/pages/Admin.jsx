@@ -4,7 +4,7 @@ import { AlertTriangle, Mail, MessageCircle, Pencil, Play, Plus, Repeat, Search,
 import { del, post, put } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
-import { addDays, dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
+import { METHOD, PAY_MODES, addDays, dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, KindLabel, Skeleton, Tabs } from '../components/ui'
 import { getFix } from '../lib/attendance'
 
@@ -546,7 +546,7 @@ function CashDrawer({ venue, onClose, onChanged }) {
 }
 
 const MEMBER_STATUS = { active: ['good', 'Active'], expired: ['warn', 'Expired'], used_up: ['info', 'Hours used up'], cancelled: ['bad', 'Cancelled'] }
-const PAY_METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['razorpay', 'Razorpay'], ['other', 'Other']]
+const PAY_METHODS = PAY_MODES.map((m) => [m, METHOD[m]])
 
 /** Memberships: hours one person bought in a single payment. Their bookings are covered from the balance. */
 function MembershipsConfig() {
@@ -593,7 +593,7 @@ function MembershipsConfig() {
 
 function MembershipDrawer({ venues, onClose, onSaved }) {
   const [run, busy] = useAction()
-  const [f, setF] = useState({ phone: '', name: '', venue_ids: [], hours: '', amount_paid: '', method: 'upi', sold_on: todayISO(), starts_on: todayISO(), expires_on: '', notes: '' })
+  const [f, setF] = useState({ phone: '', name: '', venue_ids: [], hours: '', amount_paid: '', method: 'rg_qr', sold_on: todayISO(), starts_on: todayISO(), expires_on: '', notes: '' })
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   return (
     <Drawer open onClose={onClose} title="New membership" subtitle="Hours bought in one payment, for one person">

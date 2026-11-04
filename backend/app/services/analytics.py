@@ -28,7 +28,7 @@ from .inventory import hours_map
 from .pricing import PriceBook
 
 KINDS = ("district", "direct", "community", "academy", "corporate")
-METHODS = ("online", "cash", "upi", "razorpay", "card", "other")  # card: older records
+METHODS = ("online", "cash", "dist_qr", "rg_qr", "razorpay", "upi", "card", "other")  # upi, card: older records
 
 # ── memoization keyed on a global data version ───────────────────────────────
 _version = 0

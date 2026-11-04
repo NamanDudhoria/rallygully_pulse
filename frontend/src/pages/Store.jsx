@@ -5,11 +5,11 @@ import { History as HistoryIcon, Minus, PackagePlus, Pencil, Plus, ShoppingBag, 
 import { api, post, put } from '../lib/api'
 import { useApi, useLocalState } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
-import { addDays, dateTime, money, phoneFmt, shortDate, todayISO } from '../lib/format'
+import { METHOD, PAY_MODES, addDays, dateTime, money, phoneFmt, shortDate, todayISO } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, Seg, Skeleton, Tabs } from '../components/ui'
 
-const METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['razorpay', 'Razorpay'], ['other', 'Other']].map(([value, label]) => ({ value, label }))
-const METHOD_LABEL = Object.fromEntries(METHODS.map((m) => [m.value, m.label]))
+const METHODS = PAY_MODES.map((value) => ({ value, label: METHOD[value] }))
+const METHOD_LABEL = METHOD
 const vname = (n) => n.replace('RallyGully ', '')
 const digitsOf = (p) => (p || '').replace(/\D/g, '')
 
@@ -288,6 +288,7 @@ function HistoryDrawer({ product, onClose }) {
 
 // ── Sales ────────────────────────────────────────────────────────────────────
 function SalesTab({ venue, hq }) {
+  const [run] = useAction()
   const [range, setRange] = useState({ from: todayISO(), to: todayISO() })
   const q = hq ? `?date_from=${range.from}&date_to=${range.to}` : ''
   const { data, error, reload } = useApi(`/api/store/${venue.id}/sales${q}`)
@@ -330,7 +331,14 @@ function SalesTab({ venue, hq }) {
                       <td className="nowrap">{hq && range.from !== range.to ? `${shortDate(s.paid_at.slice(0, 10))} ` : ''}{new Date(s.paid_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}<div className="subtle" style={{ fontSize: 12 }}>{s.sold_by}</div></td>
                       <td>{s.customer.name || '—'}<div className="subtle" style={{ fontSize: 12 }}>{phoneFmt(s.customer.phone)}</div></td>
                       <td>{s.items.map((i) => `${i.quantity} × ${i.name}`).join(', ')}</td>
-                      <td>{s.status === 'voided' ? <Badge tone="bad">Voided</Badge> : s.status === 'on_bill' ? <Badge tone="warn">On bill, unpaid</Badge> : METHOD_LABEL[s.payment_method] || s.payment_method}</td>
+                      <td>{s.status === 'voided' ? <Badge tone="bad">Voided</Badge> : s.status === 'on_bill' ? <Badge tone="warn">On bill, unpaid</Badge>
+                        : !s.booking_id ? (
+                          <select className="select" style={{ minHeight: 28, padding: '2px 6px', fontSize: 12.5, width: 'auto' }} aria-label={`How ${s.receipt} was paid`}
+                            value={s.payment_method} onChange={async (e) => { if (await run(() => post(`/api/store/sales/${s.id}/method`, { method: e.target.value }), 'Mode of payment updated')) reload() }}>
+                            {!PAY_MODES.includes(s.payment_method) && <option value={s.payment_method}>{METHOD[s.payment_method] || s.payment_method}</option>}
+                            {PAY_MODES.map((m) => <option key={m} value={m}>{METHOD[m]}</option>)}
+                          </select>
+                        ) : (METHOD_LABEL[s.payment_method] || s.payment_method)}</td>
                       <td className="num" style={{ fontWeight: 600 }}>{money(s.total)}</td>
                       {hq && <td className="num">{s.status !== 'voided' && <button className="btn btn-sm btn-ghost" onClick={() => setVoiding(s)}><Undo2 /> Void</button>}</td>}
                     </tr>

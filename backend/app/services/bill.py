@@ -11,6 +11,7 @@ from .. import audit
 from ..audit import DomainError
 from ..models import Booking, Customer, StoreSale, User, Venue
 from . import bookings, store
+from .bookings import METHOD_TEXT
 
 
 def _store_sales(db: Session, b: Booking) -> list[StoreSale]:
@@ -51,7 +52,7 @@ def bill(db: Session, b: Booking) -> dict:
 def pay(db: Session, actor: User, b: Booking, method: str | None) -> dict:
     """Collect everything still owed on the booking's bill with one payment method."""
     if method not in bookings.PAYMENT_METHODS:
-        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
+        raise DomainError(f"Choose a payment method: {METHOD_TEXT}.", 422)
     paid, anything = {"court": 0.0, "rental": 0.0, "store": 0.0}, False
     if _court_due(b):
         bookings.record_payment(db, actor, b, method)

@@ -182,6 +182,12 @@ class BillPayIn(BaseModel):
     method: str
 
 
+class BillMethodIn(BaseModel):
+    basket: str  # court | rental | store
+    method: str
+    id: int | None = None  # the rental line or the store sale; not needed for the court
+
+
 @router.get("/bookings/{booking_id}/bill")
 def get_bill(booking_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     return bill_svc.bill(db, _booking(db, user, booking_id, write=False))
@@ -192,6 +198,27 @@ def pay_bill(booking_id: int, body: BillPayIn, user: User = Depends(current_user
     out = bill_svc.pay(db, user, _booking(db, user, booking_id), body.method)
     db.commit()
     return out
+
+
+@router.post("/bookings/{booking_id}/bill/method")
+def change_bill_method(booking_id: int, body: BillMethodIn, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Edit how one part of the bill was paid. Only the mode of payment can be changed."""
+    b = _booking(db, user, booking_id)
+    if body.basket == "court":
+        bookings.change_court_method(db, user, b, body.method)
+    elif body.basket == "rental" and body.id:
+        bookings.change_rental_method(db, user, b, body.id, body.method)
+    elif body.basket == "store" and body.id:
+        from ..models import StoreSale
+        sale = get_or_404(db, StoreSale, body.id)
+        if sale.booking_id != b.id:
+            raise HTTPException(404, "Not on this booking's bill.")
+        store_svc.change_method(db, user, sale, body.method)
+    else:
+        raise HTTPException(422, "Say which part of the bill: court, a rental or a store sale.")
+    db.commit()
+    return bill_svc.bill(db, b)
 
 
 @router.post("/bookings/{booking_id}/store")

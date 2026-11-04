@@ -256,7 +256,7 @@ def test_payment_window_overdue_and_release(client):
     assert any(c["ref_id"] == b["id"] for c in grid["cells"])  # inventory still held
     ext = client.post(f"/api/bookings/{b['id']}/extend-window", headers=vm, json={"end": "21:30"}).json()
     assert ext["payment_status"] == "to_collect"
-    paid = client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "upi"}).json()
+    paid = client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "rg_qr"}).json()
     assert paid["payment_status"] == "paid" and paid["collected_amount"] == 800
 
 
@@ -399,7 +399,7 @@ def test_vm_only_marks_attendance_and_collects(client):
                     json={"phone": "9822222222", "name": "Ravi", "level": "advanced"}).json()
     asha, ravi = g["participants"]
     # Community records Ravi's prepayment before the game
-    assert client.patch(f"/api/participants/{ravi['id']}", headers=hq, json={"paid": True, "method": "upi"}).status_code == 200
+    assert client.patch(f"/api/participants/{ravi['id']}", headers=hq, json={"paid": True, "method": "dist_qr"}).status_code == 200
     # VM: attendance + collect from the one who hasn't paid
     assert client.patch(f"/api/participants/{asha['id']}", headers=vm, json={"attendance": "attended"}).status_code == 200
     assert client.patch(f"/api/participants/{asha['id']}", headers=vm, json={"paid": True, "method": "cash"}).status_code == 200
@@ -754,14 +754,15 @@ def test_rentals_are_separate_lines_with_their_own_payment(client):
 def test_paid_now_covers_court_and_rentals(client):
     ha, body, ids = _setup_rentals(client)
     vm = login(client, "hq@x.com")  # HQ can take payment at booking time; a VM only from 30 min before the start
-    b = direct(client, vm, pay_now=True, method="upi", rentals=[{"item_id": ids["Shoes"], "quantity": 1}]).json()
-    assert b["payment_status"] == "paid" and b["rental_due"] == 0 and b["rentals"][0]["paid_method"] == "upi"
+    b = direct(client, vm, pay_now=True, method="rg_qr", rentals=[{"item_id": ids["Shoes"], "quantity": 1}]).json()
+    assert b["payment_status"] == "paid" and b["rental_due"] == 0 and b["rentals"][0]["paid_method"] == "rg_qr"
 
 
-def test_payment_methods_are_cash_upi_razorpay_other(client):
+def test_payment_methods_are_cash_district_qr_rg_qr_razorpay_other(client):
     vm = login(client, "hq@x.com")
     assert direct(client, vm, pay_now=True, method="card", phone="9811111130", name="Q").status_code == 422
-    for i, m in enumerate(("cash", "upi", "razorpay", "other")):
+    assert direct(client, vm, pay_now=True, method="upi", phone="9811111131", name="Q2").status_code == 422   # UPI is now two QRs
+    for i, m in enumerate(("cash", "dist_qr", "rg_qr", "razorpay", "other")):
         r = direct(client, vm, start=f"{17 + i}:00", pay_now=True, method=m, phone=f"98111112{i}0", name="N")
         assert r.status_code == 200 and r.json()["payment_method"] == m
 
@@ -787,7 +788,7 @@ def test_online_booking_entered_by_hand(client):
 
 def _member(client, hq, phone="9811111150", hours=3, venues=(1,), **kw):
     body = {"phone": phone, "name": "Mia Member", "venue_ids": list(venues), "hours": hours, "amount_paid": 2400,
-            "method": "upi", **kw}
+            "method": "rg_qr", **kw}
     return client.post("/api/memberships", headers=hq, json=body)
 
 
@@ -965,7 +966,7 @@ def test_cash_payments_add_to_the_venue_balance_and_other_methods_do_not(client)
     ha, hq = _cash_admin(client), login(client, "hq@x.com")
     assert _venue_cash(client, ha)["balance"] == 0
     cash = direct(client, hq, pay_now=True, method="cash", phone="9811111181", name="C1").json()      # 800 cash
-    direct(client, hq, start="20:00", pay_now=True, method="upi", phone="9811111182", name="C2")       # UPI: not cash
+    direct(client, hq, start="20:00", pay_now=True, method="rg_qr", phone="9811111182", name="C2")      # RG QR: not cash
     direct(client, hq, start="21:00", pay_now=True, method="razorpay", phone="9811111183", name="C3")  # not cash
     b = _venue_cash(client, ha)
     assert (b["collected"], b["balance"]) == (800, 800)
@@ -1128,15 +1129,15 @@ def test_one_bill_for_court_rentals_and_store_items_split_into_baskets(client):
     assert client.get("/api/store/1/products", headers=vm).json()[0]["stock"] == 7     # handed over: stock already down
     # one payment settles everything
     timeutil.set_clock(at(19, 0))
-    paid = client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "upi"}).json()
-    assert (paid["due"], paid["paid"]) == (0, 990) and all(x["paid"] and x["method"] == "upi" for x in paid["lines"])
-    assert client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "upi"}).status_code == 409
+    paid = client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "dist_qr"}).json()
+    assert (paid["due"], paid["paid"]) == (0, 990) and all(x["paid"] and x["method"] == "dist_qr" for x in paid["lines"])
+    assert client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "dist_qr"}).status_code == 409
     # ...but each part sits in its own basket
     db = SessionLocal()
     assert [p.amount for p in db.query(Payment).filter_by(source_type="booking")] == [800]       # court revenue only
     assert sum(x.amount for x in db.query(RentalCharge).filter(RentalCharge.paid_at.is_not(None))) == 100
     s = db.query(StoreSale).one()
-    assert (s.status, s.total, s.booking_id, s.payment_method) == ("confirmed", 90, b["id"], "upi")
+    assert (s.status, s.total, s.booking_id, s.payment_method) == ("confirmed", 90, b["id"], "dist_qr")
     db.close()
     sales = client.get("/api/store/1/sales", headers=ha).json()
     assert sales["totals"]["revenue"] == 90                                                         # in the store's books
@@ -1182,3 +1183,70 @@ def test_customer_spend_and_average_bill(client):
                                                        "method": "cash"})                         # bill 2: 30 standalone
     sp = client.get(f"/api/customers/{b['customer']['id']}", headers=hq).json()["spend"]
     assert (sp["court"], sp["store"], sp["total"], sp["bills"], sp["average_bill"]) == (800, 90, 890, 2, 445)
+
+
+def test_only_the_mode_of_a_recorded_payment_can_be_edited(client):
+    from app.models import Payment
+    ha, water = _store_product(client)
+    _, body, ids = _setup_rentals(client)
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    b = direct(client, vm, rentals=[{"item_id": ids["Racket"], "quantity": 1}]).json()
+    client.post(f"/api/bookings/{b['id']}/store", headers=vm, json={"items": [{"item_id": water, "quantity": 2}]})
+    timeutil.set_clock(at(19, 0))
+    edit = lambda h, **kw: client.post(f"/api/bookings/{b['id']}/bill/method", headers=h, json=kw)
+    assert edit(vm, basket="court", method="cash").status_code == 409             # nothing paid yet
+    client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "cash"})
+    cash_admin = _cash_admin(client)
+    assert _venue_cash(client, cash_admin)["balance"] == 800 + 50 + 60
+    # court: cash -> RG QR; the amount and everything else stay, and the cash balance follows
+    bill = edit(vm, basket="court", method="rg_qr").json()
+    assert [x["method"] for x in bill["lines"] if x["basket"] == "court"] == ["rg_qr"] and bill["total"] == 910
+    db = SessionLocal()
+    assert [(p.amount, p.method) for p in db.query(Payment).filter_by(source_type="booking")] == [(800, "rg_qr")]
+    db.close()
+    assert _venue_cash(client, cash_admin)["balance"] == 110
+    # a rental line and the store items are edited on their own
+    rid = next(x["id"] for x in bill["lines"] if x["basket"] == "rental")
+    sid = next(x["id"] for x in bill["lines"] if x["basket"] == "store")
+    assert edit(vm, basket="rental", id=rid, method="dist_qr").status_code == 200
+    assert edit(vm, basket="store", id=sid, method="razorpay").status_code == 200
+    assert {x["basket"]: x["method"] for x in client.get(f"/api/bookings/{b['id']}/bill", headers=vm).json()["lines"]} == {
+        "court": "rg_qr", "rental": "dist_qr", "store": "razorpay"}
+    # rules
+    assert edit(vm, basket="court", method="rg_qr").status_code == 409            # already that
+    assert edit(vm, basket="court", method="upi").status_code == 422             # not an option any more
+    assert edit(vm, basket="court").status_code == 422 and edit(vm, basket="store", method="cash").status_code == 422
+    # a VM can't edit once the day is closed; HQ still can
+    client.post(f"/api/bookings/{b['id']}/attended", headers=vm)
+    sop_done(client, vm)
+    timeutil.set_clock(at(23, 0))
+    assert client.post("/api/venues/1/close", headers=vm).status_code == 200
+    assert edit(vm, basket="court", method="cash").status_code == 403
+    assert edit(hq, basket="court", method="cash").status_code == 200
+    # and it all shows in the audit trail
+    trail = [e for e in client.get("/api/audit?limit=100", headers=hq).json() if e["action"] == "payment.method"]
+    assert len(trail) == 4
+
+
+def test_old_upi_records_can_be_relabelled_and_online_payments_cannot_be_edited(client):
+    from app.models import Booking, Payment
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    b = direct(client, hq, pay_now=True, method="cash").json()
+    db = SessionLocal()
+    db.query(Payment).update({"method": "upi"})
+    db.query(Booking).update({"payment_method": "upi"})                    # a payment recorded before the QR split
+    db.commit()
+    db.close()
+    edit = lambda bid, m: client.post(f"/api/bookings/{bid}/bill/method", headers=hq, json={"basket": "court", "method": m})
+    assert edit(b["id"], "rg_qr").status_code == 200
+    online = client.post("/api/system/district/simulate", headers=hq, json={"raw": EMAIL.format(pay="Paid")}).json()["booking_id"]
+    assert edit(online, "cash").status_code == 409                          # prepaid on the platform
+
+
+def test_standalone_store_sale_mode_can_be_edited(client):
+    ha, water = _store_product(client)
+    vm = login(client, "vm@x.com")
+    s = client.post("/api/store/1/sales", headers=vm, json={"items": [{"product_id": water, "quantity": 1}], "phone": "9811111111", "method": "cash"}).json()
+    assert client.post(f"/api/store/sales/{s['id']}/method", headers=vm, json={"method": "rg_qr"}).json()["payment_method"] == "rg_qr"
+    assert client.get("/api/store/1/sales", headers=ha).json()["totals"]["by_method"] == {"rg_qr": 30}
+    assert client.post(f"/api/store/sales/{s['id']}/method", headers=vm, json={"method": "bogus"}).status_code == 422

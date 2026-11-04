@@ -14,7 +14,10 @@ from ..timeutil import at_minute, hhmm, minute_of, now_local, today
 from . import customers, inventory, membership, notify
 from .pricing import quote
 
-PAYMENT_METHODS = ("cash", "upi", "razorpay", "other")
+PAYMENT_METHODS = ("cash", "dist_qr", "rg_qr", "razorpay", "other")  # dist_qr: District QR, rg_qr: RallyGully QR
+METHOD_TEXT = "cash, District QR, RG QR, Razorpay or other"
+LEGACY_METHODS = ("upi", "card")  # recorded before the QR split; still valid on old records
+NOT_EDITABLE_METHODS = ("online", "membership")  # not a mode someone chose at the counter
 CANCEL_REASONS = {
     "court_unavailable": "Court unavailable",
     "maintenance": "Maintenance / facility issue",
@@ -308,7 +311,7 @@ def remove_rental(db: Session, actor: User, b: Booking, rental_id: int) -> None:
 def pay_rentals(db: Session, actor: User, b: Booking, method: str | None) -> float:
     """Record payment of every unpaid rental on the booking in one go. Returns the amount."""
     if method not in PAYMENT_METHODS:
-        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
+        raise DomainError(f"Choose a payment method: {METHOD_TEXT}.", 422)
     unpaid = [x for x in _rental_lines(db, b.id) if x.paid_at is None]
     if not unpaid:
         raise DomainError("There are no unpaid rentals on this booking.")
@@ -320,10 +323,60 @@ def pay_rentals(db: Session, actor: User, b: Booking, method: str | None) -> flo
     return total
 
 
+def _may_edit_method(db: Session, actor: User, venue_id: int, d: date) -> None:
+    """HQ can correct the mode of a payment any time; a Venue Manager only on the day itself, before it is closed."""
+    if _is_hq(actor):
+        return
+    from ..models import DayClose
+    closed = db.scalar(select(DayClose.id).where(DayClose.venue_id == venue_id, DayClose.date == d,
+                                                 DayClose.status.in_(("closed", "closed_late"))))
+    if d != today() or closed:
+        raise DomainError("The day is closed. HQ can correct how this was paid.", 403)
+
+
+def _check_new_method(old: str | None, new: str | None) -> None:
+    if new not in PAYMENT_METHODS:
+        raise DomainError(f"Choose a payment method: {METHOD_TEXT}.", 422)
+    if old in NOT_EDITABLE_METHODS:
+        raise DomainError("This was paid on the platform or by a membership, so its mode can't be changed.", 409)
+    if old == new:
+        raise DomainError("It is already recorded as that.", 409)
+
+
+def change_court_method(db: Session, actor: User, b: Booking, method: str | None) -> Booking:
+    """Change only how the booking itself was paid. The amount and everything else stay as recorded."""
+    if b.payment_status != "paid":
+        raise DomainError("Nothing has been paid on the booking yet.", 409)
+    _check_new_method(b.payment_method, method)
+    _may_edit_method(db, actor, b.venue_id, b.date)
+    old = b.payment_method
+    for p in db.scalars(select(Payment).where(Payment.source_type == "booking", Payment.source_id == b.id,
+                                              Payment.void.is_(False))):
+        p.method = method
+    b.payment_method = method
+    audit.record(db, actor, "payment.method", "booking", b.id, {"method": old}, {"method": method}, b.venue_id)
+    return b
+
+
+def change_rental_method(db: Session, actor: User, b: Booking, rental_id: int, method: str | None) -> RentalCharge:
+    line = db.get(RentalCharge, rental_id)
+    if not line or line.booking_id != b.id:
+        raise DomainError("Rental not found.", 404)
+    if line.paid_at is None:
+        raise DomainError("That rental hasn't been paid yet.", 409)
+    _check_new_method(line.paid_method, method)
+    _may_edit_method(db, actor, b.venue_id, b.date)
+    old = line.paid_method
+    line.paid_method = method
+    audit.record(db, actor, "payment.method", "booking", b.id, {"rental": line.item_name, "method": old},
+                 {"rental": line.item_name, "method": method}, b.venue_id)
+    return line
+
+
 def record_payment(db: Session, actor: User, b: Booking, method: str | None, *, at_creation: bool = False) -> Booking:
     _require_not_cancelled(b)
     if method not in PAYMENT_METHODS:
-        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
+        raise DomainError(f"Choose a payment method: {METHOD_TEXT}.", 422)
     if b.payment_status == "paid":
         raise DomainError("Already paid.")
     if not _is_hq(actor):

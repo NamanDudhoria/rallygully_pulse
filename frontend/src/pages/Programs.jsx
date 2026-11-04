@@ -4,13 +4,13 @@ import { Plus, Wallet, XCircle } from 'lucide-react'
 import { post } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction } from '../lib/useCtx'
-import { METHOD, addDays, money, range12, shortDate, todayISO } from '../lib/format'
+import { METHOD, PAY_MODES, addDays, money, range12, shortDate, todayISO } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, KindLabel, Seg, Skeleton } from '../components/ui'
 import { GameDrawer } from '../components/drawers'
 import { payBadge } from '../components/badges'
 
 const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const METHODS = ['cash', 'upi', 'razorpay', 'other'].map((m) => ({ value: m, label: METHOD[m] }))
+const METHODS = PAY_MODES.map((m) => ({ value: m, label: METHOD[m] }))
 
 function VenuePicker({ venues, value, onChange }) {
   return (
@@ -213,7 +213,7 @@ function AcademyCreate({ venues, onClose, onDone }) {
 function AcademyDetail({ id, onClose, onChanged }) {
   const { data: s, reload } = useApi(`/api/academy/${id}`)
   const [run, busy] = useAction()
-  const [rec, setRec] = useState({ month: todayISO().slice(0, 7), amount: '', method: 'upi' })
+  const [rec, setRec] = useState({ month: todayISO().slice(0, 7), amount: '', method: 'rg_qr' })
   const act = async (fn, msg) => { if (await run(fn, msg)) { reload(); onChanged() } }
   if (!s) return <Drawer open onClose={onClose} title="Academy"><p className="subtle">Loading…</p></Drawer>
   const upcoming = s.occurrences.filter((o) => o.date >= todayISO()).slice(0, 12)

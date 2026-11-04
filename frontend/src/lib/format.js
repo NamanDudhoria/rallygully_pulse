@@ -83,7 +83,9 @@ export const KINDS = ['district', 'direct', 'community', 'academy', 'corporate']
 /** Kinds that only imported history produces; shown only when they have revenue. */
 export const HISTORY_KINDS = ['platforms', 'other']
 
-export const METHOD = { cash: 'Cash', upi: 'UPI', razorpay: 'Razorpay', card: 'Card', other: 'Other', online: 'Online (prepaid)', membership: 'Membership' }
+export const METHOD = { cash: 'Cash', dist_qr: 'District QR', rg_qr: 'RG QR', razorpay: 'Razorpay', upi: 'UPI (older)', card: 'Card (older)', other: 'Other', online: 'Online (prepaid)', membership: 'Membership' }
+/** The ways a payment can be recorded now. UPI and card appear only on older records. */
+export const PAY_MODES = ['cash', 'dist_qr', 'rg_qr', 'razorpay', 'other']
 
 export function initials(name = '') {
   return name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?'

@@ -16,7 +16,7 @@ from ..audit import DomainError
 from ..models import Customer, StoreProduct, StoreSale, StoreSaleItem, StoreStockMove, User, Venue
 from ..timeutil import now_local
 from . import customers, notify
-from .bookings import PAYMENT_METHODS
+from .bookings import METHOD_TEXT, PAYMENT_METHODS
 
 MAX_QTY = 50
 
@@ -165,7 +165,7 @@ def sell(db: Session, actor: User, venue_id: int, items: list[tuple[int, int]], 
          email: str | None, method: str) -> StoreSale:
     """A standalone counter sale: recorded as paid and its items taken out of stock, all or nothing."""
     if method not in PAYMENT_METHODS:
-        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
+        raise DomainError(f"Choose a payment method: {METHOD_TEXT}.", 422)
     customer, _ = customers.get_or_create(db, phone, name, email)
     products, wanted, before = _take(db, venue_id, items)
     return _record(db, actor, venue_id, customer.id, products, wanted, before, method=method, status="confirmed")
@@ -183,6 +183,19 @@ def remove_from_bill(db: Session, actor: User, sale: StoreSale) -> StoreSale:
     if sale.status != "on_bill":
         raise DomainError("Only unpaid items on a bill can be removed. HQ can void a paid sale.")
     return void_sale(db, actor, sale, "Removed from the bill")
+
+
+def change_method(db: Session, actor: User, sale: StoreSale, method: str | None) -> StoreSale:
+    """Change only how a paid store sale was paid. Everything else on it stays as recorded."""
+    from .bookings import _check_new_method, _may_edit_method
+    if sale.status != "confirmed":
+        raise DomainError("Only a paid sale has a payment mode to change.", 409)
+    _check_new_method(sale.payment_method, method)
+    _may_edit_method(db, actor, sale.venue_id, sale.paid_at.date())
+    old = sale.payment_method
+    sale.payment_method = method
+    audit.record(db, actor, "payment.method", "store_sale", sale.id, {"method": old}, {"method": method}, sale.venue_id)
+    return sale
 
 
 def settle(db: Session, actor: User, sale: StoreSale, method: str) -> StoreSale:
