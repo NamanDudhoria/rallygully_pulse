@@ -249,6 +249,24 @@ class VmCashEntry(Base):
     __table_args__ = (Index("ix_vmcash_user", "user_id", "created_at"), Index("ix_vmcash_venue", "venue_id"))
 
 
+class Expense(Base):
+    """A company expense logged by HQ, Community or Academy. No venue means a central expense. Venue Managers' cash
+    expenses live in VmCashEntry and are added to these in the expense report (the P&L comes later)."""
+    __tablename__ = "expenses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    spent_on: Mapped[date] = mapped_column(Date)
+    amount: Mapped[float] = mapped_column(Float)
+    venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"), nullable=True)  # null = central
+    location: Mapped[str | None] = mapped_column(String(120), nullable=True)  # where it was spent / paid to
+    category: Mapped[str] = mapped_column(String(40))
+    subcategory: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    category_other: Mapped[str | None] = mapped_column(String(60), nullable=True)  # written category when "Others"
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (Index("ix_expense_date", "spent_on"), Index("ix_expense_venue", "venue_id"))
+
+
 class RosterAlert(Base):
     """Records that Operations was warned about an unrostered venue-day (sent once)."""
     __tablename__ = "roster_alerts"
@@ -527,6 +545,7 @@ class Participant(Base):
     guest_of: Mapped[int | None] = mapped_column(ForeignKey("participants.id"), nullable=True)  # "Jatan + 1"
     level: Mapped[str] = mapped_column(String(14))  # legacy short form (first 14 chars of the level)
     level_label: Mapped[str | None] = mapped_column(String(40), nullable=True)  # the level as written, e.g. "Beginner +"
+    slot: Mapped[str | None] = mapped_column(String(60), nullable=True)  # sign-up section, e.g. "7-8 PM | Intermediate"
     facility_id: Mapped[int | None] = mapped_column(nullable=True)  # court assigned by HQ / Community, one of the game's
     attendance: Mapped[str] = mapped_column(String(10), default="added")  # added | attended | no_show
     payment_status: Mapped[str] = mapped_column(String(10), default="unpaid")  # unpaid | paid

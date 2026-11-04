@@ -493,6 +493,7 @@ def test_whatsapp_signup_post_imports_matching_section(client):
     assert [p["name"] for p in ps] == ["Jatan", "Jatan's guest", "Lavitt"]
     assert all(p["level"] == "Intermediate" and p["phone"] is None for p in ps)
     assert ps[1]["guest_of_name"] == "Jatan"
+    assert all(p["slot"] == "7-8 PM | Intermediate" for p in ps)
     # Both sections on request; the 7-8 names are already in, so only 8-9 is new
     r = client.post(url, headers=hq, json={"text": POST, "sections": ["7-8 PM | Intermediate", "8-9 PM | Beginner"]}).json()
     assert r["ready"] == 2
@@ -1370,3 +1371,22 @@ def test_courts_assigned_by_community_and_seen_by_vm(client):
     if seen.status_code == 200:
         assert seen.json()["participants"][0]["facility_id"] == fid
     assert client.patch(f"/api/participants/{pid}", headers=hq, json={"facility_id": None}).json()["participants"][0]["facility_id"] is None
+
+
+def test_expenses_hq_and_vm_added_together_by_venue(client):
+    hq = login(client, "hq@x.com")
+    base = {"spent_on": DAY.isoformat(), "amount": 500, "category": "Rent & Utilities", "subcategory": "Rent"}
+    assert client.post("/api/expenses", headers=hq, json={**base, "venue_id": 1, "location": "Landlord"}).status_code == 200
+    assert client.post("/api/expenses", headers=hq, json={**base, "amount": 300}).status_code == 200  # central
+    assert client.post("/api/expenses", headers=hq, json={**base, "category": "Others"}).status_code == 422  # needs text
+    ok = client.post("/api/expenses", headers=hq, json={**base, "category": "Others", "subcategory": None,
+                                                         "category_other": "Gifts", "amount": 100})
+    assert ok.status_code == 200
+    assert client.post("/api/expenses", headers=hq, json={**base, "subcategory": "Nope"}).status_code == 422
+    r = client.get(f"/api/expenses?date_from={DAY.isoformat()}&date_to={DAY.isoformat()}", headers=hq).json()
+    assert r["totals"]["hq"] == 900 and r["totals"]["vm"] == 0
+    by = {b["name"]: b["total"] for b in r["by_venue"]}
+    assert by["Central"] == 400 and sum(by.values()) == 900
+    assert any(c["category"] == "Gifts" for c in r["by_category"])
+    vm = login(client, "vm@x.com")
+    assert client.get("/api/expenses", headers=vm).status_code == 403
