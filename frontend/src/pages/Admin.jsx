@@ -4,7 +4,7 @@ import { AlertTriangle, Mail, MessageCircle, Pencil, Play, Plus, Repeat, Search,
 import { del, post, put } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
-import { dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
+import { addDays, dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, KindLabel, Skeleton, Tabs } from '../components/ui'
 import { getFix } from '../lib/attendance'
 
@@ -82,11 +82,13 @@ export function ConfigPage() {
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'venues', label: 'Venues & hours' }, { value: 'pricing', label: 'Pricing' }, { value: 'memberships', label: 'Memberships' },
         ...(can('cash.manage') ? [{ value: 'cash', label: 'Cash' }] : []),
+        { value: 'discounts', label: 'Custom discounts' },
       ]} />
       {tab === 'venues' && <VenuesConfig />}
       {tab === 'pricing' && <PricingConfig />}
       {tab === 'memberships' && <MembershipsConfig />}
       {tab === 'cash' && can('cash.manage') && <CashConfig />}
+      {tab === 'discounts' && <CustomDiscountsReport />}
     </div>
   )
 }
@@ -389,6 +391,53 @@ function SpecialDates({ venue }) {
           </div>
         ) : <p className="subtle">No overrides.</p>}
       </div>
+    </div>
+  )
+}
+
+/** Every custom discount given at the counter: who, how much and why. */
+function CustomDiscountsReport() {
+  const venues = useApi('/api/venues').data
+  const [f, setF] = useState({ from: addDays(todayISO(), -6), to: todayISO(), venue: '' })
+  const { data, error, reload } = useApi(`/api/discounts/custom?date_from=${f.from}&date_to=${f.to}${f.venue ? `&venue_id=${f.venue}` : ''}`)
+  if (error && !data) return <ErrorState error={error} onRetry={reload} />
+  return (
+    <div className="stack">
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <input className="input" type="date" style={{ width: 170 }} value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} aria-label="From" />
+        <input className="input" type="date" style={{ width: 170 }} value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} aria-label="To" />
+        <select className="select" style={{ width: 200 }} value={f.venue} onChange={(e) => setF({ ...f, venue: e.target.value })} aria-label="Venue">
+          <option value="">All venues</option>
+          {(venues || []).map((v) => <option key={v.id} value={v.id}>{v.name.replace('RallyGully ', '')}</option>)}
+        </select>
+      </div>
+      {!data ? <Skeleton h={240} /> : (
+        <>
+          <div className="card card-pad row" style={{ gap: 24, flexWrap: 'wrap' }}>
+            <div><div className="subtle">Given away</div><b style={{ fontSize: 22 }}>{money(data.total_given)}</b></div>
+            <div><div className="subtle">Bookings</div><b style={{ fontSize: 22 }}>{data.count}</b></div>
+            {data.by_person.map((p) => <div key={p.name}><div className="subtle">{p.name}</div><b>{money(p.given)}</b> <span className="subtle">· {p.count}</span></div>)}
+          </div>
+          <div className="card"><div className="card-body table-wrap">
+            {!data.items.length ? <Empty title="No custom discounts in this period" /> : (
+              <table className="table">
+                <thead><tr><th>Date</th><th>Venue</th><th>Customer</th><th>Given by</th><th>Discount</th><th className="num">Price</th><th className="num">Charged</th><th>Reason</th></tr></thead>
+                <tbody>{data.items.map((x) => (
+                  <tr key={x.booking_id} style={x.status === 'cancelled' ? { opacity: 0.55 } : undefined}>
+                    <td className="nowrap">{shortDate(x.date)}<div className="subtle" style={{ fontSize: 12 }}>{x.time}</div></td>
+                    <td>{(x.venue || '').replace('RallyGully ', '')}</td>
+                    <td>{x.customer || '—'}<div className="subtle" style={{ fontSize: 12 }}>{phoneFmt(x.phone)}</div></td>
+                    <td>{x.by}</td>
+                    <td>{x.discount}{x.status === 'cancelled' ? <div className="subtle" style={{ fontSize: 12 }}>Booking cancelled</div> : null}</td>
+                    <td className="num">{money(x.list_price)}</td><td className="num" style={{ fontWeight: 600 }}>{money(x.charged)}</td>
+                    <td>{x.reason}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div></div>
+        </>
+      )}
     </div>
   )
 }

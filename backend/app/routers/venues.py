@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import serialize
+from ..audit import DomainError
 from ..auth import current_user
 from ..permissions import can, ensure_venue, roster_pairs, roster_scoped
 from ..db import get_db
@@ -184,7 +185,7 @@ def _cell(db: Session, a: Allocation) -> dict:
 
 @router.get("/{venue_id}/quote")
 def get_quote(venue_id: int, facility_id: int, date: date, start: str, end: str | None = None, duration: int = 60,
-              discount_id: int | None = None,
+              discount_id: int | None = None, custom_kind: str | None = None, custom_value: float | None = None,
               user: User = Depends(current_user), db: Session = Depends(get_db)):
     _venue(db, user, venue_id, date)
     f = get_or_404(db, Facility, facility_id)
@@ -197,6 +198,11 @@ def get_quote(venue_id: int, facility_id: int, date: date, start: str, end: str 
     amount = quote(db, f, date, s, e)
     disc = db.get(Discount, discount_id) if discount_id else None
     total = round(amount * (1 - disc.percent / 100), 2) if amount is not None and disc and disc.venue_id == venue_id else amount
+    if amount is not None and custom_kind and custom_value:
+        try:  # preview only: the reason is asked for when the booking is made
+            total = bookings.custom_discount_amount(amount, custom_kind, custom_value, "preview")[0]
+        except DomainError:
+            total = None
     return {"amount": amount, "total": total, "available": free}
 
 

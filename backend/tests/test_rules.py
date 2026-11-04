@@ -1065,3 +1065,40 @@ def test_sop_not_due_without_a_rostered_vm_and_old_photos_are_purged(client):
     db.commit()
     assert db.query(SopPhoto).count() == 0
     db.close()
+
+
+def test_vm_can_give_a_custom_discount_with_a_reason(client):
+    vm = login(client, "vm@x.com")
+    cd = lambda kind, value, reason="Regular, asked nicely": {"kind": kind, "value": value, "reason": reason}
+    # percent off: 800 -> 680
+    b = direct(client, vm, custom_discount=cd("percent", 15)).json()
+    assert (b["booking_value"], b["list_price"], b["discount_name"], b["discount_percent"]) == (680, 800, "Custom 15%", 15)
+    assert b["discount_custom"] and b["discount_reason"] == "Regular, asked nicely"
+    # flat rupees off: 800 -> 700
+    b = direct(client, vm, start="20:00", phone="9811111201", name="F", custom_discount=cd("flat", 100)).json()
+    assert (b["booking_value"], b["discount_name"], b["discount_percent"]) == (700, "Custom ₹100", 12.5)
+    # no cap: up to the full price
+    assert direct(client, vm, start="21:00", phone="9811111202", name="G", custom_discount=cd("percent", 100)).json()["booking_value"] == 0
+    # the rules
+    bad = lambda **kw: direct(client, vm, start="22:00", phone="9811111203", name="H", **kw).status_code
+    assert bad(custom_discount=cd("percent", 10, "  ")) == 422          # reason required
+    assert bad(custom_discount=cd("percent", 120)) == 422
+    assert bad(custom_discount=cd("flat", 900)) == 422                  # more than the price
+    assert bad(custom_discount=cd("flat", 0)) == 422
+    assert bad(custom_discount=cd("half", 10)) == 422
+    assert bad(custom_discount=cd("percent", 10), amount=500) in (403, 422)   # VMs still can't type a price
+    # live preview on the quote
+    q = client.get(f"/api/venues/1/quote?facility_id=1&date={DAY}&start=22:00&end=23:00&custom_kind=flat&custom_value=150", headers=vm).json()
+    assert (q["amount"], q["total"]) == (800, 650)
+
+
+def test_custom_discount_report_shows_who_gave_what_and_why(client):
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    direct(client, vm, custom_discount={"kind": "percent", "value": 25, "reason": "Rain delay"})
+    direct(client, vm, start="20:00", phone="9811111211", name="K", custom_discount={"kind": "flat", "value": 50, "reason": "Late start"})
+    direct(client, vm, start="21:00", phone="9811111212", name="L")   # no discount: not in the report
+    assert client.get(f"/api/discounts/custom?date_from={DAY}&date_to={DAY}", headers=vm).status_code == 403
+    r = client.get(f"/api/discounts/custom?date_from={DAY}&date_to={DAY}", headers=hq).json()
+    assert r["count"] == 2 and r["total_given"] == 250
+    assert sorted((x["reason"], x["off"]) for x in r["items"]) == [("Late start", 50), ("Rain delay", 200)]
+    assert r["by_person"] == [{"name": "VM", "count": 2, "given": 250}]
