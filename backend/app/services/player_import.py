@@ -35,8 +35,18 @@ HEADERS = {
 _PHONE_RE = re.compile(r"(\+?\d[\d\s\-()]{8,16}\d)")
 
 
+LEVEL_WORDS.update({"advance": "advanced", "begginer": "beginner", "beginners": "beginner", "intermediates": "intermediate",
+                    "intermediate": "intermediate"})
+_LEVEL_RE = re.compile(r"^([A-Za-z]+)\.?\s*(\+{1,3})?$")
+
+
 def level_of(value: str) -> str | None:
-    return LEVEL_WORDS.get((value or "").strip().lower().rstrip("."))
+    """The level exactly as written ("Beginner +", "Advance") when it is one we recognise, else None."""
+    text = re.sub(r"\s+", " ", (value or "").strip())
+    m = _LEVEL_RE.match(text)
+    if not m or m.group(1).lower() not in LEVEL_WORDS:
+        return None
+    return text[:40]
 
 
 def _phone_or_none(value: str) -> str | None:
@@ -180,8 +190,11 @@ def section_of(line: str) -> dict | None:
     start, end = _to_min(h1, m1, ap1), _to_min(h2, m2, ap2)
     if ap2 and not m.group(3) and start > end:  # "11-1 PM" → 11 AM–1 PM
         start -= 12 * 60
-    words = re.split(r"[|/,·\-–]+|\s+", rest or "")
-    level = next((level_of(w) for w in words if level_of(w) and len(w) > 1), None)
+    level = None
+    for m2 in re.finditer(r"([A-Za-z]{2,})\.?\s*(\+{1,3})?", rest or ""):
+        if level_of(m2.group(1)):
+            level = (m2.group(1) + (" " + m2.group(2) if m2.group(2) else ""))[:40]
+            break
     return {"label": line.strip().strip("*_ "), "start_min": start, "end_min": end, "level": level}
 
 
@@ -203,7 +216,9 @@ def _entry(text: str) -> tuple[str | None, str | None, str | None, int, str | No
             rest.append(c)
     name = " ".join(rest).strip(" -:|·")
     words = name.split()
-    if level is None and len(words) > 1 and level_of(words[-1]) and len(words[-1]) > 1:
+    if level is None and len(words) > 2 and words[-1] == "+" and level_of(words[-2]) and len(words[-2]) > 1:
+        level, name = f"{words[-2]} +", " ".join(words[:-2])
+    elif level is None and len(words) > 1 and level_of(words[-1]) and len(words[-1]) > 1:
         level, name = level_of(words[-1]), " ".join(words[:-1])
     guests = 0
     g = _GUESTS_RE.match(name)

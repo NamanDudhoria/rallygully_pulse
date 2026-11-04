@@ -424,8 +424,8 @@ def test_bulk_import_preview_then_add(client):
     url = f"/api/community-games/{g['id']}/participants/import"
     prev = client.post(url, headers=hq, json={"text": text, "default_level": "intermediate"}).json()
     st = {r["line"]: (r["status"], r["level"]) for r in prev["rows"]}
-    assert st[2] == ("ready", "beginner") and st[3][0] == "ready" and st[4][0] == "error"
-    assert st[5] == ("ready", "intermediate") and st[6][0] == "skip" and st[7] == ("ready", "advanced")
+    assert st[2] == ("ready", "Beginner") and st[3][0] == "ready" and st[4][0] == "error"
+    assert st[5] == ("ready", "intermediate") and st[6][0] == "skip" and st[7] == ("ready", "pro")
     assert st[8][0] == "skip"  # game full
     assert next(r for r in prev["rows"] if r["line"] == 3)["name"] == "Meera"
     assert client.get(f"/api/community-games/{g['id']}", headers=hq).json()["participant_count"] == 0  # dry run
@@ -491,7 +491,7 @@ def test_whatsapp_signup_post_imports_matching_section(client):
     done = client.post(url, headers=hq, json={"text": POST, "dry_run": False}).json()
     ps = done["game"]["participants"]
     assert [p["name"] for p in ps] == ["Jatan", "Jatan's guest", "Lavitt"]
-    assert all(p["level"] == "intermediate" and p["phone"] is None for p in ps)
+    assert all(p["level"] == "Intermediate" and p["phone"] is None for p in ps)
     assert ps[1]["guest_of_name"] == "Jatan"
     # Both sections on request; the 7-8 names are already in, so only 8-9 is new
     r = client.post(url, headers=hq, json={"text": POST, "sections": ["7-8 PM | Intermediate", "8-9 PM | Beginner"]}).json()
@@ -1344,3 +1344,13 @@ def test_a_deposit_hq_enters_for_a_vm_also_comes_off_that_vms_cash(client):
     client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "cash"})
     assert client.post("/api/venues/1/cash", headers=ha, json={"kind": "deposit", "amount": 300, "depositor_id": 2}).status_code == 200
     assert client.get("/api/my-cash", headers=vm).json()["total"] == 500
+
+
+def test_player_levels_are_kept_as_written():
+    from app.services.player_import import parse_post
+    text = ("7-8 PM | Beginner +\n1. Asha\n2. Ravi advance\n3. Meera, 9811112222, Intermediate +\n"
+            "8-9 PM | Advance\n1. Kiran\n")
+    rows, secs = parse_post(text)
+    assert [s["level"] for s in secs] == ["Beginner +", "Advance"]
+    assert [(r["name"], r["level"]) for r in rows] == [
+        ("Asha", "Beginner +"), ("Ravi", "advance"), ("Meera", "Intermediate +"), ("Kiran", "Advance")]
