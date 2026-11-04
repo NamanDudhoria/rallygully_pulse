@@ -604,7 +604,7 @@ def customer_detail(cid: int, user: User = Depends(require("customers.view")), d
         v = db.get(Venue, g.venue_id)
         history.append({"kind": "community", "id": g.id, "date": g.date, "time": f"{hhmm(g.start_min)}–{hhmm(g.end_min)}",
                         "venue": v.name, "amount": p.amount, "status": g.status, "attendance": p.attendance,
-                        "payment_status": p.payment_status, "level": p.level,
+                        "payment_status": p.payment_status, "level": p.level_label or p.level,
                         "counts": g.status != "cancelled" and p.attendance == "attended"})
     for s in db.scalars(select(StoreSale).where(StoreSale.customer_id == cid, StoreSale.booking_id.is_(None),
                                                 StoreSale.status == "confirmed")):

@@ -124,5 +124,5 @@ def roster_message(venue_name: str, slot: str) -> str:
 
 
 def community_message(level: str, link: str) -> str:
-    return (f"Thanks for playing with RallyGully! You're set as {level.title()}. "
+    return (f"Thanks for playing with RallyGully! You're set as {level}. "
             f"Join your community group here: {link}")

@@ -647,10 +647,10 @@ export function GameDrawer({ id, onClose, onChanged }) {
   const { data: g, reload } = useApi(`/api/community-games/${id}`)
   const reasons = useReasons()
   const [run, busy] = useAction()
-  const [add, setAdd] = useState({ phone: '', name: '', level: 'intermediate' })
+  const [add, setAdd] = useState({ phone: '', name: '', level: 'Intermediate' })
   const [lookup, setLookup] = useState({ phone: '', customer: null })
   const existing = digitsOf(add.phone) === lookup.phone ? lookup.customer : null
-  const [method, setMethod] = useState('rg_qr')
+  const [methods, setMethods] = useState({})
   const [cancel, setCancel] = useState({ reason: '', note: '' })
   const [bulk, setBulk] = useState(false)
 
@@ -676,7 +676,7 @@ export function GameDrawer({ id, onClose, onChanged }) {
   const started = g.state === 'live' || g.state === 'completed'
   const canAdd = open && manage && g.state !== 'completed'
   const full = g.participant_count >= g.capacity
-  const levels = (reasons?.levels || ['beginner', 'intermediate', 'advanced']).map((l) => ({ value: l, label: l[0].toUpperCase() + l.slice(1) }))
+  const levels = (reasons?.levels || ['beginner', 'intermediate', 'advanced']).map((l) => l[0].toUpperCase() + l.slice(1))
 
   return (
     <Drawer open onClose={onClose} width={600}
@@ -688,6 +688,7 @@ export function GameDrawer({ id, onClose, onChanged }) {
         <Badge tone="good">{stats.attended} attended</Badge>
         <Badge tone="brand">{stats.paid} paid · {money(stats.collected)}</Badge>
       </div>
+      <datalist id="game-levels">{levels.map((l) => <option key={l} value={l} />)}</datalist>
 
       {canAdd && !bulk && (
         <form className="form" onSubmit={async (e) => {
@@ -710,25 +711,29 @@ export function GameDrawer({ id, onClose, onChanged }) {
             </Field>
           </div>
           <div className="spread">
-            <Seg value={add.level} onChange={(v) => setAdd({ ...add, level: v })} label="Level" options={levels} />
+            <Field label="Level" help="Any wording, e.g. Beginner +, Advance">
+              <input className="input" list="game-levels" value={add.level} maxLength={40} required
+                onChange={(e) => setAdd({ ...add, level: e.target.value })} />
+            </Field>
             <button className="btn btn-primary" disabled={busy || full}>{full ? 'Game full' : 'Add'}</button>
           </div>
         </form>
       )}
       {canAdd && bulk && (
-        <ImportPlayers game={g} levels={levels} onCancel={() => setBulk(false)}
+        <ImportPlayers game={g} onCancel={() => setBulk(false)}
           onAdded={async () => { setBulk(false); await reload(); onChanged?.() }} />
       )}
 
       <section>
         <div className="spread" style={{ marginBottom: 8 }}>
           <div className="section-title" style={{ margin: 0 }}>Players</div>
-          {operate && open && <Seg value={method} onChange={setMethod} options={METHODS} label="Payment method for Paid" />}
         </div>
         {g.participants.length === 0 ? <p className="subtle">{manage ? 'No players added yet.' : 'The Community team hasn’t added players yet.'}</p> : (
           <div className="list">
             {g.participants.map((p) => {
               const canUndo = manage || (p.collected_by != null && p.collected_by === user.id)
+              const method = methods[p.id] || 'rg_qr'
+              const showPay = p.payment_status === 'paid' || p.attendance === 'attended' || (manage && !started)
               return (
                 <div key={p.id} className="list-item" style={{ flexWrap: 'wrap' }}>
                   <div className="grow">
@@ -749,23 +754,27 @@ export function GameDrawer({ id, onClose, onChanged }) {
                         onChange={(v) => act(() => patch(`/api/participants/${p.id}`, { attendance: v }))}
                         options={[{ value: 'attended', label: 'In' }, { value: 'no_show', label: 'No-show' }]} />
                     )}
-                    {p.payment_status === 'paid' ? (
-                      canUndo ? (
-                        <button className="btn btn-sm" title="Undo payment" disabled={busy} onClick={() => act(() => patch(`/api/participants/${p.id}`, { paid: false }), 'Payment reverted')}>
-                          <Check /> Paid · {METHOD[p.payment_method]}
-                        </button>
-                      ) : <Badge tone="good" icon={Check}>Paid · {METHOD[p.payment_method]}</Badge>
-                    ) : (
-                      <button className="btn btn-sm btn-primary" disabled={busy}
-                        onClick={() => act(() => patch(`/api/participants/${p.id}`, started || !manage ? { paid: true, method, attendance: 'attended' } : { paid: true, method }),
-                          `${money(g.per_person)} recorded`)}>
-                        <Wallet /> {started || !manage ? 'Collect' : 'Mark prepaid'}
-                      </button>
-                    )}
                     {manage && p.payment_status !== 'paid' && (
                       <button className="btn btn-sm btn-ghost btn-icon" aria-label={`Remove ${p.name}`} onClick={() => act(() => del(`/api/participants/${p.id}`), 'Removed')}><Trash2 /></button>
                     )}
                   </>)}
+                  {operate && open && showPay && (
+                    <div className="row" style={{ flexBasis: '100%', gap: 8, paddingTop: 8, marginTop: 4, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                      {p.payment_status === 'paid' ? (
+                        canUndo ? (
+                          <button className="btn btn-sm" title="Undo payment" disabled={busy} onClick={() => act(() => patch(`/api/participants/${p.id}`, { paid: false }), 'Payment reverted')}>
+                            <Check /> Paid · {METHOD[p.payment_method]} · {money(p.amount)}
+                          </button>
+                        ) : <Badge tone="good" icon={Check}>Paid · {METHOD[p.payment_method]} · {money(p.amount)}</Badge>
+                      ) : (<>
+                        <Seg value={method} onChange={(v) => setMethods({ ...methods, [p.id]: v })} options={METHODS} label={`Payment method for ${p.name || 'player'}`} />
+                        <button className="btn btn-sm btn-primary" disabled={busy}
+                          onClick={() => act(() => patch(`/api/participants/${p.id}`, { paid: true, method }), `${money(g.per_person)} recorded`)}>
+                          <Wallet /> {started || !manage ? 'Collect' : 'Mark prepaid'} {money(g.per_person)}
+                        </button>
+                      </>)}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -818,10 +827,10 @@ function readFileB64(file) {
 }
 
 /** Paste rows from a sheet / WhatsApp, or upload .xlsx / .csv → preview → add. */
-function ImportPlayers({ game, levels, onCancel, onAdded }) {
+function ImportPlayers({ game, onCancel, onAdded }) {
   const [text, setText] = useState('')
   const [file, setFile] = useState(null)
-  const [level, setLevel] = useState('intermediate')
+  const [level, setLevel] = useState('Intermediate')
   const [preview, setPreview] = useState(null)
   const [only, setOnly] = useState(null)
   const [run, busy] = useAction()
@@ -872,7 +881,7 @@ function ImportPlayers({ game, levels, onCancel, onAdded }) {
             </label>
             {file && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFile(null)}>Clear file</button>}
           </div>
-          <Field label="Level for rows without one"><Seg value={level} onChange={setLevel} label="Default level" options={levels} /></Field>
+          <Field label="Level for rows without one"><input className="input" list="game-levels" value={level} maxLength={40} onChange={(e) => setLevel(e.target.value)} /></Field>
           <div><button type="button" className="btn btn-primary" disabled={busy || (!file && !text.trim())} onClick={() => check(null)}>Preview</button></div>
         </>
       ) : (

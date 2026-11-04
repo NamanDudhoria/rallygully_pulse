@@ -4,6 +4,7 @@ The Community team sets up the game and adds every player before it starts (one 
 time, pasted from a sheet, or uploaded). On the day, VMs only mark attendance and
 collect payment from players who haven't already paid.
 """
+import re
 from datetime import date
 
 from sqlalchemy import select
@@ -17,7 +18,14 @@ from ..timeutil import minute_of, now_local
 from . import customers, inventory, notify
 from .bookings import PAYMENT_METHODS
 
-LEVELS = ("beginner", "intermediate", "advanced")
+LEVELS = ("beginner", "intermediate", "advanced")  # suggestions only: a level is free text, as written in the post
+
+
+def clean_level(value: str | None) -> str:
+    v = re.sub(r"\s+", " ", (value or "").strip())[:40]
+    if not v:
+        raise DomainError("Enter the player's level.", 422)
+    return v
 CANCEL_REASONS = {
     "low_registrations": "Low registrations",
     "weather": "Weather",
@@ -126,8 +134,7 @@ def add_participant(db: Session, actor: User, g: CommunityGame, phone: str | Non
     """Add a player by phone (linked to the customer record) or, failing that, by name only."""
     _require_manage(actor, "Adding players")
     _check_open(g)
-    if level not in LEVELS:
-        raise DomainError("Choose a level: beginner, intermediate or advanced.", 422)
+    level = clean_level(level)
     if len(g.participants) >= g.capacity:
         raise DomainError(f"Game is full ({g.capacity} players).")
     name = (name or "").strip() or None
@@ -142,7 +149,7 @@ def add_participant(db: Session, actor: User, g: CommunityGame, phone: str | Non
     elif not name:
         raise DomainError("Enter a name, a phone number, or both.", 422)
     p = Participant(game_id=g.id, customer_id=customer.id if customer else None, name=None if customer else name,
-                    level=level, guest_of=guest_of)
+                    level=level[:14], level_label=level, guest_of=guest_of)
     db.add(p)
     db.flush()
     db.refresh(g)
@@ -183,8 +190,7 @@ def import_players(db: Session, actor: User, g: CommunityGame, parsed: list[dict
     """
     _require_manage(actor, "Adding players")
     _check_open(g)
-    if default_level not in LEVELS:
-        raise DomainError("Choose a default level.", 422)
+    default_level = clean_level(default_level)
     sections = sections or []
     for sec in sections:
         sec["matches"] = sec["start_min"] < g.end_min and g.start_min < sec["end_min"]
@@ -273,7 +279,7 @@ def import_players(db: Session, actor: User, g: CommunityGame, parsed: list[dict
 
 
 def _p_snapshot(p: Participant) -> dict:
-    return {"level": p.level, "attendance": p.attendance, "payment_status": p.payment_status,
+    return {"level": p.level_label or p.level, "attendance": p.attendance, "payment_status": p.payment_status,
             "amount": p.amount, "payment_method": p.payment_method}
 
 
@@ -282,11 +288,10 @@ def update_participant(db: Session, actor: User, p: Participant, *, attendance: 
     g = p.game
     before = _p_snapshot(p)
     manage = can(actor, "community.manage")
-    if level is not None and level != p.level:
+    if level is not None and level.strip() != (p.level_label or p.level):
         _require_manage(actor, "Changing a player's level")
-        if level not in LEVELS:
-            raise DomainError("Invalid level.", 422)
-        p.level = level
+        level = clean_level(level)
+        p.level, p.level_label = level[:14], level
     if attendance is not None:
         if attendance not in ("added", "attended", "no_show"):
             raise DomainError("Invalid attendance.", 422)
@@ -336,7 +341,7 @@ def participant_dict(db: Session, p: Participant) -> dict:
                                                                 Payment.source_id == p.id, Payment.void.is_(False)))
     host = db.get(Participant, p.guest_of) if p.guest_of else None
     return {"id": p.id, "customer_id": c.id if c else None, "name": (c.name if c else None) or p.name,
-            "phone": c.phone if c else None, "level": p.level, "guest_of": p.guest_of,
+            "phone": c.phone if c else None, "level": p.level_label or p.level, "guest_of": p.guest_of,
             "guest_of_name": _player_name(db, host) if host else None,
             "attendance": p.attendance, "payment_status": p.payment_status, "amount": p.amount,
             "payment_method": p.payment_method, "collected_by": collected_by}
