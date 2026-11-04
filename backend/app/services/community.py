@@ -279,12 +279,16 @@ def import_players(db: Session, actor: User, g: CommunityGame, parsed: list[dict
 
 
 def _p_snapshot(p: Participant) -> dict:
-    return {"level": p.level_label or p.level, "attendance": p.attendance, "payment_status": p.payment_status,
+    return {"level": p.level_label or p.level, "facility_id": p.facility_id, "attendance": p.attendance, "payment_status": p.payment_status,
             "amount": p.amount, "payment_method": p.payment_method}
 
 
+UNSET = object()
+
+
 def update_participant(db: Session, actor: User, p: Participant, *, attendance: str | None = None,
-                       paid: bool | None = None, method: str | None = None, level: str | None = None) -> Participant:
+                       paid: bool | None = None, method: str | None = None, level: str | None = None,
+                       facility_id=UNSET) -> Participant:
     g = p.game
     before = _p_snapshot(p)
     manage = can(actor, "community.manage")
@@ -292,6 +296,11 @@ def update_participant(db: Session, actor: User, p: Participant, *, attendance: 
         _require_manage(actor, "Changing a player's level")
         level = clean_level(level)
         p.level, p.level_label = level[:14], level
+    if facility_id is not UNSET and facility_id != p.facility_id:
+        _require_manage(actor, "Assigning courts")
+        if facility_id is not None and facility_id not in inventory.facilities_of(db, AllocationKind.COMMUNITY, g.id):
+            raise DomainError("Choose one of this game's courts.", 422)
+        p.facility_id = facility_id
     if attendance is not None:
         if attendance not in ("added", "attended", "no_show"):
             raise DomainError("Invalid attendance.", 422)
@@ -341,7 +350,7 @@ def participant_dict(db: Session, p: Participant) -> dict:
                                                                 Payment.source_id == p.id, Payment.void.is_(False)))
     host = db.get(Participant, p.guest_of) if p.guest_of else None
     return {"id": p.id, "customer_id": c.id if c else None, "name": (c.name if c else None) or p.name,
-            "phone": c.phone if c else None, "level": p.level_label or p.level, "guest_of": p.guest_of,
+            "phone": c.phone if c else None, "level": p.level_label or p.level, "facility_id": p.facility_id, "guest_of": p.guest_of,
             "guest_of_name": _player_name(db, host) if host else None,
             "attendance": p.attendance, "payment_status": p.payment_status, "amount": p.amount,
             "payment_method": p.payment_method, "collected_by": collected_by}

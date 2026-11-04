@@ -388,6 +388,7 @@ class ParticipantPatch(BaseModel):
     method: str | None = None
     level: str | None = None
     phone: str | None = None  # link a name-only player to their customer record
+    facility_id: int | None = None  # court for this player (null clears it); HQ / Community only
 
 
 @router.get("/community-games")
@@ -486,7 +487,8 @@ def patch_participant(pid: int, body: ParticipantPatch, user: User = Depends(cur
     if body.phone:
         community.set_phone(db, user, p, body.phone)
     community.update_participant(db, user, p, attendance=body.attendance, paid=body.paid, method=body.method,
-                                 level=body.level)
+                                 level=body.level,
+                                 facility_id=body.facility_id if "facility_id" in body.model_fields_set else community.UNSET)
     db.commit()
     return serialize.game(db, p.game, detail=True)
 
