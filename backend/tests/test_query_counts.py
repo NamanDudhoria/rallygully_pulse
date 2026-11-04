@@ -53,4 +53,4 @@ def test_day_close_check_loads_customers_in_bulk(db):
     assert {f"Player {i}" for i in range(30)} == {next(w for w in i["message"].split("·")[1].split(":")[:1]).strip() for i in attendance}
     starts = [i["message"].split(" ")[1] for i in attendance]
     assert starts == sorted(starts)  # in start-time order (ties may come in any order)
-    assert queries <= 4, f"{queries} queries for 30 bookings: customers are being fetched one by one again"
+    assert queries <= 6, f"{queries} queries for 30 bookings: customers are being fetched one by one again"  # a few fixed per-day checks (rentals, SOP)

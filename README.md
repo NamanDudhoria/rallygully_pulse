@@ -144,9 +144,11 @@ remove the demo accounts and set the HQ admin's password), app host, HTTPS and b
 
 A rostered Venue Manager's venue stays closed to them for the day until they clock in on site: Pulse checks
 their phone's location is within 500 m of the venue's map position, then opens a live camera (no gallery) for
-three compulsory photos (the venue, the branding, the toilets) and an optional fourth ("other"). The photos are
-emailed together to Operations with the clock-in time, lateness, distance and a map link, and are kept in the
-database only until that email is delivered (retried every 10 minutes). Each venue needs its own clock-in;
+a photo of the venue. The photo is emailed to Operations with the clock-in time, lateness, distance and a map
+link, and is kept in the database only until that email is delivered (retried every 10 minutes). During the day
+the VM completes the **Daily SOP** (venue page → Daily SOP): any number of photos in four categories, venue,
+branding, toilets (all three compulsory before the day can be closed) and other (optional). SOP photos are kept
+for `PULSE_SOP_RETENTION_DAYS` days (default 30) for HQ to review, then deleted. Each venue needs its own clock-in;
 closing the day is the clock-out, allowed once the shift ends. HQ sees clock-in times, lateness and missing photos
 on the roster and the venue page.
 

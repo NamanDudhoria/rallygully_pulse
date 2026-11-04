@@ -60,6 +60,7 @@ OPS_EMAIL = os.getenv("PULSE_OPS_EMAIL", "ops@rallygully.com")
 APP_URL = os.getenv("PULSE_APP_URL", "http://localhost:8000")
 # Evening-before check for venues with no VM rostered for tomorrow (IST minute of day).
 ROSTER_ALERT_MIN = int(os.getenv("PULSE_ROSTER_ALERT_MIN", str(20 * 60)))
+SOP_RETENTION_DAYS = int(os.getenv("PULSE_SOP_RETENTION_DAYS", "30"))  # daily SOP photos are deleted after this
 ROSTER_MAIL_DELAY_MIN = int(os.getenv("PULSE_ROSTER_MAIL_DELAY_MIN", "5"))  # quiet time after the last roster change before admins are emailed
 VM_ALERT_MIN = int(os.getenv("PULSE_VM_ALERT_MIN", str(23 * 60 + 30)))  # each VM is told tomorrow's venue and shift
 

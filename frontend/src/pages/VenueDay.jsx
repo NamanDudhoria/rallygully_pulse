@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, BarChart3, CalendarRange, CheckCircle2, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
+  AlertTriangle, BarChart3, CalendarRange, Camera, CheckCircle2, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
   MapPin, Globe, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
@@ -18,6 +18,7 @@ import AvailabilityGrid, { GridLegend } from '../components/AvailabilityGrid'
 import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, DirectBookingDrawer, GameDrawer, OnlineBookingDrawer } from '../components/drawers'
 import { WINDOWS, attendBadge, closeBadge, payBadge } from '../components/badges'
 import { ClockInGate, MyShift } from '../components/ClockIn'
+import { SopTab } from '../components/Sop'
 import { clockTime } from '../lib/attendance'
 
 export default function VenueDay() {
@@ -78,6 +79,7 @@ export default function VenueDay() {
         { value: 'grid', label: 'Availability', icon: LayoutGrid },
         { value: 'activity', label: 'Activity', icon: ListChecks, count: attention.length, alert: attention.length > 0 },
         { value: 'community', label: 'Community', icon: Users, count: acts.games.filter((g) => g.status !== 'cancelled').length },
+        { value: 'sop', label: 'Daily SOP', icon: Camera, count: d.day_close.missing.filter((x) => x.type === 'sop').length, alert: d.day_close.missing.some((x) => x.type === 'sop') },
         { value: 'close', label: 'Day close', icon: ClipboardCheck, count: d.day_close.missing.filter((x) => x.due !== false).length, alert: d.day_close.missing.some((x) => x.due !== false) },
       ]} />
 
@@ -102,7 +104,8 @@ export default function VenueDay() {
       )}
       {tab === 'activity' && <ActivityTab d={d} onOpen={openItem} attention={attention} />}
       {tab === 'community' && <CommunityTab d={d} onOpen={(g) => setDrawer({ type: 'game', id: g.id })} />}
-      {tab === 'close' && <CloseTab d={d} date={date} canOperate={canOperate} onOpen={openItem} onClosed={refresh} />}
+      {tab === 'sop' && <SopTab venueId={d.venue.id} date={date} canOperate={canOperate} onChanged={refresh} />}
+      {tab === 'close' && <CloseTab d={d} date={date} canOperate={canOperate} onOpen={(k, ref) => (k === 'sop' ? setTab('sop') : openItem(k, ref))} onClosed={refresh} />}
 
       {drawer?.type === 'booking' && <BookingDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
       {drawer?.type === 'game' && <GameDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
@@ -506,7 +509,7 @@ function CloseTab({ d, date, canOperate, onOpen, onClosed }) {
                 <p className="muted">Resolve these before closing (deadline {time12(23 * 60 + 30)}):</p>
                 <div className="list">
                   {[...st.missing].sort((a, b) => (b.due !== false) - (a.due !== false)).map((it, i) => (
-                    <button key={i} className="list-item" onClick={() => it.game_id ? onOpen('community', it.game_id) : onOpen('district', it.ref_id)}>
+                    <button key={i} className="list-item" onClick={() => it.type === 'sop' ? onOpen('sop') : it.game_id ? onOpen('community', it.game_id) : onOpen('district', it.ref_id)}>
                       <AlertTriangle size={16} color={it.due === false ? 'var(--text-3)' : 'var(--warn)'} aria-hidden />
                       <span className="grow title" style={{ fontSize: 13.5, color: it.due === false ? 'var(--text-3)' : undefined }}>{it.message}{it.due === false ? ' · upcoming' : ''}</span>
                     </button>

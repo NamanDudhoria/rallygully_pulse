@@ -43,6 +43,13 @@ export async function api(path, { method = 'GET', body, signal } = {}) {
   return data
 }
 
+/** Fetch an image (or any file) that needs the sign-in token; returns an object URL for <img src>. */
+export async function apiBlobUrl(path) {
+  const res = await fetch(BASE + path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status})`)
+  return URL.createObjectURL(await res.blob())
+}
+
 export const post = (path, body = {}) => api(path, { method: 'POST', body })
 export const patch = (path, body = {}) => api(path, { method: 'PATCH', body })
 export const put = (path, body = {}) => api(path, { method: 'PUT', body })

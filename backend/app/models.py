@@ -216,6 +216,20 @@ class StoreSaleItem(Base):
     amount: Mapped[float] = mapped_column(Float)
 
 
+class SopPhoto(Base):
+    """A photo for a venue's daily SOP (venue, branding, toilets, other), uploaded by the VM during the day.
+    Kept for SOP_RETENTION_DAYS, then deleted."""
+    __tablename__ = "sop_photos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    date: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(10))  # venue | branding | toilets | other
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    taken_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (Index("ix_sop_venue_date", "venue_id", "date"),)
+
+
 class RosterAlert(Base):
     """Records that Operations was warned about an unrostered venue-day (sent once)."""
     __tablename__ = "roster_alerts"

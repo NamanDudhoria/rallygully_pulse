@@ -61,6 +61,15 @@ def login(c, email):
     return {"Authorization": f"Bearer {tok}"}
 
 
+SOP_JPEG = "data:image/jpeg;base64," + __import__("base64").b64encode(b"\xff\xd8\xff\xe0" + b"0" * 500).decode()
+
+
+def sop_done(c, h, venue=1):
+    """Upload the daily SOP's compulsory photos (venue, branding, toilets) so the day can be closed."""
+    for k in ("venue", "branding", "toilets"):
+        assert c.post(f"/api/venues/{venue}/sop/photos", headers=h, json={"kind": k, "image": SOP_JPEG}).status_code == 200
+
+
 def direct(c, h, facility=1, start="19:00", duration=60, phone="9811111111", name="Asha", **kw):
     return c.post("/api/bookings/direct", headers=h, json={
         "venue_id": 1, "facility_id": facility, "date": DAY.isoformat(), "start": start, "duration": duration,
@@ -325,6 +334,7 @@ def test_day_close_requires_resolution(client):
     client.post(f"/api/bookings/{b['id']}/attended", headers=vm)
     client.post(f"/api/bookings/{b['id']}/extend-window", headers=vm, json={"end": "23:00"})
     client.post(f"/api/bookings/{b['id']}/pay", headers=vm, json={"method": "cash"})
+    sop_done(client, vm)
     assert client.post("/api/venues/1/close", headers=vm).status_code == 409  # all resolved, but the shift runs to 11 PM
     timeutil.set_clock(at(23, 0))
     assert client.post("/api/venues/1/close", headers=vm).json()["status"] == "closed"
@@ -630,6 +640,7 @@ def test_long_slot_is_priced_as_hours_plus_a_half_hour(client):
 
 def test_day_close_is_the_vms_out_attendance_and_only_after_shift_end(client):
     vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    sop_done(client, vm)
     timeutil.set_clock(at(22, 59))
     r = client.post("/api/venues/1/close", headers=vm)
     assert r.status_code == 409 and "11:00 PM" in r.json()["detail"]
@@ -651,6 +662,7 @@ def test_day_close_is_the_vms_out_attendance_and_only_after_shift_end(client):
 def test_hq_can_close_a_day_before_shift_end(client):
     hq = login(client, "hq@x.com")
     timeutil.set_clock(at(18, 0))
+    sop_done(client, hq)  # HQ can upload SOP photos too
     assert client.post("/api/venues/1/close", headers=hq).status_code == 200  # HQ isn't held to a VM's shift
 
 
@@ -1009,3 +1021,47 @@ def test_cash_before_the_account_started_is_not_counted(client):
     timeutil.set_clock(at(17, 30))
     direct(client, hq, start="21:00", pay_now=True, method="cash", phone="9811111182", name="C2")
     assert _venue_cash(client, ha)["balance"] == 800
+
+
+def test_daily_sop_photos_in_four_categories(client):
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    st = client.get("/api/venues/1/sop", headers=vm).json()
+    assert st["due"] and not st["complete"] and st["missing"] == ["Venue", "Branding", "Toilets"]
+    assert [c["kind"] for c in st["categories"]] == ["venue", "branding", "toilets", "other"]
+    assert [c["required"] for c in st["categories"]] == [True, True, True, False]
+    # not done yet: the day can't be closed
+    timeutil.set_clock(at(23, 0))
+    msgs = [m["message"] for m in client.get("/api/venues/1/close", headers=vm).json()["missing"]]
+    assert "Daily SOP: no toilets photo yet" in msgs
+    # several photos per category, any time in the day; "other" is optional
+    up = lambda k, img=SOP_JPEG: client.post("/api/venues/1/sop/photos", headers=vm, json={"kind": k, "image": img})
+    assert up("branding").status_code == 200 and up("branding").status_code == 200
+    assert up("selfie").status_code == 422
+    assert up("venue", "data:image/png;base64,iVBORw0KGgo=").status_code == 422
+    up("venue")
+    st = up("toilets").json()
+    assert st["complete"] and [len(c["photos"]) for c in st["categories"]] == [1, 2, 1, 0]
+    assert client.get("/api/venues/1/close", headers=vm).json()["can_close"]
+    # photos can be viewed, and a wrong one taken off the same day
+    pid = st["categories"][1]["photos"][0]["id"]
+    img = client.get(f"/api/venues/1/sop/photos/{pid}", headers=hq)
+    assert img.status_code == 200 and img.headers["content-type"] == "image/jpeg" and img.content.startswith(b"\xff\xd8\xff")
+    assert len(client.delete(f"/api/venues/1/sop/photos/{pid}", headers=vm).json()["categories"][1]["photos"]) == 1
+    # VMs can't touch other venues; HQ sees any day
+    assert client.post("/api/venues/2/sop/photos", headers=vm, json={"kind": "venue", "image": SOP_JPEG}).status_code == 403
+    assert client.get(f"/api/venues/1/sop?date={DAY}", headers=hq).json()["complete"]
+
+
+def test_sop_not_due_without_a_rostered_vm_and_old_photos_are_purged(client):
+    from app.models import SopPhoto
+    from app.services import sop
+    hq = login(client, "hq@x.com")
+    assert client.get("/api/venues/2/sop", headers=hq).json()["due"] is False   # nobody rostered at Saket
+    vm = login(client, "vm@x.com")
+    sop_done(client, vm)
+    timeutil.set_clock(at(12, 0, DAY + timedelta(days=31)))
+    db = SessionLocal()
+    assert sop.purge(db) == 3
+    db.commit()
+    assert db.query(SopPhoto).count() == 0
+    db.close()
