@@ -1,13 +1,13 @@
 import { Fragment, useMemo, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, BarChart3, CalendarRange, Camera, CheckCircle2, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
-  MapPin, Globe, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
+  AlertTriangle, BarChart3, CalendarRange, Camera, CheckCircle2, ChevronRight, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
+  MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
 import { useApi, useBaseline } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
-import { KIND, KINDS, METHOD, hours, money, moneyShort, num, pct, range12, shortDate, time12, todayISO } from '../lib/format'
+import { KINDS, METHOD, hours, money, moneyShort, num, pct, range12, shortDate, time12, todayISO } from '../lib/format'
 import { Badge, Delta, Empty, ErrorState, Kpi, KindLabel, PageSkeleton, Tabs } from '../components/ui'
 import { ChannelMix, LineChart } from '../components/charts'
 import DateNav from '../components/DateNav'
@@ -15,7 +15,7 @@ import Analytics from './Analytics'
 import TodayBand from '../components/TodayBand'
 import BaselinePicker from '../components/BaselinePicker'
 import AvailabilityGrid, { GridLegend } from '../components/AvailabilityGrid'
-import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, DirectBookingDrawer, GameDrawer, OnlineBookingDrawer } from '../components/drawers'
+import { AllocationInfoDrawer, BlockDrawer, BookingDrawer, GameDrawer, NewBookingDrawer } from '../components/drawers'
 import { WINDOWS, attendBadge, closeBadge, payBadge } from '../components/badges'
 import { ClockInGate, MyShift } from '../components/ClockIn'
 import { SopTab } from '../components/Sop'
@@ -27,6 +27,8 @@ export default function VenueDay() {
   const date = params.get('date') || todayISO()
   const tab = params.get('tab') || 'summary'
   const setDate = (d) => setParams((p) => { const n = new URLSearchParams(p); d === todayISO() ? n.delete('date') : n.set('date', d); return n })
+  const show = params.get('show') || 'all'
+  const go = (t, filter) => setParams((p) => { const n = new URLSearchParams(p); n.set('tab', t); filter ? n.set('show', filter) : n.delete('show'); return n })
   const setTab = (t) => setParams((p) => { const n = new URLSearchParams(p); t === 'summary' ? n.delete('tab') : n.set('tab', t); return n })
   const baseline = useBaseline()
   const day = useApi(`/api/venues/${id}/day?date=${date}${baseline.query}`, { interval: 60000 })
@@ -68,7 +70,9 @@ export default function VenueDay() {
           </p>
         </div>
         <div className="row">
-          {canOperate && d.hours && <button className="btn" onClick={() => setDrawer({ type: 'online' })}><Globe /> Online booking</button>}
+          {canOperate && d.hours && (
+            <button className="btn btn-primary" onClick={() => setDrawer({ type: 'new', mode: 'direct', facilityId: d.venue.facilities.find((f) => f.status === 'active')?.id, start: d.now_min != null ? Math.max(d.hours.open_min, Math.ceil(d.now_min / 30) * 30) : d.hours.open_min })}><Plus /> Booking</button>
+          )}
           <DateNav value={date} onChange={setDate} />
         </div>
       </div>
@@ -89,10 +93,10 @@ export default function VenueDay() {
           </Empty>
         : d.show_performance
         ? <Summary d={d} baseline={baseline} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />
-        : <OpsSummary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} />)}
+        : <OpsSummary d={d} attention={attention} onOpen={openItem} goGrid={() => setTab('grid')} onGo={go} />)}
       {tab === 'performance' && d.show_performance && <Analytics venue={d.venue.id} embedded />}
       {tab === 'grid' && (
-        <GridTab d={d} grid={grid.data} canOperate={canOperate} onFree={(f, m) => setDrawer({ type: 'direct', facilityId: f.id, start: m })}
+        <GridTab d={d} grid={grid.data} canOperate={canOperate} onFree={(f, m) => setDrawer({ type: 'new', mode: 'direct', facilityId: f.id, start: m })}
           onBlock={() => setDrawer({ type: 'block' })}
           onOpen={(c) => {
             if (c.kind === 'block') setDrawer({ type: 'block', blockId: c.ref_id })
@@ -102,15 +106,14 @@ export default function VenueDay() {
           }}
           onAssign={(b) => setDrawer({ type: 'booking', id: b.id })} />
       )}
-      {tab === 'activity' && <ActivityTab d={d} onOpen={openItem} attention={attention} />}
+      {tab === 'activity' && <ActivityTab key={show} initial={show} d={d} onOpen={openItem} attention={attention} />}
       {tab === 'community' && <CommunityTab d={d} onOpen={(g) => setDrawer({ type: 'game', id: g.id })} />}
       {tab === 'sop' && <SopTab venueId={d.venue.id} date={date} canOperate={canOperate} onChanged={refresh} />}
       {tab === 'close' && <CloseTab d={d} date={date} canOperate={canOperate} onOpen={(k, ref) => (k === 'sop' ? setTab('sop') : openItem(k, ref))} onClosed={refresh} />}
 
       {drawer?.type === 'booking' && <BookingDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
       {drawer?.type === 'game' && <GameDrawer id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
-      {drawer?.type === 'direct' && <DirectBookingDrawer venue={d.venue} date={date} facilityId={drawer.facilityId} start={drawer.start} onClose={() => setDrawer(null)} onDone={refresh} />}
-      {drawer?.type === 'online' && <OnlineBookingDrawer venue={d.venue} date={date} onClose={() => setDrawer(null)} onDone={refresh} />}
+      {drawer?.type === 'new' && <NewBookingDrawer venue={d.venue} date={date} mode={drawer.mode} facilityId={drawer.facilityId} start={drawer.start} onClose={() => setDrawer(null)} onDone={refresh} />}
       {drawer?.type === 'block' && <BlockDrawer venue={d.venue} date={date} blockId={drawer.blockId} onClose={() => setDrawer(null)} onDone={refresh} />}
       {drawer?.type === 'info' && <AllocationInfoDrawer cell={drawer.cell} onClose={() => setDrawer(null)} />}
     </div>
@@ -259,7 +262,71 @@ function Summary({ d, baseline, attention, onOpen, goGrid }) {
 }
 
 /** Venue Manager view of the day: what to do, not how the venue is performing. */
-function OpsSummary({ d, attention, onOpen, goGrid }) {
+/** Money for a group of bookings: what the venue collected, what was prepaid on a platform, and what is still to collect. */
+function collectionOf(rows) {
+  const live = rows.filter((b) => b.status === 'confirmed' && b.attendance !== 'no_show')
+  const owed = live.filter((b) => ['to_collect', 'overdue'].includes(b.payment_status))
+  const prepaid = live.filter((b) => b.payment_method === 'online')
+  return {
+    n: rows.filter((b) => b.status === 'confirmed').length,
+    collected: live.filter((b) => !['online', 'membership'].includes(b.payment_method)).reduce((n, b) => n + (b.collected_amount || 0), 0),
+    prepaid: prepaid.reduce((n, b) => n + (b.collected_amount || 0), 0),
+    owed: owed.reduce((n, b) => n + b.booking_value, 0),
+    owedN: owed.length,
+  }
+}
+
+function CollectionRow({ label, sub, amounts, onClick, indent }) {
+  return (
+    <button type="button" className="list-item" onClick={onClick} style={{ paddingLeft: indent ? 34 : undefined, cursor: 'pointer' }}>
+      <span className="grow">
+        <span className="title" style={{ display: 'block', fontWeight: indent ? 400 : 600 }}>{label}</span>
+        {sub && <span className="meta">{sub}</span>}
+      </span>
+      <span style={{ textAlign: 'right' }}>{amounts}</span>
+      <ChevronRight size={16} aria-hidden style={{ color: 'var(--text-3)' }} />
+    </button>
+  )
+}
+
+function CollectionCard({ d, live, games, onGo }) {
+  const navigate = useNavigate()
+  const { can } = useAuth()
+  const store = useApi(can('venue.operate') || can('store.manage') ? `/api/store/${d.venue.id}/sales` : null).data
+  const all = collectionOf(live)
+  const direct = collectionOf(live.filter((b) => b.source === 'direct'))
+  const online = collectionOf(live.filter((b) => b.source === 'district'))
+  const rentTotal = live.reduce((n, b) => n + (b.rental_total || 0), 0)
+  const rentDue = live.reduce((n, b) => n + (b.rental_due || 0), 0)
+  const gameCollected = games.reduce((n, g) => n + (g.collected || 0), 0)
+  const gameOwed = games.reduce((n, g) => n + g.owed * g.per_person, 0)
+  const onBill = (store?.sales || []).filter((s) => s.status === 'on_bill').reduce((n, s) => n + s.total, 0)
+  const money2 = (collected, owed) => (
+    <>
+      <b>{money(collected)}</b>{owed > 0 && <span className="badge warn" style={{ marginLeft: 8 }}>{money(owed)} to collect</span>}
+    </>
+  )
+  return (
+    <div className="card">
+      <div className="card-head"><h2>Collection today</h2></div>
+      <div className="card-body">
+        <div className="list">
+          <CollectionRow label="Bookings" sub={`${all.n} booking${all.n === 1 ? '' : 's'}`} amounts={money2(all.collected, all.owed)} onClick={() => onGo('activity', 'bookings')} />
+          <CollectionRow indent label="Direct" sub={`${direct.n} booking${direct.n === 1 ? '' : 's'}`} amounts={money2(direct.collected, direct.owed)} onClick={() => onGo('activity', 'direct')} />
+          <CollectionRow indent label="Online" sub={`${online.n} booking${online.n === 1 ? '' : 's'}${online.prepaid ? ` · ${money(online.prepaid)} prepaid on the platform` : ''}`}
+            amounts={money2(online.collected, online.owed)} onClick={() => onGo('activity', 'online')} />
+          {rentTotal > 0 && <CollectionRow label="Equipment rentals" sub="On booking bills" amounts={money2(rentTotal - rentDue, rentDue)} onClick={() => onGo('activity', 'bookings')} />}
+          <CollectionRow label="Community" sub={`${games.length} game${games.length === 1 ? '' : 's'}`} amounts={money2(gameCollected, gameOwed)} onClick={() => onGo('community')} />
+          {(can('venue.operate') || can('store.manage')) && (
+            <CollectionRow label="RG Store" sub={`${store?.totals.sales ?? 0} sale${store?.totals.sales === 1 ? '' : 's'}`} amounts={money2(store?.totals.revenue ?? 0, onBill)} onClick={() => navigate('/store')} />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OpsSummary({ d, attention, onOpen, goGrid, onGo }) {
   const [showPast, setShowPast] = useState(false)
   const a = d.activities
   const live = a.bookings.filter((b) => b.status === 'confirmed')
@@ -280,13 +347,15 @@ function OpsSummary({ d, attention, onOpen, goGrid }) {
   return (
     <>
       <div className="kpis">
-        <Kpi label="Bookings" icon={CalendarRange} value={num(live.length)} foot={<span>{arrivals} still to arrive</span>} />
-        <Kpi label="To collect" icon={Wallet} value={money(owed.reduce((n, b) => n + b.booking_value, 0) + gameOwed)}
+        <Kpi label="Bookings" icon={CalendarRange} value={num(live.length)} onClick={() => onGo('activity', 'bookings')}
+          foot={<span>{live.filter((b) => b.source === 'direct').length} direct · {live.filter((b) => b.source === 'district').length} online · {arrivals} to arrive</span>} />
+        <Kpi label="To collect" icon={Wallet} value={money(owed.reduce((n, b) => n + b.booking_value, 0) + gameOwed)} onClick={() => onGo('activity', 'owed')}
           foot={<span>{owed.length} booking{owed.length === 1 ? '' : 's'}{gameOwed > 0 ? ' · community players' : ''}</span>} />
-        <Kpi label="Community" icon={Users} value={num(games.length)} foot={<span>{players} players listed</span>} />
-        <Kpi label="Academy & events" icon={ListChecks} value={num(a.academy.length + a.events.filter((e) => e.status !== 'cancelled').length)}
+        <Kpi label="Community" icon={Users} value={num(games.length)} onClick={() => onGo('community')} foot={<span>{players} players listed</span>} />
+        <Kpi label="Academy & events" icon={ListChecks} value={num(a.academy.length + a.events.filter((e) => e.status !== 'cancelled').length)} onClick={() => onGo('activity', 'programs')}
           foot={<span>{a.blocks.length} block{a.blocks.length === 1 ? '' : 's'}</span>} />
       </div>
+      <CollectionCard d={d} live={a.bookings} games={games} onGo={onGo} />
       <div className="grid g-main">
         <div className="card">
           <div className="card-head"><h2>Needs attention</h2><button className="btn btn-sm" onClick={goGrid}><LayoutGrid /> Availability</button></div>
@@ -394,7 +463,7 @@ function GridTab({ d, grid, canOperate, onFree, onOpen, onBlock, onAssign }) {
         {canOperate && <div className="row">
           <button className="btn" onClick={onBlock}><Ban /> Block facility</button>
           {d.hours && <button className="btn btn-primary" disabled={past && !isHQ}
-            onClick={() => onFree(grid.facilities[0], d.now_min != null ? Math.max(d.hours.open_min, Math.ceil(d.now_min / 30) * 30) : d.hours.open_min)}><Plus /> Direct booking</button>}
+            onClick={() => onFree(grid.facilities[0], d.now_min != null ? Math.max(d.hours.open_min, Math.ceil(d.now_min / 30) * 30) : d.hours.open_min)}><Plus /> Booking</button>}
         </div>}
       </div>
       {grid.unassigned_district.length > 0 && (
@@ -417,18 +486,23 @@ function GridTab({ d, grid, canOperate, onFree, onOpen, onBlock, onAssign }) {
   )
 }
 
-function ActivityTab({ d, onOpen, attention }) {
-  const [filter, setFilter] = useState('all')
+const ACTIVITY_FILTERS = [['all', 'All types'], ['bookings', 'Bookings (direct + online)'], ['direct', 'Direct bookings'], ['online', 'Online bookings'],
+  ['owed', 'To collect'], ['community', 'Community'], ['academy', 'Academy'], ['corporate', 'Corporate'], ['block', 'Blocks']]
+const matchesFilter = (r, f) => f === 'all' || (f === 'bookings' ? ['direct', 'district'].includes(r.kind) : f === 'direct' ? r.kind === 'direct'
+  : f === 'online' ? r.kind === 'district' : f === 'owed' ? !!r.owed : f === 'programs' ? ['academy', 'corporate'].includes(r.kind) : r.kind === f)
+
+function ActivityTab({ d, onOpen, attention, initial = 'all' }) {
+  const [filter, setFilter] = useState(initial)
   const rows = useMemo(() => {
     const a = d.activities
     const list = [
-      ...a.bookings.map((b) => ({ kind: b.source, start: b.start_min, ref: b.id, title: b.customer.name || b.customer.phone, sub: `${b.facility || 'Court not assigned'}${b.external_ref ? ` · ${b.external_ref}` : ''}`, amount: b.booking_value, badges: <>{attendBadge(b)}{b.status === 'confirmed' && b.attendance !== 'no_show' && payBadge(b.payment_status)}</>, time: range12(b.start_min, b.end_min) })),
-      ...a.games.map((g) => ({ kind: 'community', start: g.start_min, ref: g.id, title: g.title, sub: `${g.facilities.join(' + ')} · ${g.participant_count}/${g.capacity} players`, amount: g.collected, badges: <Badge tone={g.status === 'cancelled' ? 'bad' : undefined}>{g.state}</Badge>, time: range12(g.start_min, g.end_min) })),
+      ...a.bookings.map((b) => ({ kind: b.source, start: b.start_min, ref: b.id, title: b.customer.name || b.customer.phone, sub: `${b.facility || 'Court not assigned'}${b.external_ref ? ` · ${b.external_ref}` : ''}`, amount: b.booking_value, owed: b.status === 'confirmed' && b.attendance !== 'no_show' && ['to_collect', 'overdue'].includes(b.payment_status), badges: <>{attendBadge(b)}{b.status === 'confirmed' && b.attendance !== 'no_show' && payBadge(b.payment_status)}</>, time: range12(b.start_min, b.end_min) })),
+      ...a.games.map((g) => ({ kind: 'community', start: g.start_min, ref: g.id, owed: g.status !== 'cancelled' && g.owed > 0, title: g.title, sub: `${g.facilities.join(' + ')} · ${g.participant_count}/${g.capacity} players`, amount: g.collected, badges: <Badge tone={g.status === 'cancelled' ? 'bad' : undefined}>{g.state}</Badge>, time: range12(g.start_min, g.end_min) })),
       ...a.academy.map((o) => ({ kind: 'academy', start: o.start_min, title: o.name, sub: o.facilities.join(' + '), amount: o.value, badges: <Badge tone={o.status === 'cancelled' ? 'bad' : undefined}>{o.status}</Badge>, time: range12(o.start_min, o.end_min) })),
       ...a.events.map((e) => ({ kind: 'corporate', start: e.start_min, title: e.company, sub: `${e.facilities.join(' + ')} · ${e.contact_name}`, amount: e.amount, badges: payBadge(e.payment_status), time: range12(e.start_min, e.end_min) })),
       ...a.blocks.map((b) => ({ kind: 'block', start: b.start_min, title: b.reason.replace('_', ' '), sub: `${b.facility}${b.note ? ` · ${b.note}` : ''}`, badges: <Badge>{b.released_at ? 'released' : 'active'}</Badge>, time: range12(b.start_min, b.end_min) })),
     ]
-    return list.filter((r) => filter === 'all' || r.kind === filter).sort((x, y) => x.start - y.start)
+    return list.filter((r) => matchesFilter(r, filter)).sort((x, y) => x.start - y.start)
   }, [d, filter])
   return (
     <div className="grid g-main">
@@ -436,8 +510,8 @@ function ActivityTab({ d, onOpen, attention }) {
         <div className="card-head">
           <h2>All activity</h2>
           <select className="select" style={{ width: 170, minHeight: 32 }} value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter">
-            <option value="all">All types</option>
-            {Object.entries(KIND).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            {ACTIVITY_FILTERS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            {filter === 'programs' && <option value="programs">Academy &amp; corporate</option>}
           </select>
         </div>
         <div className="card-body table-wrap">
