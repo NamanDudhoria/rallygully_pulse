@@ -1250,3 +1250,97 @@ def test_standalone_store_sale_mode_can_be_edited(client):
     assert client.post(f"/api/store/sales/{s['id']}/method", headers=vm, json={"method": "rg_qr"}).json()["payment_method"] == "rg_qr"
     assert client.get("/api/store/1/sales", headers=ha).json()["totals"]["by_method"] == {"rg_qr": 30}
     assert client.post(f"/api/store/sales/{s['id']}/method", headers=vm, json={"method": "bogus"}).status_code == 422
+
+
+def _vm_cash_setup(client):
+    """A second VM (Rani) at Saket and a cash admin; returns their logins."""
+    db = SessionLocal()
+    rani = User(name="Rani", email="rani@x.com", password_hash=hash_password("pulse1234"), role="vm")
+    rani.venues = [VmAssignment(venue_id=2)]
+    db.add(rani)
+    db.add(User(name="Cash Admin", email="vcadm@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    return login(client, "rani@x.com"), login(client, "vcadm@x.com")
+
+
+def test_vm_cash_is_what_they_collected_less_deposits_and_expenses(client):
+    from app.models import Notification
+    _, ha = _vm_cash_setup(client)
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    assert client.get("/api/my-cash", headers=ha).status_code == 403                     # only VMs hold cash
+    assert client.get("/api/my-cash", headers=vm).json()["total"] == 0
+    timeutil.set_clock(at(19, 0))
+    b = direct(client, vm).json()
+    client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "cash"})          # 800 in cash, by Mohit
+    direct(client, hq, start="20:00", pay_now=True, method="cash", phone="9811111401", name="H")    # cash taken by HQ, not Mohit
+    direct(client, vm, start="21:00", phone="9811111402", name="U")
+    client.post("/api/bookings/3/bill/pay", headers=vm, json={"method": "rg_qr"})                   # QR: not cash
+    me = client.get("/api/my-cash", headers=vm).json()
+    assert (me["total"], me["collected"], me["deposited"], me["expenses"]) == (800, 800, 0, 0)
+    assert me["venues"] == [{"venue_id": 1, "name": "East of Kailash", "balance": 800}]
+    # deposit: needs the receipt photo
+    move = lambda kind, **kw: client.post(f"/api/my-cash/{kind}", headers=vm, json={"venue_id": 1, **kw})
+    assert move("deposit", amount=500).status_code == 422
+    assert move("deposit", amount=500, photo="data:image/png;base64,iVBORw0KGgo=").status_code == 422
+    assert move("deposit", amount=900, photo=SOP_JPEG).status_code == 409                          # can't deposit more than held
+    r = move("deposit", amount=500, photo=SOP_JPEG, message="SBI Saket, slip 4411")
+    assert r.status_code == 200 and (r.json()["total"], r.json()["deposited"]) == (300, 500)
+    # expense: needs a message, the photo is optional
+    assert move("expense", amount=100).status_code == 422
+    r = move("expense", amount=120, message="Mop and bucket")
+    assert (r.json()["total"], r.json()["expenses"]) == (180, 120)
+    assert move("expense", amount=500, message="x").status_code == 409
+    assert move("transfer", amount=5).status_code == 404
+    # each action emailed to Amitesh, with the receipt attached when there is one
+    db = SessionLocal()
+    mails = db.query(Notification).filter_by(template="vm_cash").order_by(Notification.id).all()
+    assert [m.recipient for m in mails] == ["amitesh@rallygully.com"] * 2
+    assert "Cash deposit ₹500 by VM" in mails[0].body and "SBI Saket, slip 4411" in mails[0].body and "attached" in mails[0].body
+    assert "Cash still with VM: ₹300" in mails[0].body
+    assert "Cash expense ₹120 by VM" in mails[1].body and "Mop and bucket" in mails[1].body and "No photo" in mails[1].body
+    db.close()
+    # the receipt can be opened by the VM and HQ, not by another VM
+    rani, _ = login(client, "rani@x.com"), None
+    eid = next(e["id"] for e in client.get("/api/my-cash", headers=vm).json()["entries"] if e["kind"] == "deposit")
+    assert client.get(f"/api/vm-cash/photo/{eid}", headers=vm).content.startswith(b"\xff\xd8\xff")
+    assert client.get(f"/api/vm-cash/photo/{eid}", headers=hq).status_code == 200
+    assert client.get(f"/api/vm-cash/photo/{eid}", headers=rani).status_code == 403
+    # the venue's own balance came down with them: 800 (Mohit) + 800 (HQ) - 500 - 120
+    assert client.get("/api/venues/1/cash", headers=ha).json()["balance"] == 980
+
+
+def test_hq_sees_every_vms_cash_in_the_roster_performance_table_and_can_adjust(client):
+    rani, ha = _vm_cash_setup(client)
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    timeutil.set_clock(at(19, 0))
+    b = direct(client, vm).json()
+    client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "cash"})
+    client.post("/api/my-cash/deposit", headers=vm, json={"venue_id": 1, "amount": 300, "photo": SOP_JPEG})
+    assert client.get("/api/vm-cash", headers=vm).status_code == 403
+    t = client.get(f"/api/vm-cash?date_from={DAY}&date_to={DAY}", headers=hq).json()
+    rows = {r["name"]: r for r in t["rows"]}
+    assert rows["VM"]["today"] == ["East of Kailash"] and rows["VM"]["cash"] == 500
+    assert (rows["VM"]["collected"], rows["VM"]["deposited"]) == (800, 300) and rows["VM"]["last_deposit"]
+    assert rows["VM"]["allotted"] == [{"venue_id": 1, "name": "East of Kailash", "days": 1}]
+    assert rows["Rani"]["today"] == [] and rows["Rani"]["cash"] == 0
+    assert t["total_cash"] == 500
+    # HQ Admin can adjust a VM's cash (an opening balance, a correction) with a reason
+    adj = lambda **kw: client.post(f"/api/vm-cash/{rows['Rani']['user_id']}/adjust", headers=ha, json={"venue_id": 2, **kw})
+    assert adj(amount=250, message="").status_code == 422
+    assert adj(amount=0, message="x").status_code == 422
+    assert client.post(f"/api/vm-cash/{rows['Rani']['user_id']}/adjust", headers=vm, json={"venue_id": 2, "amount": 5, "message": "x"}).status_code == 403   # a VM can't
+    assert adj(amount=250, message="Opening cash").json()["total"] == 250
+    assert client.get("/api/my-cash", headers=rani).json()["total"] == 250
+    d = client.get(f"/api/vm-cash/{rows['VM']['user_id']}", headers=hq).json()
+    assert [e["kind"] for e in d["entries"]] == ["deposit"]
+
+
+def test_a_deposit_hq_enters_for_a_vm_also_comes_off_that_vms_cash(client):
+    ha = _cash_admin(client)
+    vm = login(client, "vm@x.com")
+    timeutil.set_clock(at(19, 0))
+    b = direct(client, vm).json()
+    client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "cash"})
+    assert client.post("/api/venues/1/cash", headers=ha, json={"kind": "deposit", "amount": 300, "depositor_id": 2}).status_code == 200
+    assert client.get("/api/my-cash", headers=vm).json()["total"] == 500

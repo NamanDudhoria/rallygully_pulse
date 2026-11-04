@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, BarChart3, CalendarRange, Camera, CheckCircle2, ChevronRight, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
+  AlertTriangle, Banknote, BarChart3, CalendarRange, Camera, CheckCircle2, ChevronRight, ClipboardCheck, Clock, Gauge, IndianRupee, LayoutGrid, ListChecks, Lock,
   MapPin, Plus, Target, Users, Wallet, Zap, Repeat, Ban, UserX, UserCheck, Eye, CalendarX2,
 } from 'lucide-react'
 import { post } from '../lib/api'
@@ -328,6 +328,9 @@ function CollectionCard({ d, live, games, onGo }) {
 
 function OpsSummary({ d, attention, onOpen, goGrid, onGo }) {
   const [showPast, setShowPast] = useState(false)
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const myCash = useApi(user?.role === 'vm' ? '/api/my-cash' : null).data
   const a = d.activities
   const live = a.bookings.filter((b) => b.status === 'confirmed')
   const arrivals = live.filter((b) => b.attendance === 'pending').length
@@ -352,6 +355,7 @@ function OpsSummary({ d, attention, onOpen, goGrid, onGo }) {
         <Kpi label="To collect" icon={Wallet} value={money(owed.reduce((n, b) => n + b.booking_value, 0) + gameOwed)} onClick={() => onGo('activity', 'owed')}
           foot={<span>{owed.length} booking{owed.length === 1 ? '' : 's'}{gameOwed > 0 ? ' · community players' : ''}</span>} />
         <Kpi label="Community" icon={Users} value={num(games.length)} onClick={() => onGo('community')} foot={<span>{players} players listed</span>} />
+        {myCash && <Kpi label="Cash with you" icon={Banknote} value={money(myCash.total)} onClick={() => navigate('/my-cash')} foot={<span>Deposit or record an expense</span>} />}
         <Kpi label="Academy & events" icon={ListChecks} value={num(a.academy.length + a.events.filter((e) => e.status !== 'cancelled').length)} onClick={() => onGo('activity', 'programs')}
           foot={<span>{a.blocks.length} block{a.blocks.length === 1 ? '' : 's'}</span>} />
       </div>

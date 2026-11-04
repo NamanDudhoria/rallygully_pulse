@@ -198,6 +198,7 @@ class StoreSale(Base):
     booking_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # set when bought as part of a booking
     paid_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
     sold_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    paid_by: Mapped[int | None] = mapped_column(Integer, nullable=True)  # who collected the money, for their cash account
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     voided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     void_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -229,6 +230,23 @@ class SopPhoto(Base):
     data: Mapped[bytes] = mapped_column(LargeBinary)
     taken_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
     __table_args__ = (Index("ix_sop_venue_date", "venue_id", "date"),)
+
+
+class VmCashEntry(Base):
+    """Cash a Venue Manager holds is what they collected, less what they deposited or spent. A deposit (receipt photo
+    required) or an expense (with a message) is entered by the VM; HQ can add a signed adjustment."""
+    __tablename__ = "vm_cash_entries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id"))
+    kind: Mapped[str] = mapped_column(String(10))  # deposit | expense | adjust
+    amount: Mapped[float] = mapped_column(Float)  # positive for deposit and expense; signed for adjust
+    message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    photo: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # the receipt
+    email_status: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+    __table_args__ = (Index("ix_vmcash_user", "user_id", "created_at"), Index("ix_vmcash_venue", "venue_id"))
 
 
 class RosterAlert(Base):
@@ -363,6 +381,7 @@ class RentalCharge(Base):
     amount: Mapped[float] = mapped_column(Float)
     paid_method: Mapped[str | None] = mapped_column(String(10), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    paid_by: Mapped[int | None] = mapped_column(Integer, nullable=True)  # who collected it, for their cash account
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
     __table_args__ = (Index("ix_rental_booking", "booking_id"),)
