@@ -10,7 +10,7 @@ from .. import audit, serialize
 from ..auth import current_user
 from ..permissions import require
 from ..db import get_db
-from ..models import (AuditEvent, Booking, CashEntry, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Membership, MembershipUse, Notification, Participant, Payment, PricingRule, Refund, RentalCharge, RentalItem, SpecialDate, StoreSale, User, Venue, WeeklyHours)
+from ..models import (AuditEvent, Booking, CashEntry, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Membership, MembershipUse, Notification, VmCashEntry, Participant, Payment, PricingRule, Refund, RentalCharge, RentalItem, SpecialDate, StoreSale, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
 from ..services import cash as cash_svc
 from ..services import membership as membership_svc
@@ -488,6 +488,12 @@ def venue_cash(venue_id: int, user: User = Depends(require("cash.manage")), db: 
                 "created_at": e.created_at}
                for e in db.scalars(select(CashEntry).where(CashEntry.venue_id == venue_id)
                                    .order_by(CashEntry.id.desc()).limit(100))]
+    for e in db.scalars(select(VmCashEntry).where(VmCashEntry.venue_id == venue_id).order_by(VmCashEntry.id.desc()).limit(100)):
+        entries.append({"id": f"vm{e.id}", "kind": f"vm_{e.kind}", "amount": abs(e.amount), "signed": e.amount,
+                        "depositor_id": e.user_id, "depositor": names.get(e.user_id), "comment": e.message,
+                        "by": names.get(e.created_by), "created_at": e.created_at,
+                        "receipt_id": e.id if e.photo else None})
+    entries.sort(key=lambda x: x["created_at"], reverse=True)
     return {**bal, "venue_id": venue_id, "entries": entries, "daily": cash_svc.daily(db, venue_id)}
 
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity, BarChart3, BookOpen, Building2, CalendarDays, CalendarRange, ClipboardList, GraduationCap, KeyRound,
-  History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, ShoppingBag, Sun, Users, UsersRound, Briefcase, Plug,
+  History, LayoutDashboard, LogOut, Menu, Monitor, Moon, Settings, ShieldCheck, ShoppingBag, Sun, Users, UsersRound, Briefcase, Plug, Banknote,
 } from 'lucide-react'
 import logo from '../assets/logo.svg'
 import { post } from '../lib/api'
@@ -81,7 +81,7 @@ export default function Shell() {
             {!(user.roster || []).some((r) => r.date >= today) && (
               <p className="subtle" style={{ fontSize: 12.5, padding: '8px 10px' }}>Not on the roster yet.</p>
             )}
-            {section('Records', [link('/store', ShoppingBag, 'RG Store'), link('/bookings', BookOpen, 'Bookings')])}
+            {section('Records', [link('/my-cash', Banknote, 'My cash'), link('/store', ShoppingBag, 'RG Store'), link('/bookings', BookOpen, 'Bookings')])}
           </>
         ) : (
           <>

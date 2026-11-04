@@ -144,7 +144,8 @@ def _take(db: Session, venue_id: int, items: list[tuple[int, int]]) -> tuple[dic
 def _record(db: Session, actor: User, venue_id: int, customer_id: int, products: dict, wanted: Counter, before: dict,
             *, method: str, status: str, booking_id: int | None = None) -> StoreSale:
     sale = StoreSale(venue_id=venue_id, customer_id=customer_id, payment_method=method, status=status,
-                     paid_at=now_local(), sold_by=actor.id, total=0.0, booking_id=booking_id)
+                     paid_at=now_local(), sold_by=actor.id, total=0.0, booking_id=booking_id,
+                     paid_by=actor.id if status == "confirmed" else None)
     for pid, qty in wanted.items():
         p = products[pid]
         sale.items.append(StoreSaleItem(product_id=p.id, name=p.name, unit_price=p.price, quantity=qty,
@@ -200,7 +201,7 @@ def change_method(db: Session, actor: User, sale: StoreSale, method: str | None)
 
 def settle(db: Session, actor: User, sale: StoreSale, method: str) -> StoreSale:
     """The bill was paid: the items on it count as a confirmed sale from now."""
-    sale.status, sale.payment_method, sale.paid_at = "confirmed", method, now_local()
+    sale.status, sale.payment_method, sale.paid_at, sale.paid_by = "confirmed", method, now_local(), actor.id
     audit.record(db, actor, "store.settle", "store_sale", sale.id, None, {"method": method, "total": sale.total}, sale.venue_id)
     return sale
 

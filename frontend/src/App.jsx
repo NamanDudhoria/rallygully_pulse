@@ -12,6 +12,7 @@ import { AcademyPage, CommunityPage, EventsPage } from './pages/Programs'
 import { AuditPage, ConfigPage, CustomersPage, SystemPage } from './pages/Admin'
 import { PeoplePage, RosterPage } from './pages/People'
 import StorePage from './pages/Store'
+import MyCashPage from './pages/MyCash'
 import { range12, todayISO } from './lib/format'
 
 /** Landing page per role: analytics roles see the portfolio; VMs go to today's rostered venue. */
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="customers" element={guard(['customers.view'], <CustomersPage />)} />
         <Route path="roster" element={guard(['roster.manage'], <RosterPage />)} />
         <Route path="store" element={guard(['store.manage', 'venue.operate'], <StorePage />)} />
+        <Route path="my-cash" element={guard(['venue.operate'], <MyCashPage />)} />
         <Route path="people" element={guard(['users.manage'], <PeoplePage />)} />
         <Route path="config" element={guard(['config.manage'], <ConfigPage />)} />
         <Route path="audit" element={guard(['audit.view'], <AuditPage />)} />

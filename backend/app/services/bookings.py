@@ -317,7 +317,7 @@ def pay_rentals(db: Session, actor: User, b: Booking, method: str | None) -> flo
         raise DomainError("There are no unpaid rentals on this booking.")
     now = now_local()
     for x in unpaid:
-        x.paid_method, x.paid_at = method, now
+        x.paid_method, x.paid_at, x.paid_by = method, now, actor.id if actor else None
     total = sum(x.amount for x in unpaid)
     audit.record(db, actor, "rental.pay", "booking", b.id, None, {"amount": total, "method": method}, b.venue_id)
     return total

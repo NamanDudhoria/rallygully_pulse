@@ -4,7 +4,8 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Copy, Lock, Mail, Plus, Searc
 import { del, patch, post, put } from '../lib/api'
 import { useApi, useLocalState } from '../lib/hooks'
 import { useAction, useAuth, useToast } from '../lib/useCtx'
-import { addDays, dateTime, hhmm, parseISO, range12, shortDate, time12, todayISO } from '../lib/format'
+import { addDays, dateTime, hhmm, money, parseISO, range12, shortDate, time12, todayISO } from '../lib/format'
+import { openReceipt } from '../lib/receipt'
 import { Badge, Drawer, Empty, ErrorState, Field, Seg, Skeleton } from '../components/ui'
 import { clockTime } from '../lib/attendance'
 
@@ -235,7 +236,7 @@ export function RosterPage() {
         </div>
       </div>
       <div className="spread" style={{ gap: 12, flexWrap: 'wrap' }}>
-        <Seg value={view} onChange={setView} label="Roster view" options={[{ value: 'venue', label: 'By venue' }, { value: 'vm', label: 'By VM' }]} />
+        <Seg value={view} onChange={setView} label="Roster view" options={[{ value: 'venue', label: 'By venue' }, { value: 'vm', label: 'By VM' }, { value: 'cash', label: 'Performance & cash' }]} />
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Filter by VM">
           <span className="subtle" style={{ fontSize: 12.5 }}>VMs</span>
           <button className={`btn btn-sm ${!picked.length ? 'btn-primary' : ''}`} aria-pressed={!picked.length} onClick={() => setOnly([])}>All</button>
@@ -250,7 +251,8 @@ export function RosterPage() {
           <span><b>No VM rostered for tomorrow</b> at {data.tomorrow_gaps.map(vname).join(', ')}. Nobody will be able to operate {data.tomorrow_gaps.length > 1 ? 'them' : 'it'} in Pulse; Operations is emailed from 8 PM if this is still open.</span>
         </div>
       )}
-      {error ? <ErrorState error={error} onRetry={reload} /> : !data ? <Skeleton h={300} /> : view === 'vm'
+      {view === 'cash' ? <VmPerformance start={start} end={end} shown={shown} />
+        : error ? <ErrorState error={error} onRetry={reload} /> : !data ? <Skeleton h={300} /> : view === 'vm'
         ? <RosterByVm data={data} today={today} shown={shown} busy={busy} onAdd={addTo} onShift={openShift} />
         : <RosterByVenue data={data} today={today} shown={shown} filtered={picked.length > 0} busy={busy} onAdd={addTo} onShift={openShift}
           onRemove={(e) => act(() => del(`/api/roster/${e.id}`), `${e.name} removed`)} />}
@@ -351,6 +353,93 @@ function RosterByVenue({ data, today, shown, filtered, busy, onAdd, onShift, onR
 }
 
 /** Where each VM is positioned, day by day. */
+/** Every VM at a glance: where they are today and how much cash they are holding. */
+function VmPerformance({ start, end, shown }) {
+  const { can } = useAuth()
+  const { data, error, reload } = useApi(`/api/vm-cash?date_from=${start}&date_to=${end}`)
+  const [open, setOpen] = useState(null)
+  if (error && !data) return <ErrorState error={error} onRetry={reload} />
+  if (!data) return <Skeleton h={300} />
+  const rows = data.rows.filter((r) => shown(r.user_id))
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>VM performance</h2>
+        <span className="subtle">Cash with VMs: <b style={{ color: 'var(--text)' }}>{money(rows.reduce((n, r) => n + r.cash, 0))}</b> · {shortDate(data.date_from)} – {shortDate(data.date_to)}</span>
+      </div>
+      <div className="card-body table-wrap">
+        {!rows.length ? <Empty title="No Venue Managers" /> : (
+          <table className="table">
+            <thead><tr><th>VM</th><th>Venue today</th><th>Allotted this week</th><th className="num">Cash available</th><th>Holding from</th><th className="num">Collected</th><th className="num">Deposited</th><th className="num">Spent</th><th>Last deposit</th></tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.user_id} className="clickable" onClick={() => setOpen(r.user_id)}>
+                <td style={{ fontWeight: 600 }}>{r.name}</td>
+                <td>{r.today.length ? r.today.map(vname).join(', ') : <span className="subtle">Not rostered</span>}</td>
+                <td>{r.allotted.length ? r.allotted.map((a) => `${vname(a.name)} · ${a.days}d`).join(', ') : <span className="subtle">—</span>}</td>
+                <td className="num" style={{ fontWeight: 700, color: r.cash > 0 ? 'var(--warn)' : undefined }}>{money(r.cash)}</td>
+                <td>{r.holding.length ? r.holding.map((h) => `${vname(h.name)} ${money(h.balance)}`).join(' · ') : <span className="subtle">—</span>}</td>
+                <td className="num">{money(r.collected)}</td><td className="num">{money(r.deposited)}</td><td className="num">{money(r.expenses)}</td>
+                <td className="nowrap">{r.last_deposit ? shortDate(r.last_deposit.slice(0, 10)) : <span className="subtle">Never</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        <p className="subtle" style={{ fontSize: 12.5, marginTop: 12 }}>Cash available is what each VM has collected in cash and not yet deposited or spent. Click a row for their deposits, expenses and receipt photos.</p>
+      </div>
+      {open && <VmCashDrawer id={open} venues={data.rows.find((r) => r.user_id === open)?.allotted || []} canAdjust={can('cash.manage')} onClose={() => setOpen(null)} onChanged={reload} />}
+    </div>
+  )
+}
+
+function VmCashDrawer({ id, canAdjust, onClose, onChanged }) {
+  const { data, reload } = useApi(`/api/vm-cash/${id}`)
+  const venues = useApi('/api/venues').data
+  const [run, busy] = useAction()
+  const [f, setF] = useState({ venue_id: '', amount: '', message: '' })
+  const label = { deposit: 'Deposited in bank', expense: 'Expense', adjust: 'Adjustment' }
+  return (
+    <Drawer open onClose={onClose} width={520} title={data?.name || 'VM cash'} subtitle={data ? `${money(data.total)} with them` : ''}>
+      {!data ? <Skeleton h={120} /> : (
+        <>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {data.venues.filter((v) => Math.abs(v.balance) > 0.004).map((v) => <Badge key={v.venue_id}>{vname(v.name)} · {money(v.balance)}</Badge>)}
+          </div>
+          <p className="subtle" style={{ fontSize: 12.5 }}>Collected {money(data.collected)} · deposited {money(data.deposited)} · spent {money(data.expenses)}{data.adjusted ? ` · adjusted ${money(data.adjusted)}` : ''}</p>
+          {canAdjust && (
+            <form className="form" onSubmit={async (e) => {
+              e.preventDefault()
+              if (await run(() => post(`/api/vm-cash/${id}/adjust`, { venue_id: Number(f.venue_id), amount: Number(f.amount), message: f.message }), 'Cash adjusted')) { setF({ venue_id: f.venue_id, amount: '', message: '' }); reload(); onChanged() }
+            }}>
+              <div className="section-title">Adjust their cash (opening balance or a correction)</div>
+              <div className="form-row">
+                <Field label="Venue"><select className="select" value={f.venue_id} onChange={(e) => setF({ ...f, venue_id: e.target.value })} required><option value="">Choose…</option>{(venues || []).map((v) => <option key={v.id} value={v.id}>{vname(v.name)}</option>)}</select></Field>
+                <Field label="Amount (₹)" help="Minus takes cash off"><input className="input" type="number" step="any" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} required /></Field>
+              </div>
+              <Field label="Reason"><input className="input" maxLength={300} value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} required /></Field>
+              <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn btn-primary" disabled={busy || !f.venue_id || !f.amount}>Adjust</button></div>
+            </form>
+          )}
+          <section>
+            <div className="section-title">Deposits and expenses</div>
+            {!data.entries.length ? <p className="subtle">Nothing yet.</p> : data.entries.map((e) => (
+              <div key={e.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <span><b>{label[e.kind] || e.kind}</b> · {vname(e.venue)}</span>
+                  <b>{e.kind === 'adjust' && e.amount > 0 ? '+' : '−'}{money(Math.abs(e.amount))}</b>
+                </div>
+                <div className="subtle" style={{ fontSize: 12.5 }}>
+                  {dateTime(e.created_at)}{e.message ? ` · ${e.message}` : ''}{e.by && e.kind === 'adjust' ? ` · by ${e.by}` : ''}
+                  {e.has_photo && <> · <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '0 4px' }} onClick={() => openReceipt(e.id)}>View receipt</button></>}
+                </div>
+              </div>
+            ))}
+          </section>
+        </>
+      )}
+    </Drawer>
+  )
+}
+
 function RosterByVm({ data, today, shown, busy, onAdd, onShift }) {
   const vms = (data.vms || []).filter((m) => shown(m.id))
   if (!vms.length) return <Empty title="No Venue Managers" />

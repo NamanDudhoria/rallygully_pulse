@@ -2,7 +2,7 @@
 
 A venue's balance is the cash collected there since its account started (bookings, community games, academy,
 corporate, equipment rentals and RG Store sales paid in cash), less cash refunds, less deposits, plus non-deposit additions
-entered by an HQ Admin. Collections are read from the payment records themselves, so a corrected or voided
+entered by HQ, less what Venue Managers deposited or spent from it (and plus or minus HQ's adjustments to their cash). Collections are read from the payment records themselves, so a corrected or voided
 payment corrects the balance too.
 """
 from datetime import datetime, timedelta
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .. import audit
 from ..audit import DomainError
-from ..models import (Booking, CashAccount, CashEntry, Payment, Refund, RentalCharge, StoreSale, User, Venue)
+from ..models import (Booking, CashAccount, CashEntry, Payment, Refund, RentalCharge, StoreSale, User, Venue, VmCashEntry)
 from ..timeutil import now_local
 
 BEGINNING = datetime(2000, 1, 1)  # an account created after the fact counts everything recorded so far
@@ -55,6 +55,8 @@ def balances(db: Session, venue_ids: list[int] | None = None) -> dict[int, dict]
              .group_by(Booking.venue_id))
     entries = db.execute(select(CashEntry.venue_id, CashEntry.kind, func.sum(CashEntry.amount))
                          .group_by(CashEntry.venue_id, CashEntry.kind)).all()
+    vm_entries = db.execute(select(VmCashEntry.venue_id, VmCashEntry.kind, func.sum(VmCashEntry.amount))
+                            .group_by(VmCashEntry.venue_id, VmCashEntry.kind)).all()
     if venue_ids is not None:
         pay_q, rent_q, shop_q, ref_q = (q.where(col.in_(venue_ids)) for q, col in
                                         ((pay_q, Payment.venue_id), (rent_q, RentalCharge.venue_id),
@@ -63,6 +65,9 @@ def balances(db: Session, venue_ids: list[int] | None = None) -> dict[int, dict]
     shop = _by_venue(db.execute(shop_q))
     dep = {v: float(t) for v, k, t in entries if k == "deposit"}
     add = {v: float(t) for v, k, t in entries if k == "non_deposit"}
+    vm_dep = {v: float(t) for v, k, t in vm_entries if k == "deposit"}
+    vm_exp = {v: float(t) for v, k, t in vm_entries if k == "expense"}
+    vm_adj = {v: float(t) for v, k, t in vm_entries if k == "adjust"}
     out = {}
     for a in db.scalars(select(CashAccount)):
         v = a.venue_id
@@ -70,9 +75,10 @@ def balances(db: Session, venue_ids: list[int] | None = None) -> dict[int, dict]
             continue
         collected = round(pay.get(v, 0.0) + rent.get(v, 0.0) + shop.get(v, 0.0), 2)
         out[v] = {"since": a.started_at if a.started_at > BEGINNING else None, "collected": collected,
-                  "refunded": round(ref.get(v, 0.0), 2), "deposited": round(dep.get(v, 0.0), 2),
-                  "added": round(add.get(v, 0.0), 2),
-                  "balance": round(collected - ref.get(v, 0.0) - dep.get(v, 0.0) + add.get(v, 0.0), 2)}
+                  "refunded": round(ref.get(v, 0.0), 2), "deposited": round(dep.get(v, 0.0) + vm_dep.get(v, 0.0), 2),
+                  "expenses": round(vm_exp.get(v, 0.0), 2), "added": round(add.get(v, 0.0) + vm_adj.get(v, 0.0), 2),
+                  "balance": round(collected - ref.get(v, 0.0) - dep.get(v, 0.0) - vm_dep.get(v, 0.0) - vm_exp.get(v, 0.0)
+                                   + add.get(v, 0.0) + vm_adj.get(v, 0.0), 2)}
     return out
 
 

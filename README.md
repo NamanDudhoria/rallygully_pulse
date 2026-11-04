@@ -161,6 +161,17 @@ store sale. A Venue Manager can correct it on the day, until the day is closed; 
 membership payments can't be changed. Every change is in the audit trail, and the venue cash balance follows (a
 payment moved to or from Cash adds to or takes off the till).
 
+### VM cash
+
+Each Venue Manager holds the cash they collected (any payment recorded in cash against their name, at the venues they
+work), less what they deposit or spend. The VM sees it as **Cash with you** on the venue's Today view and on **My cash**,
+where they can **deposit in bank** (a live-camera photo of the bank receipt is required) or **record an expense** (a
+message is required, a photo is optional). Neither can exceed what they hold from that venue. Every deposit and expense
+is emailed at once to `PULSE_CASH_EMAIL` (default `amitesh@rallygully.com`) with the photo attached, comes off the venue's
+own cash balance too, and is kept for HQ to review. HQ sees every VM's venue today and cash available in **VM roster →
+Performance & cash**, opens a row for their entries and receipts, and (HQ Admin or HQ) can adjust a VM's cash with a
+reason, for example to enter an opening balance. Cash counted starts when cash tracking began, as for the venue balances.
+
 ### RG Store
 
 Each venue has its own food and drink store (RG Store in the menu). HQ (HQ Admin and HQ) adds products with a price,

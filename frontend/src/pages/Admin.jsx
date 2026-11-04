@@ -4,6 +4,7 @@ import { AlertTriangle, Mail, MessageCircle, Pencil, Play, Plus, Repeat, Search,
 import { del, post, put } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
+import { openReceipt } from '../lib/receipt'
 import { METHOD, PAY_MODES, addDays, dateTime, hhmm, money, phoneFmt, shortDate, todayISO, time12 } from '../lib/format'
 import { Badge, Drawer, Empty, ErrorState, Field, KindLabel, Skeleton, Tabs } from '../components/ui'
 import { getFix } from '../lib/attendance'
@@ -489,7 +490,7 @@ function CashDrawer({ venue, onClose, onChanged }) {
   const [run, busy] = useAction()
   const [f, setF] = useState({ kind: 'deposit', amount: '', depositor_id: '', comment: '' })
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
-  const label = { deposit: 'Deposit', non_deposit: 'Non-deposit' }
+  const label = { deposit: 'Deposit', non_deposit: 'Non-deposit', vm_deposit: 'VM deposit', vm_expense: 'VM expense', vm_adjust: 'VM adjustment' }
   return (
     <Drawer open onClose={onClose} width={500} title={venue.name.replace('RallyGully ', '')} subtitle="Cash balance">
       <div className="callout info" style={{ alignItems: 'baseline' }}>
@@ -524,9 +525,9 @@ function CashDrawer({ venue, onClose, onChanged }) {
           <div key={e.id} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <span><b>{label[e.kind]}</b>{e.depositor ? ` · ${e.depositor}` : ''}</span>
-              <b style={{ color: e.kind === 'deposit' ? 'var(--bad)' : 'var(--good)' }}>{e.kind === 'deposit' ? '−' : '+'}{money(e.amount)}</b>
+              <b style={{ color: ['deposit', 'vm_deposit', 'vm_expense'].includes(e.kind) || e.signed < 0 ? 'var(--bad)' : 'var(--good)' }}>{['deposit', 'vm_deposit', 'vm_expense'].includes(e.kind) || e.signed < 0 ? '−' : '+'}{money(e.amount)}</b>
             </div>
-            <div className="subtle" style={{ fontSize: 12.5 }}>{dateTime(e.created_at)} · by {e.by}{e.comment ? ` · ${e.comment}` : ''}</div>
+            <div className="subtle" style={{ fontSize: 12.5 }}>{dateTime(e.created_at)} · by {e.by}{e.comment ? ` · ${e.comment}` : ''}{e.receipt_id && <> · <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '0 4px' }} onClick={() => openReceipt(e.receipt_id)}>View receipt</button></>}</div>
           </div>
         ))}
       </section>
