@@ -146,25 +146,22 @@ def _decode_photo(data_url: str) -> bytes:
     return raw
 
 
-REQUIRED_PHOTOS = ("venue", "branding", "toilets")
-OPTIONAL_PHOTOS = ("other",)
+REQUIRED_PHOTOS = ("venue",)  # branding, toilets and others are the daily SOP (app/services/sop.py)
+OPTIONAL_PHOTOS: tuple[str, ...] = ()
 PHOTO_LABELS = {"venue": "Venue", "branding": "Branding", "toilets": "Toilets", "other": "Other"}
 
 
 def add_photos(db: Session, user: User, venue_id: int, photos: dict[str, str | None]) -> VmAttendance:
-    """Store the clock-in photos, unlock the venue, and email Operations straight away. The venue, branding and
-    toilets photos are compulsory; "other" is optional. Nothing is kept unless all the compulsory ones are there."""
+    """Store the clock-in photo of the venue, unlock the venue, and email Operations straight away."""
     a = record(db, user.id, venue_id, now_local().date())
     if not a:
         raise DomainError("Clock in first.", 409)
     if a.photo_at:
         raise DomainError("The photos have already been sent.", 409)
-    unknown = [k for k in photos if k not in REQUIRED_PHOTOS + OPTIONAL_PHOTOS]
-    if unknown:
-        raise DomainError("Unknown photo type.", 422)
-    missing = [PHOTO_LABELS[k].lower() for k in REQUIRED_PHOTOS if not photos.get(k)]
-    if missing:
-        raise DomainError(f"Take all three photos: venue, branding and toilets. Still missing: {', '.join(missing)}.", 422)
+    if [k for k, v in photos.items() if v and k not in REQUIRED_PHOTOS + OPTIONAL_PHOTOS]:
+        raise DomainError("Only the venue photo is taken at clock-in.", 422)
+    if not photos.get("venue"):
+        raise DomainError("Take a photo of the venue.", 422)
     raw = {k: _decode_photo(photos[k]) for k in REQUIRED_PHOTOS + OPTIONAL_PHOTOS if photos.get(k)}
     now = now_local()
     for kind, data in raw.items():

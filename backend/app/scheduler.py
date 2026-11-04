@@ -6,7 +6,7 @@ import time
 
 from . import config
 from .db import SessionLocal
-from .services import attendance, bookings, dayclose, district, roster
+from .services import attendance, bookings, dayclose, district, roster, sop
 
 log = logging.getLogger("pulse.scheduler")
 
@@ -25,6 +25,7 @@ def _tick(run_district: bool) -> None:
         roster.send_tomorrow(db)
         roster.send_digests(db)
         attendance.retry_photos(db)
+        sop.purge(db)
         attendance.alert_missing_checkin(db)
         db.commit()
     except Exception:  # noqa: BLE001 — never let a job crash the loop; operational records stay intact

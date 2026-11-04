@@ -56,6 +56,9 @@ def missing_items(db: Session, venue_id: int, d: date) -> list[dict]:
             elif p.attendance == "attended" and p.payment_status != "paid":
                 items.append({"type": "participant_payment", "ref_id": p.id, "game_id": g.id, "message": f"{tag}: payment not recorded",
                               "due": True})
+    from . import sop
+    for label in [sop.KINDS[k] for k in sop.missing(db, venue_id, d)]:
+        items.append({"type": "sop", "ref_id": None, "due": True, "message": f"Daily SOP: no {label.lower()} photo yet"})
     return items
 
 

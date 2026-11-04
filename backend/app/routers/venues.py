@@ -1,7 +1,7 @@
 """Venue day: performance summary, availability grid, quotes, and day close."""
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -11,10 +11,10 @@ from ..auth import current_user
 from ..permissions import can, ensure_venue, roster_pairs, roster_scoped
 from ..db import get_db
 from ..models import (AcademyOccurrence, Allocation, Booking, CommunityGame, CorporateEvent, Customer, Discount, Facility,
-                      OperationalBlock, User, Venue)
-from ..services import analytics, attendance, bookings, dayclose, history_overlay, inventory, roster
+                      OperationalBlock, SopPhoto, User, Venue)
+from ..services import analytics, attendance, bookings, dayclose, history_overlay, inventory, roster, sop
 from ..services.pricing import quote
-from ..timeutil import hhmm, minute_of, now_local
+from ..timeutil import hhmm, minute_of, now_local, today
 from .common import custom_window, day_or_today, get_or_404, minutes
 
 router = APIRouter(prefix="/api/venues", tags=["venues"])
@@ -232,11 +232,8 @@ class FixIn(BaseModel):
 
 
 class PhotosIn(BaseModel):
-    """The clock-in photos, each a data:image/jpeg;base64,... string. venue, branding and toilets are compulsory."""
+    """The clock-in photo of the venue, a data:image/jpeg;base64,... string."""
     venue: str | None = Field(default=None, max_length=5_000_000)
-    branding: str | None = Field(default=None, max_length=5_000_000)
-    toilets: str | None = Field(default=None, max_length=5_000_000)
-    other: str | None = Field(default=None, max_length=5_000_000)
 
 
 def _vm(user: User) -> None:
@@ -267,6 +264,48 @@ def clock_in_photos(venue_id: int, body: PhotosIn, user: User = Depends(current_
     a = attendance.add_photos(db, user, venue_id, body.model_dump())
     db.commit()
     return {**attendance.state(db, user, venue_id, a.date), "photo_delivery": a.photo_status}
+
+
+class SopPhotoIn(BaseModel):
+    kind: str
+    image: str = Field(max_length=5_000_000)  # data:image/jpeg;base64,...
+
+
+@router.get("/{venue_id}/sop")
+def sop_status(venue_id: int, date: date | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    d = day_or_today(date)
+    _venue(db, user, venue_id, d)
+    return sop.status(db, venue_id, d)
+
+
+@router.post("/{venue_id}/sop/photos")
+def sop_upload(venue_id: int, body: SopPhotoIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    d = today()
+    _venue(db, user, venue_id, d, write=True)
+    sop.add(db, user, venue_id, body.kind, body.image)
+    db.commit()
+    return sop.status(db, venue_id, d)
+
+
+@router.get("/{venue_id}/sop/photos/{photo_id}")
+def sop_photo(venue_id: int, photo_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    p = get_or_404(db, SopPhoto, photo_id)
+    if p.venue_id != venue_id:
+        raise HTTPException(404, "Not found")
+    _venue(db, user, venue_id, p.date)
+    return Response(p.data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@router.delete("/{venue_id}/sop/photos/{photo_id}")
+def sop_remove(venue_id: int, photo_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    p = get_or_404(db, SopPhoto, photo_id)
+    if p.venue_id != venue_id:
+        raise HTTPException(404, "Not found")
+    d = p.date
+    _venue(db, user, venue_id, d, write=True)
+    sop.remove(db, user, p)
+    db.commit()
+    return sop.status(db, venue_id, d)
 
 
 @router.post("/{venue_id}/clock-out")
