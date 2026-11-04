@@ -378,3 +378,8 @@ button.list-item { width: 100%; background: none; border: 0; border-bottom: 1px 
 .camera-shutter { min-width: 180px; }
 /* Keep messages off the camera buttons while the camera is open. */
 body:has(.camera-sheet) .toast-stack { top: 12px; bottom: auto; }
+
+/* A KPI tile that opens the thing it counts */
+button.kpi-btn { font: inherit; color: inherit; text-align: left; width: 100%; cursor: pointer; transition: box-shadow .15s, transform .15s, border-color .15s; }
+button.kpi-btn:hover { box-shadow: var(--shadow-2, 0 4px 14px rgba(40, 20, 80, .12)); border-color: var(--brand, #5b2d8e); transform: translateY(-1px); }
+button.kpi-btn:focus-visible { outline: 2px solid var(--brand, #5b2d8e); outline-offset: 2px; }

@@ -349,7 +349,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
 const toMin = (t) => { const [h, m] = (t || '').split(':').map(Number); return h * 60 + m }
 
 /** Direct on-ground booking created from an available slot (PRD §20): the slot runs from a start to an end time. */
-export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, onDone }) {
+function DirectBookingBody({ venue, date, facilityId, start, close, onDone }) {
   const { isHQ } = useAuth()
   const discounts = venue.discounts || []
   const facilities = venue.facilities.filter((f) => f.status === 'active')
@@ -401,8 +401,6 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   const fac = facilities.find((f) => f.id === Number(form.facility_id))
 
   return (
-    <Drawer open onClose={onClose} title="New Direct booking" subtitle={`${venue.name} · on-ground`}>
-      {(close) => (
         <form className="form" onSubmit={(e) => submit(e, close)}>
           <div className="form-row">
             <Field label="Facility">
@@ -493,15 +491,13 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
             <button className="btn btn-primary" disabled={busy || badTimes || (quote && !quote.available) || (!isHQ && quote?.total == null) || (isCustom && (!(Number(form.custom_value) > 0) || !form.custom_reason.trim()))}>Create booking</button>
           </div>
         </form>
-      )}
-    </Drawer>
   )
 }
 
 const PLATFORMS = ['District', 'Hudle', 'Playo', 'Khelomore', 'Other']
 
 /** A booking made on District or another online platform, entered by hand. The court is assigned on arrival. */
-export function OnlineBookingDrawer({ venue, date, onClose, onDone }) {
+function OnlineBookingBody({ venue, date, close, onDone }) {
   const [run, busy] = useAction()
   const sports = [...new Set(venue.facilities.filter((x) => x.status === 'active').map((x) => x.sport))]
   const [f, setF] = useState({ platform: 'District', other: '', external_ref: '', date, start: '18:00', end: '19:00', amount: '', paid: true, phone: '', name: '', sport: '' })
@@ -515,8 +511,6 @@ export function OnlineBookingDrawer({ venue, date, onClose, onDone }) {
   const badLen = len !== 30 && len !== 60
   const platform = f.platform === 'Other' ? f.other.trim() : f.platform
   return (
-    <Drawer open onClose={onClose} title="Add an online booking" subtitle={`${venue.name} · entered by hand from the platform`}>
-      {(close) => (
         <form className="form" onSubmit={async (e) => {
           e.preventDefault()
           const r = await run(() => post('/api/bookings/online', {
@@ -555,6 +549,21 @@ export function OnlineBookingDrawer({ venue, date, onClose, onDone }) {
             <button className="btn btn-primary" disabled={busy || badLen || !platform}>Add booking</button>
           </div>
         </form>
+  )
+}
+
+/** One place to take a booking: a direct (on-ground) booking, or an online one entered from a platform. */
+export function NewBookingDrawer({ venue, date, facilityId, start, mode: first = 'direct', onClose, onDone }) {
+  const [mode, setMode] = useState(first)
+  return (
+    <Drawer open onClose={onClose} title="New booking" subtitle={mode === 'direct' ? `${venue.name} · on-ground` : `${venue.name} · from a platform`}>
+      {(close) => (
+        <>
+          <Seg value={mode} onChange={setMode} label="Booking type" options={[{ value: 'direct', label: 'Direct' }, { value: 'online', label: 'Online' }]} />
+          {mode === 'direct'
+            ? <DirectBookingBody key="direct" venue={venue} date={date} facilityId={facilityId} start={start} close={close} onDone={onDone} />
+            : <OnlineBookingBody key="online" venue={venue} date={date} close={close} onDone={onDone} />}
+        </>
       )}
     </Drawer>
   )

@@ -26,10 +26,11 @@ export function Delta({ win, invert = false, digits = 1, label }) {
   )
 }
 
-export function Kpi({ label, value, unit, cmp, windowKey = 'same_weekday', invert, foot, icon: Icon, compareLabel }) {
+export function Kpi({ label, value, unit, cmp, windowKey = 'same_weekday', invert, foot, icon: Icon, compareLabel, onClick }) {
   const win = cmp?.windows?.[windowKey]
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div className="card kpi">
+    <Tag className={`card kpi${onClick ? ' kpi-btn' : ''}`} {...(onClick ? { type: 'button', onClick } : {})}>
       <div className="kpi-label">{Icon && <Icon size={14} aria-hidden />}{label}</div>
       <div className="kpi-value">{value}{unit && <small>{unit}</small>}</div>
       <div className="kpi-foot">
@@ -37,7 +38,7 @@ export function Kpi({ label, value, unit, cmp, windowKey = 'same_weekday', inver
         {cmp && <span>{compareLabel || WINDOW_LABEL[windowKey]}</span>}
         {foot}
       </div>
-    </div>
+    </Tag>
   )
 }
 
