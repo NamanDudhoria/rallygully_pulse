@@ -444,6 +444,8 @@ class Booking(Base):
     list_price: Mapped[float | None] = mapped_column(Float, nullable=True)  # configured price before any discount
     discount_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
     discount_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    discount_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)  # set when the discount was custom
+    discount_by: Mapped[int | None] = mapped_column(Integer, nullable=True)  # who gave a custom discount
     platform: Mapped[str | None] = mapped_column(String(30), nullable=True)  # online platform other than District
     membership_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # membership that covers this booking
     member_hours: Mapped[float | None] = mapped_column(Float, nullable=True)  # hours of it covered by the membership

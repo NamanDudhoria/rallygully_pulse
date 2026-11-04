@@ -431,6 +431,37 @@ def lookup(phone: str, venue_id: int | None = None, date: date | None = None,
     return {"found": bool(c), "customer": serialize.customer(c) if c else None, "membership": member}
 
 
+# ── Custom discounts report ──────────────────────────────────────────────────
+@router.get("/discounts/custom")
+def custom_discounts(date_from: date, date_to: date, venue_id: int | None = None,
+                     user: User = Depends(require("config.manage")), db: Session = Depends(get_db)):
+    """Every custom discount given in the period, with who gave it and why, and totals per person."""
+    if date_to < date_from or (date_to - date_from).days > 366:
+        raise HTTPException(422, "Choose up to a year.")
+    q = select(Booking).where(Booking.discount_reason.is_not(None), Booking.date >= date_from, Booking.date <= date_to)
+    if venue_id:
+        q = q.where(Booking.venue_id == venue_id)
+    rows = list(db.scalars(q.order_by(Booking.date.desc(), Booking.start_min)))
+    names = {i: n for i, n in db.execute(select(User.id, User.name))}
+    venues_ = {v.id: v.name for v in db.scalars(select(Venue))}
+    custs = {c.id: c for c in db.scalars(select(Customer).where(Customer.id.in_({b.customer_id for b in rows})))} if rows else {}
+    items, by_person = [], {}
+    for b in rows:
+        off = round((b.list_price or 0) - b.booking_value, 2) if b.status == "confirmed" else 0.0
+        who = names.get(b.discount_by, "Unknown")
+        if b.status == "confirmed":
+            t = by_person.setdefault(who, {"name": who, "count": 0, "given": 0.0})
+            t["count"] += 1
+            t["given"] = round(t["given"] + off, 2)
+        c = custs.get(b.customer_id)
+        items.append({"booking_id": b.id, "date": b.date, "time": f"{hhmm(b.start_min)}–{hhmm(b.end_min)}",
+                      "venue": venues_.get(b.venue_id), "customer": c.name if c else None, "phone": c.phone if c else None,
+                      "list_price": b.list_price, "charged": b.booking_value, "discount": b.discount_name, "off": off,
+                      "reason": b.discount_reason, "by": who, "status": b.status})
+    return {"items": items, "by_person": sorted(by_person.values(), key=lambda x: -x["given"]),
+            "total_given": round(sum(x["off"] for x in items), 2), "count": sum(1 for x in items if x["status"] == "confirmed")}
+
+
 # ── Venue cash balances ──────────────────────────────────────────────────────
 class CashEntryIn(BaseModel):
     kind: str  # deposit | non_deposit

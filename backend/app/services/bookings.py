@@ -51,10 +51,31 @@ def _require_not_cancelled(b: Booking) -> None:
         raise DomainError("This booking is cancelled.")
 
 
+def custom_discount_amount(list_price: float, kind: str, value: float, reason: str) -> tuple[float, str, float]:
+    """(price to charge, label, percent off) for a made-up discount, rounded to the paisa."""
+    if not (reason or "").strip():
+        raise DomainError("Give a reason for the discount.", 422)
+    if kind == "percent":
+        if not 0 < value <= 100:
+            raise DomainError("A percentage discount must be above 0 and at most 100.", 422)
+        final = round(list_price * (1 - value / 100), 2)
+        label = f"Custom {value:g}%"
+    elif kind == "flat":
+        if not 0 < value <= list_price:
+            raise DomainError(f"A flat discount must be above ₹0 and at most the price (₹{list_price:,.0f}).", 422)
+        final = round(list_price - value, 2)
+        label = f"Custom ₹{value:,.0f}"
+    else:
+        raise DomainError("Choose percent or rupees off.", 422)
+    return final, label, round((list_price - final) / list_price * 100, 2) if list_price else 0.0
+
+
 def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, d: date, start_min: int,
                   end_min: int, phone: str, name: str, amount: float | None, pay_now: bool,
                   method: str | None, email: str | None = None, discount_id: int | None = None,
-                  rentals: list[tuple[int, int]] | None = None) -> Booking:
+                  rentals: list[tuple[int, int]] | None = None,
+                  custom_discount: tuple[str, float, str] | None = None) -> Booking:
+    """``custom_discount`` is ("percent" | "flat", value, reason): a discount the person at the counter makes up."""
     if not (name or "").strip():
         raise DomainError("Customer name is required for Direct bookings.", 422)
     if not _is_hq(actor) and d < today():
@@ -72,27 +93,37 @@ def create_direct(db: Session, actor: User, *, venue_id: int, facility_id: int, 
             raise DomainError("That discount isn't available at this venue.", 422)
         if amount is not None:
             raise DomainError("Choose a discount or enter an amount, not both.", 422)
+    custom = None
+    if custom_discount is not None:
+        if disc is not None or amount is not None:
+            raise DomainError("Use one of: a set discount, a custom discount, or an amount.", 422)
+        if expected is None:
+            raise DomainError("No price is configured for this slot, so a discount can't be worked out.", 422)
+        custom = custom_discount_amount(expected, *custom_discount)
     manual_price = amount is not None
     if amount is not None and not _is_hq(actor):
         raise DomainError("Prices are fixed. Pick one of this venue's discounts, or ask HQ to change the price.", 403)
     if amount is None:
         if expected is None:
             raise DomainError("No price is configured for this slot." + ("" if _is_hq(actor) else " Ask HQ to add it under Pricing."), 422)
-        amount = round(expected * (1 - disc.percent / 100), 2) if disc else expected
+        amount = custom[0] if custom else round(expected * (1 - disc.percent / 100), 2) if disc else expected
     if amount < 0:
         raise DomainError("Amount cannot be negative.", 422)
     b = Booking(source="direct", customer_id=customer.id, venue_id=venue_id, facility_id=fac.id,
                 original_facility_id=fac.id, sport=fac.sport, date=d, start_min=start_min, end_min=end_min,
                 booking_value=amount, payment_status="to_collect",
-                list_price=expected, discount_name=disc.name if disc else None,
-                discount_percent=disc.percent if disc else None,
+                list_price=expected, discount_name=disc.name if disc else custom[1] if custom else None,
+                discount_percent=disc.percent if disc else custom[2] if custom else None,
+                discount_reason=custom_discount[2].strip()[:200] if custom else None, discount_by=actor.id if custom else None,
                 payment_window_end_min=default_window_end(end_min), assigned_at=now_local())
     db.add(b)
     db.flush()
     inventory.allocate(db, venue_id, [fac.id], d, start_min, end_min, AllocationKind.DIRECT, b.id, check_hours=False)
     audit.record(db, actor, "booking.create", "booking", b.id, None,
-                 {**_snapshot(b), "source": "direct", "expected_amount": expected}, venue_id)
-    if disc is None and not manual_price:
+                 {**_snapshot(b), "source": "direct", "expected_amount": expected,
+                  **({"custom_discount": {"kind": custom_discount[0], "value": custom_discount[1],
+                                          "reason": custom_discount[2], "list_price": expected}} if custom else {})}, venue_id)
+    if disc is None and custom is None and not manual_price:
         membership.cover(db, actor, b)  # a member's booking is covered from their hours
     if rentals:
         add_rentals(db, actor, b, rentals)

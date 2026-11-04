@@ -85,6 +85,7 @@ def booking(db: Session, b: Booking, detail: bool = False, pre: dict | None = No
         "sport": b.sport, "date": b.date, "start_min": b.start_min, "end_min": b.end_min,
         "time": f"{hhmm(b.start_min)}–{hhmm(b.end_min)}", "booking_value": b.booking_value,
         "list_price": b.list_price, "discount_name": b.discount_name, "discount_percent": b.discount_percent,
+        "discount_reason": b.discount_reason, "discount_custom": b.discount_reason is not None,
         "collected_amount": b.collected_amount, "payment_status": b.payment_status, "payment_method": b.payment_method,
         "payment_window_start_min": b.start_min - 30, "payment_window_end_min": b.payment_window_end_min,
         "attendance": b.attendance, "status": b.status, "cancel_reason": b.cancel_reason, "cancel_note": b.cancel_note,

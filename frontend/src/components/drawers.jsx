@@ -110,7 +110,7 @@ export function BookingDrawer({ id, onClose, onChanged }) {
         <dt>Court</dt><dd>{b.facility || <span className="subtle">Not assigned yet</span>}{b.sport ? ` · ${b.sport}` : ''}</dd>
         <dt>Booking value</dt><dd>{money(b.booking_value)}{b.platform ? <span className="subtle"> · via {b.platform}</span> : ''}</dd>
         {b.membership_id && <><dt>Membership</dt><dd>{b.member_hours} h covered by the customer&apos;s membership</dd></>}
-        {b.discount_name && <><dt>Discount</dt><dd>{b.discount_name} ({b.discount_percent}% off {money(b.list_price)})</dd></>}
+        {b.discount_name && <><dt>Discount</dt><dd>{b.discount_name} ({b.discount_percent}% off {money(b.list_price)}){b.discount_reason ? <div className="subtle" style={{ fontSize: 12.5 }}>Reason: {b.discount_reason}</div> : null}</dd></>}
         {!b.discount_name && b.list_price != null && Math.abs(b.list_price - b.booking_value) > 0.5 && <><dt>Configured price</dt><dd>{money(b.list_price)} <span className="subtle">· changed by HQ</span></dd></>}
         <dt>Collected</dt><dd>{money(b.collected_amount)}{b.payment_method ? ` · ${METHOD[b.payment_method] || b.payment_method}` : ''}</dd>
         {b.refunded > 0 && <><dt>Refunded</dt><dd>{money(b.refunded)}</dd></>}
@@ -273,7 +273,9 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   const { isHQ } = useAuth()
   const discounts = venue.discounts || []
   const facilities = venue.facilities.filter((f) => f.status === 'active')
-  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), end: hhmm(start + 60), phone: '', name: '', email: '', amount: '', discount_id: '', pay_now: false, method: 'upi' })
+  const [form, setForm] = useState({ facility_id: facilityId, date, start: hhmm(start), end: hhmm(start + 60), phone: '', name: '', email: '', amount: '', discount_id: '', custom_kind: 'percent', custom_value: '', custom_reason: '', pay_now: false, method: 'upi' })
+  const isCustom = form.discount_id === 'custom'
+  const anyDiscount = !!form.discount_id && (!isCustom || Number(form.custom_value) > 0)
   const rentalItems = venue.rental_items || []
   const [rent, setRent] = useState({})
   const rentTotal = rentalItems.reduce((n, i) => n + (rent[i.id] || 0) * i.price, 0)
@@ -292,9 +294,9 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
   const badTimes = toMin(form.end) <= toMin(form.start)
 
   useEffect(() => {
-    const q = `/api/venues/${venue.id}/quote?facility_id=${form.facility_id}&date=${form.date}&start=${form.start}&end=${form.end}${form.discount_id ? `&discount_id=${form.discount_id}` : ''}`
+    const q = `/api/venues/${venue.id}/quote?facility_id=${form.facility_id}&date=${form.date}&start=${form.start}&end=${form.end}${form.discount_id && !isCustom ? `&discount_id=${form.discount_id}` : ''}${isCustom && Number(form.custom_value) > 0 ? `&custom_kind=${form.custom_kind}&custom_value=${form.custom_value}` : ''}`
     api(q).then(setQuote).catch(() => setQuote(null))
-  }, [venue.id, form.facility_id, form.date, form.start, form.end, form.discount_id])
+  }, [venue.id, form.facility_id, form.date, form.start, form.end, form.discount_id, form.custom_kind, form.custom_value, isCustom])
 
   useEffect(() => {
     const digits = digitsOf(form.phone)
@@ -309,7 +311,8 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
     e.preventDefault()
     const r = await run(() => post('/api/bookings/direct', {
       ...form, venue_id: venue.id, facility_id: Number(form.facility_id),
-      amount: form.amount === '' ? null : Number(form.amount), discount_id: form.discount_id ? Number(form.discount_id) : null,
+      amount: form.amount === '' ? null : Number(form.amount), discount_id: form.discount_id && !isCustom ? Number(form.discount_id) : null,
+      custom_discount: isCustom ? { kind: form.custom_kind, value: Number(form.custom_value), reason: form.custom_reason } : null,
       method: form.pay_now ? form.method : null,
       rentals: rentalItems.filter((i) => rent[i.id] > 0).map((i) => ({ item_id: i.id, quantity: rent[i.id] })),
     }), form.email ? 'Direct booking created · WhatsApp and email sent' : 'Direct booking created · WhatsApp sent')
@@ -343,12 +346,28 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
           <Field label="Customer email (optional)" help="If given, the booking confirmation is emailed too">
             <input className="input" type="email" autoComplete="off" placeholder="name@example.com" value={form.email} onChange={set('email')} />
           </Field>
-          <Field label="Discount" help={discounts.length ? 'Percentage off the configured price' : 'No discounts are set up for this venue (Configuration → Venues)'}>
-            <select className="select" value={form.discount_id} disabled={!discounts.length} onChange={(e) => setForm((f) => ({ ...f, discount_id: e.target.value, amount: '' }))}>
+          <Field label="Discount" help={isCustom ? 'A one-off discount for this booking. HQ sees it, with your reason.' : 'Off the configured price'}>
+            <select className="select" value={form.discount_id} onChange={(e) => setForm((f) => ({ ...f, discount_id: e.target.value, amount: '' }))}>
               <option value="">No discount</option>
               {discounts.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.percent}% off</option>)}
+              <option value="custom">Custom discount…</option>
             </select>
           </Field>
+          {isCustom && (
+            <>
+              <div className="form-row">
+                <Seg value={form.custom_kind} onChange={(v) => setForm((f) => ({ ...f, custom_kind: v }))} label="Discount type"
+                  options={[{ value: 'percent', label: '% off' }, { value: 'flat', label: '₹ off' }]} />
+                <Field label={form.custom_kind === 'percent' ? 'Percent off' : 'Rupees off'}>
+                  <input className="input" type="number" min={0} step="any" max={form.custom_kind === 'percent' ? 100 : undefined}
+                    value={form.custom_value} onChange={set('custom_value')} required />
+                </Field>
+              </div>
+              <Field label="Reason" help="Required, for example: regular customer, court issue, rain delay">
+                <input className="input" maxLength={200} value={form.custom_reason} onChange={set('custom_reason')} required />
+              </Field>
+            </>
+          )}
           {isHQ && (
             <Field label="Amount (HQ)" help={quote?.amount != null ? `Configured price ${money(quote.amount)} for ${fac?.sport}. Typing an amount here replaces it.` : 'No price configured — enter the amount'}>
               <input className="input" type="number" min={0} placeholder={quote?.total ?? ''} value={form.amount} disabled={!!form.discount_id}
@@ -368,7 +387,7 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
           })()}
           <div className="callout info" style={{ alignItems: 'baseline' }}>
             {quote?.total != null
-              ? <span><b>{money(form.amount !== '' ? Number(form.amount) : quote.total)}</b>{form.discount_id && quote.amount != null ? <span className="subtle"> · {money(quote.amount)} less {discounts.find((d) => String(d.id) === String(form.discount_id))?.percent}%</span> : null}</span>
+              ? <span><b>{money(form.amount !== '' ? Number(form.amount) : quote.total)}</b>{anyDiscount && quote.amount != null ? <span className="subtle"> · {money(quote.amount)} less {isCustom ? money(quote.amount - quote.total) : `${discounts.find((d) => String(d.id) === String(form.discount_id))?.percent}%`}</span> : null}</span>
               : <span>{isHQ ? 'No price configured for this slot. Enter the amount above.' : 'No price is configured for this slot. Ask HQ to add it under Pricing.'}</span>}
           </div>
           {rentalItems.length > 0 && (
@@ -391,7 +410,7 @@ export function DirectBookingDrawer({ venue, date, facilityId, start, onClose, o
           {form.pay_now && <Seg value={form.method} onChange={set('method')} options={METHODS} label="Payment method" />}
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={close}>Cancel</button>
-            <button className="btn btn-primary" disabled={busy || badTimes || (quote && !quote.available) || (!isHQ && quote?.total == null)}>Create booking</button>
+            <button className="btn btn-primary" disabled={busy || badTimes || (quote && !quote.available) || (!isHQ && quote?.total == null) || (isCustom && (!(Number(form.custom_value) > 0) || !form.custom_reason.trim()))}>Create booking</button>
           </div>
         </form>
       )}

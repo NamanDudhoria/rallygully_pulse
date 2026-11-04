@@ -56,12 +56,19 @@ class OnlineIn(BaseModel):
     sport: str | None = None
 
 
+class CustomDiscountIn(BaseModel):
+    kind: str  # percent | flat
+    value: float
+    reason: str
+
+
 class DirectIn(BaseModel):
     venue_id: int
     facility_id: int
     date: date
     start: str
     discount_id: int | None = None  # one of the venue's configured discounts
+    custom_discount: CustomDiscountIn | None = None  # or one made up at the counter, with a reason
     rentals: list[RentalLineIn] = []
     end: str | None = None  # slot end time; the booking holds start to end
     duration: int | None = None  # older clients: minutes after start, when no end is given
@@ -108,6 +115,7 @@ def create_direct(body: DirectIn, user: User = Depends(current_user), db: Sessio
                                start_min=minutes(body.start), end_min=_end_min(body), phone=body.phone,
                                name=body.name, amount=body.amount, pay_now=body.pay_now, method=body.method,
                                email=body.email, discount_id=body.discount_id,
+                               custom_discount=(body.custom_discount.kind, body.custom_discount.value, body.custom_discount.reason) if body.custom_discount else None,
                                rentals=[(r.item_id, r.quantity) for r in body.rentals])
     db.commit()
     return serialize.booking(db, b, detail=True)
