@@ -1,29 +1,91 @@
-/** Daily SOP: photos the VM uploads during the day in four categories. Venue, branding and toilets are compulsory
- *  before the day can be closed; "other" is optional. */
-import { useEffect, useRef, useState } from 'react'
-import { Camera, CheckCircle2, Trash2 } from 'lucide-react'
+/** Daily SOP: photos the VM takes during the day in four categories, with the live camera only (never the gallery).
+ *  Venue, branding and toilets are compulsory before the day can be closed; "other" is optional. */
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Camera, Check, CheckCircle2, RotateCcw, Trash2 } from 'lucide-react'
 import { apiBlobUrl, del, post } from '../lib/api'
 import { useApi } from '../lib/hooks'
 import { useAction, useAuth } from '../lib/useCtx'
 import { ErrorState, Skeleton } from './ui'
 
-/** Shrink a phone photo to at most 1280 px and re-encode it as JPEG, as the clock-in camera does. */
-function toJpeg(file) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file)
-    const img = new Image()
-    img.onload = () => {
-      const scale = Math.min(1, 1280 / Math.max(img.width, img.height))
-      const c = document.createElement('canvas')
-      c.width = Math.round(img.width * scale)
-      c.height = Math.round(img.height * scale)
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
-      URL.revokeObjectURL(url)
-      resolve(c.toDataURL('image/jpeg', 0.75))
-    }
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That file isn't a photo.")) }
-    img.src = url
-  })
+/** Live camera only, as at clock-in: no gallery or file picker. Each photo is uploaded as soon as it is accepted,
+ *  and the camera stays open for the next one until the VM taps Done. */
+function SopCamera({ venueId, cat, onClose, onChanged }) {
+  const video = useRef(null)
+  const stream = useRef(null)
+  const [error, setError] = useState(null)
+  const [shot, setShot] = useState(null)
+  const [sent, setSent] = useState(0)
+  const [attempt, setAttempt] = useState(0)
+  const [run, busy] = useAction()
+  const unsupported = !window.isSecureContext || !navigator.mediaDevices?.getUserMedia
+  const stop = useCallback(() => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null }, [])
+
+  useEffect(() => {
+    if (unsupported || shot) return undefined
+    let alive = true
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+      .then((st) => {
+        if (!alive) { st.getTracks().forEach((t) => t.stop()); return }
+        stream.current = st
+        if (video.current) video.current.srcObject = st
+      })
+      .catch((e) => {
+        if (alive) {
+          setError(e.name === 'NotAllowedError'
+            ? 'Camera permission is off for Pulse. Allow the camera for this site in your browser settings, then tap Try again.'
+            : "Couldn't open the camera. Close other apps using it and tap Try again.")
+        }
+      })
+    return () => { alive = false; stop() }
+  }, [attempt, unsupported, shot, stop])
+
+  const attach = (el) => {
+    video.current = el
+    if (el && stream.current && el.srcObject !== stream.current) el.srcObject = stream.current
+  }
+  const shownError = unsupported ? 'The camera needs the secure (https) Pulse address on a phone browser such as Chrome or Safari.' : error
+
+  const capture = () => {
+    const v = video.current
+    if (!v || !v.videoWidth) return
+    const scale = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight))
+    const c = document.createElement('canvas')
+    c.width = Math.round(v.videoWidth * scale)
+    c.height = Math.round(v.videoHeight * scale)
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
+    setShot(c.toDataURL('image/jpeg', 0.75))
+    stop()
+  }
+  const keep = async () => {
+    const r = await run(() => post(`/api/venues/${venueId}/sop/photos`, { kind: cat.kind, image: shot }))
+    if (r) { onChanged(r); setSent((n) => n + 1); setShot(null); setAttempt((n) => n + 1) }
+  }
+  const done = () => { stop(); onClose() }
+
+  return (
+    <div className="camera-sheet" role="dialog" aria-modal="true" aria-label={`${cat.label} photos`}>
+      <div className="camera-head">
+        <h2>{cat.label} photos{sent ? ` · ${sent} added` : ''}</h2>
+        <p className="subtle">Take as many as you need. Each one is saved as soon as you tap Use photo.</p>
+      </div>
+      <div className="camera-view">
+        {shownError && <div className="callout warn" style={{ margin: 16 }}><Camera />{shownError}</div>}
+        {!shownError && !shot && <video ref={attach} autoPlay playsInline muted />}
+        {shot && <img src={shot} alt={`${cat.label} photo preview`} />}
+      </div>
+      <div className="camera-actions">
+        {error && !unsupported && <button className="btn btn-primary" onClick={() => { setError(null); setAttempt((n) => n + 1) }}><RotateCcw /> Try again</button>}
+        {!shot && <button className="btn" onClick={done}><Check /> Done</button>}
+        {!shownError && !shot && <button className="btn btn-primary camera-shutter" onClick={capture}><Camera /> Take photo</button>}
+        {shot && (
+          <>
+            <button className="btn" disabled={busy} onClick={() => { setShot(null); setAttempt((n) => n + 1) }}><RotateCcw /> Retake</button>
+            <button className="btn btn-primary" disabled={busy} onClick={keep}>{busy ? 'Saving…' : 'Use photo'}</button>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function Thumb({ venueId, photo, canRemove, onRemove }) {
@@ -51,21 +113,8 @@ function Thumb({ venueId, photo, canRemove, onRemove }) {
 }
 
 function Category({ venueId, cat, editable, onChanged, userName, isHQ }) {
-  const input = useRef(null)
-  const [run, busy] = useAction()
-  const [sending, setSending] = useState(0)
-  const upload = async (files) => {
-    const list = [...files]
-    setSending(list.length)
-    let last = null
-    for (const f of list) {
-      const r = await run(async () => post(`/api/venues/${venueId}/sop/photos`, { kind: cat.kind, image: await toJpeg(f) }))
-      if (r) last = r
-      setSending((n) => n - 1)
-    }
-    if (input.current) input.current.value = ''
-    if (last) onChanged(last)
-  }
+  const [run] = useAction()
+  const [shooting, setShooting] = useState(false)
   const done = cat.photos.length > 0
   return (
     <div className="card">
@@ -74,15 +123,7 @@ function Category({ venueId, cat, editable, onChanged, userName, isHQ }) {
           {done ? <CheckCircle2 size={18} color="var(--good)" aria-hidden /> : null}
           {cat.label} <span className="subtle" style={{ fontWeight: 400, fontSize: 13 }}>{cat.required ? 'compulsory' : 'optional'} · {cat.photos.length}</span>
         </h2>
-        {editable && (
-          <>
-            <input ref={input} type="file" accept="image/*" capture="environment" multiple hidden
-              onChange={(e) => e.target.files.length && upload(e.target.files)} />
-            <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => input.current?.click()}>
-              <Camera /> {sending ? `Uploading ${sending}…` : 'Add photos'}
-            </button>
-          </>
-        )}
+        {editable && <button className="btn btn-sm btn-primary" onClick={() => setShooting(true)}><Camera /> Take photos</button>}
       </div>
       <div className="card-body">
         {cat.photos.length ? (
@@ -98,6 +139,7 @@ function Category({ venueId, cat, editable, onChanged, userName, isHQ }) {
           </div>
         ) : <p className="subtle">{cat.required ? 'No photo yet.' : 'Nothing added.'}</p>}
       </div>
+      {shooting && <SopCamera venueId={venueId} cat={cat} onClose={() => setShooting(false)} onChanged={onChanged} />}
     </div>
   )
 }
