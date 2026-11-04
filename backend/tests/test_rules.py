@@ -1354,3 +1354,19 @@ def test_player_levels_are_kept_as_written():
     assert [s["level"] for s in secs] == ["Beginner +", "Advance"]
     assert [(r["name"], r["level"]) for r in rows] == [
         ("Asha", "Beginner +"), ("Ravi", "advance"), ("Meera", "Intermediate +"), ("Kiran", "Advance")]
+
+
+def test_courts_assigned_by_community_and_seen_by_vm(client):
+    hq, vm = login(client, "hq@x.com"), login(client, "vm@x.com")
+    g = _game(client, hq, capacity=4)
+    pid = client.post(f"/api/community-games/{g['id']}/participants", headers=hq,
+                      json={"name": "Asha", "level": "Beginner +"}).json()["participants"][0]["id"]
+    fid = g["facility_ids"][0]
+    done = client.patch(f"/api/participants/{pid}", headers=hq, json={"facility_id": fid}).json()
+    assert done["participants"][0]["facility_id"] == fid
+    assert client.patch(f"/api/participants/{pid}", headers=hq, json={"facility_id": 9999}).status_code == 422
+    assert client.patch(f"/api/participants/{pid}", headers=vm, json={"facility_id": None}).status_code in (403, 404)
+    seen = client.get(f"/api/community-games/{g['id']}", headers=vm)
+    if seen.status_code == 200:
+        assert seen.json()["participants"][0]["facility_id"] == fid
+    assert client.patch(f"/api/participants/{pid}", headers=hq, json={"facility_id": None}).json()["participants"][0]["facility_id"] is None

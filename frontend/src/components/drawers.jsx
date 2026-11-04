@@ -676,6 +676,8 @@ export function GameDrawer({ id, onClose, onChanged }) {
   const started = g.state === 'live' || g.state === 'completed'
   const canAdd = open && manage && g.state !== 'completed'
   const full = g.participant_count >= g.capacity
+  const courts = g.facility_ids.map((id, i) => ({ id, name: g.facilities[i] }))
+  const courtName = (id) => courts.find((c) => c.id === id)?.name
   const levels = (reasons?.levels || ['beginner', 'intermediate', 'advanced']).map((l) => l[0].toUpperCase() + l.slice(1))
 
   return (
@@ -741,6 +743,14 @@ export function GameDrawer({ id, onClose, onChanged }) {
                     <div className="meta">
                       {p.phone ? phoneFmt(p.phone) : <span>no phone</span>} · {p.level}{p.guest_of_name && <> · guest of {p.guest_of_name}</>}
                     </div>
+                    {manage && open && courts.length > 0 ? (
+                      <select className="select" aria-label={`Court for ${p.name || 'player'}`} value={p.facility_id ?? ''}
+                        style={{ minHeight: 28, padding: '2px 8px', marginTop: 4, width: 'auto' }}
+                        onChange={(e) => act(() => patch(`/api/participants/${p.id}`, { facility_id: e.target.value ? Number(e.target.value) : null }), 'Court updated')}>
+                        <option value="">Court: not assigned</option>
+                        {courts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    ) : p.facility_id != null && <div style={{ marginTop: 4 }}><Badge tone="brand">{courtName(p.facility_id) || 'Court'}</Badge></div>}
                     {!p.phone && operate && open && <AddPhone onSave={(phone) => act(() => patch(`/api/participants/${p.id}`, { phone }), 'Phone added')} />}
                   </div>
                   {!operate || !open ? (
