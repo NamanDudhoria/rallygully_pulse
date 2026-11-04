@@ -76,6 +76,7 @@ export const KIND = {
   corporate: { label: 'Corporate', color: 'var(--k-corporate)' },
   platforms: { label: 'Other platforms', color: '#8b6fd1' },
   other: { label: 'Memberships & other', color: '#7d8590' },
+  store: { label: 'RG Store', color: '#c2410c' },
   block: { label: 'Op. Block', color: 'var(--k-block)' },
 }
 export const KINDS = ['district', 'direct', 'community', 'academy', 'corporate']

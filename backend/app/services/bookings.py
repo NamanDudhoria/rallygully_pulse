@@ -22,6 +22,8 @@ CANCEL_REASONS = {
     "weather": "Weather",
     "staff_error": "Staff / operational error",
     "double_booking": "Double booking",
+    "customer_request": "Customer asked to cancel",
+    "left_mid_session": "Customer left mid-session",
     "payment_overdue": "Payment overdue",
     "other": "Other",
 }
@@ -381,8 +383,9 @@ def cancel(db: Session, actor: User, b: Booking, reason: str, note: str | None) 
         raise DomainError("Choose a cancellation reason.", 422)
     if reason == "other" and not (note or "").strip():
         raise DomainError("Add a note for 'Other'.", 422)
-    if b.attendance == "attended" and not _is_hq(actor):
-        raise DomainError("Customer already played. HQ can correct this record.")
+    ended = b.date < today() or (b.date == today() and _now_min(b.date) >= b.end_min)
+    if not _is_hq(actor) and ended and b.payment_status != "overdue":  # an unpaid, overdue booking can still be released
+        raise DomainError("This session has already ended. HQ can correct this record.")
     before = _snapshot(b)
     b.status = "cancelled"
     b.cancel_reason = reason

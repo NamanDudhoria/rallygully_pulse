@@ -330,7 +330,7 @@ function SalesTab({ venue, hq }) {
                       <td className="nowrap">{hq && range.from !== range.to ? `${shortDate(s.paid_at.slice(0, 10))} ` : ''}{new Date(s.paid_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}<div className="subtle" style={{ fontSize: 12 }}>{s.sold_by}</div></td>
                       <td>{s.customer.name || '—'}<div className="subtle" style={{ fontSize: 12 }}>{phoneFmt(s.customer.phone)}</div></td>
                       <td>{s.items.map((i) => `${i.quantity} × ${i.name}`).join(', ')}</td>
-                      <td>{s.status === 'voided' ? <Badge tone="bad">Voided</Badge> : METHOD_LABEL[s.payment_method] || s.payment_method}</td>
+                      <td>{s.status === 'voided' ? <Badge tone="bad">Voided</Badge> : s.status === 'on_bill' ? <Badge tone="warn">On bill, unpaid</Badge> : METHOD_LABEL[s.payment_method] || s.payment_method}</td>
                       <td className="num" style={{ fontWeight: 600 }}>{money(s.total)}</td>
                       {hq && <td className="num">{s.status !== 'voided' && <button className="btn btn-sm btn-ghost" onClick={() => setVoiding(s)}><Undo2 /> Void</button>}</td>}
                     </tr>

@@ -16,10 +16,74 @@ function useReasons() {
   return useApi('/api/meta/reasons').data
 }
 
+/** One bill for the booking: court, rentals and RG Store items bought during the session, collected in one go.
+ *  Pulse still books each part to its own basket (court revenue, rentals, store sales). */
+function BillSection({ b, operate, onChanged }) {
+  const { data: bill, reload } = useApi(`/api/bookings/${b.id}/bill`)
+  const products = useApi(operate && b.status === 'confirmed' ? `/api/store/${b.venue_id}/products` : null).data
+  const [run, busy] = useAction()
+  const [method, setMethod] = useState('upi')
+  const [pick, setPick] = useState({ product: '', qty: 1 })
+  if (!bill) return null
+  const act = async (fn, msg) => {
+    const r = await run(fn, msg)
+    if (r) { await reload(); onChanged() }
+    return r
+  }
+  const stocked = (products || []).filter((p) => !p.out)
+  return (
+    <section>
+      <div className="section-title">Bill {bill.bill_no}</div>
+      <div className="stack" style={{ gap: 6 }}>
+        {bill.lines.map((x, i) => (
+          <div key={i} className="row" style={{ justifyContent: 'space-between' }}>
+            <span>{x.label}</span>
+            <span className="row" style={{ gap: 8 }}>
+              <b>{money(x.amount)}</b>
+              {x.paid ? <span className="badge good">{x.method ? (METHOD[x.method] || x.method) : 'Paid'}</span> : <span className="badge warn">Due</span>}
+              {x.basket === 'store' && !x.paid && operate && (
+                <button className="btn btn-ghost btn-sm" aria-label="Remove from bill" disabled={busy}
+                  onClick={() => act(() => del(`/api/bookings/${b.id}/store/${x.id}`), 'Removed from the bill')}><Trash2 /></button>
+              )}
+            </span>
+          </div>
+        ))}
+        <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--line)', paddingTop: 8, fontSize: 16 }}>
+          <b>Total</b><b>{money(bill.total)}</b>
+        </div>
+        {bill.paid > 0 && bill.due > 0 && <div className="row subtle" style={{ justifyContent: 'space-between' }}><span>Paid so far</span><span>{money(bill.paid)}</span></div>}
+      </div>
+      {operate && b.status === 'confirmed' && stocked.length > 0 && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <select className="select" style={{ flex: 1 }} value={pick.product} onChange={(e) => setPick({ ...pick, product: e.target.value })} aria-label="RG Store item">
+            <option value="">Add from RG Store…</option>
+            {stocked.map((p) => <option key={p.id} value={p.id}>{p.name} · {money(p.price)} · {p.stock} left</option>)}
+          </select>
+          <input className="input" type="number" min={1} max={50} value={pick.qty} style={{ width: 70 }} aria-label="Quantity"
+            onChange={(e) => setPick({ ...pick, qty: e.target.value })} />
+          <button className="btn" disabled={!pick.product || busy}
+            onClick={async () => { if (await act(() => post(`/api/bookings/${b.id}/store`, { items: [{ item_id: Number(pick.product), quantity: Number(pick.qty) || 1 }] }), 'Added to the bill')) setPick({ product: '', qty: 1 }) }}>
+            <Plus /> Add
+          </button>
+        </div>
+      )}
+      {operate && bill.due > 0 && (
+        <div className="row" style={{ marginTop: 12 }}>
+          <Seg value={method} onChange={setMethod} options={METHODS} label="Payment method" />
+          <button className="btn btn-primary" disabled={busy}
+            onClick={() => act(() => post(`/api/bookings/${b.id}/bill/pay`, { method }), `Bill paid · ${METHOD[method]}`)}>
+            <Wallet /> Collect {money(bill.due)}
+          </button>
+        </div>
+      )}
+      {bill.due === 0 && bill.total > 0 && <p className="subtle" style={{ fontSize: 12.5, marginTop: 8 }}>Fully paid.</p>}
+    </section>
+  )
+}
+
 /** Equipment rented against a booking: fixed prices from the venue's list, paid on their own (not court revenue). */
 function RentalsSection({ b, items, live, act, busy }) {
   const [pick, setPick] = useState({ item: '', qty: 1 })
-  const [method, setMethod] = useState('cash')
   const lines = b.rentals || []
   if (!live && !lines.length) return null
   return (
@@ -56,15 +120,6 @@ function RentalsSection({ b, items, live, act, busy }) {
           </div>
         ) : <p className="subtle" style={{ fontSize: 12.5 }}>No rental items are set up for this venue (Configuration → Venues).</p>
       )}
-      {live && b.rental_due > 0 && (
-        <div className="row" style={{ marginTop: 10 }}>
-          <Seg value={method} onChange={setMethod} options={METHODS} label="Rental payment method" />
-          <button className="btn btn-primary" disabled={busy}
-            onClick={() => act(() => post(`/api/bookings/${b.id}/rentals/pay`, { method }), `Rental payment recorded · ${METHOD[method]}`)}>
-            <Wallet /> Collect {money(b.rental_due)}
-          </button>
-        </div>
-      )}
     </section>
   )
 }
@@ -76,7 +131,6 @@ export function BookingDrawer({ id, onClose, onChanged }) {
   const { data: b, reload } = useApi(`/api/bookings/${id}`)
   const reasons = useReasons()
   const [run, busy] = useAction()
-  const [method, setMethod] = useState('upi')
   const [fac, setFac] = useState('')
   const [cancelReason, setCancelReason] = useState('')
   const [note, setNote] = useState('')
@@ -171,15 +225,8 @@ export function BookingDrawer({ id, onClose, onChanged }) {
 
       {unpaid && (
         <section>
-          <div className="section-title">Collect payment · {money(b.booking_value)} (full amount)</div>
+          <div className="section-title">Payment window · until {time12(b.payment_window_end_min)}</div>
           <div className="row">
-            <Seg value={method} onChange={setMethod} options={METHODS} label="Payment method" />
-            <button className="btn btn-primary" disabled={busy}
-              onClick={() => act(() => post(`/api/bookings/${b.id}/pay`, { method }), `Payment recorded · ${METHOD[method]}`)}>
-              <Wallet /> Record
-            </button>
-          </div>
-          <div className="row" style={{ marginTop: 10 }}>
             <input className="input" type="time" step={1800} value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)}
               style={{ width: 130 }} aria-label="New payment window end" />
             <button className="btn btn-sm" disabled={!windowEnd || busy}
@@ -192,7 +239,9 @@ export function BookingDrawer({ id, onClose, onChanged }) {
 
       <RentalsSection b={b} items={venues?.find((v) => v.id === b.venue_id)?.rental_items || []} live={live} act={act} busy={busy} />
 
-      {live && (b.attendance !== 'attended' || isHQ) && (
+      <BillSection b={b} operate={operate} onChanged={async () => { await reload(); onChanged?.() }} />
+
+      {live && (
         <section>
           <div className="section-title">Cancel</div>
           <div className="form">

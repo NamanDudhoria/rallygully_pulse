@@ -111,11 +111,8 @@ def adjust(db: Session, actor: User, p: StoreProduct, delta: int, reason: str) -
 
 
 # ── Selling ──────────────────────────────────────────────────────────────────
-def sell(db: Session, actor: User, venue_id: int, items: list[tuple[int, int]], *, phone: str, name: str | None,
-         email: str | None, method: str) -> StoreSale:
-    """Record a confirmed purchase and take its items out of stock, all or nothing."""
-    if method not in PAYMENT_METHODS:
-        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
+def _take(db: Session, venue_id: int, items: list[tuple[int, int]]) -> tuple[dict, Counter, dict]:
+    """Check the items and take them out of stock, all or nothing. Returns (products, quantities, stock before)."""
     if not items:
         raise DomainError("Add at least one item.", 422)
     wanted = Counter()
@@ -128,9 +125,8 @@ def sell(db: Session, actor: User, venue_id: int, items: list[tuple[int, int]], 
         p = products.get(pid)
         if not p or p.venue_id != venue_id or not p.active:
             raise DomainError("One of those items isn't sold at this venue.", 422)
-    customer, _ = customers.get_or_create(db, phone, name, email)
-    # Take stock first, in one statement per product that only succeeds if enough is left, so two people selling
-    # the last bottle at once can't both succeed. Any shortfall raises before the session commits: nothing is kept.
+    # One statement per product that only succeeds if enough is left, so two people selling the last bottle at once
+    # can't both succeed. Any shortfall raises before the session commits: nothing is kept.
     before = {pid: products[pid].stock for pid in wanted}
     for pid, qty in wanted.items():
         res = db.execute(update(StoreProduct).where(StoreProduct.id == pid, StoreProduct.stock >= qty)
@@ -142,8 +138,13 @@ def sell(db: Session, actor: User, venue_id: int, items: list[tuple[int, int]], 
                               f"{products[pid].name} is out of stock.", 409)
     for p in products.values():
         db.refresh(p)
-    sale = StoreSale(venue_id=venue_id, customer_id=customer.id, payment_method=method, status="confirmed",
-                     paid_at=now_local(), sold_by=actor.id, total=0.0)
+    return products, wanted, before
+
+
+def _record(db: Session, actor: User, venue_id: int, customer_id: int, products: dict, wanted: Counter, before: dict,
+            *, method: str, status: str, booking_id: int | None = None) -> StoreSale:
+    sale = StoreSale(venue_id=venue_id, customer_id=customer_id, payment_method=method, status=status,
+                     paid_at=now_local(), sold_by=actor.id, total=0.0, booking_id=booking_id)
     for pid, qty in wanted.items():
         p = products[pid]
         sale.items.append(StoreSaleItem(product_id=p.id, name=p.name, unit_price=p.price, quantity=qty,
@@ -154,8 +155,40 @@ def sell(db: Session, actor: User, venue_id: int, items: list[tuple[int, int]], 
     for pid, qty in wanted.items():
         _move(db, products[pid], "sale", -qty, actor, sale_id=sale.id)
     audit.record(db, actor, "store.sale", "store_sale", sale.id, None,
-                 {"total": sale.total, "method": method, "items": [(i.name, i.quantity) for i in sale.items]}, venue_id)
+                 {"total": sale.total, "method": method, "status": status, "booking": booking_id,
+                  "items": [(i.name, i.quantity) for i in sale.items]}, venue_id)
     _alert_low_stock(db, [(products[pid], before[pid]) for pid in wanted])
+    return sale
+
+
+def sell(db: Session, actor: User, venue_id: int, items: list[tuple[int, int]], *, phone: str, name: str | None,
+         email: str | None, method: str) -> StoreSale:
+    """A standalone counter sale: recorded as paid and its items taken out of stock, all or nothing."""
+    if method not in PAYMENT_METHODS:
+        raise DomainError("Choose a payment method: cash, UPI, Razorpay or other.", 422)
+    customer, _ = customers.get_or_create(db, phone, name, email)
+    products, wanted, before = _take(db, venue_id, items)
+    return _record(db, actor, venue_id, customer.id, products, wanted, before, method=method, status="confirmed")
+
+
+def add_to_bill(db: Session, actor: User, booking, items: list[tuple[int, int]]) -> StoreSale:
+    """Items bought during a booking: handed over now (stock goes down), paid with the booking's bill at the end."""
+    products, wanted, before = _take(db, booking.venue_id, items)
+    return _record(db, actor, booking.venue_id, booking.customer_id, products, wanted, before,
+                   method="pending", status="on_bill", booking_id=booking.id)
+
+
+def remove_from_bill(db: Session, actor: User, sale: StoreSale) -> StoreSale:
+    """Take unpaid items off a booking's bill (wrong item, returned unopened): they go back into stock."""
+    if sale.status != "on_bill":
+        raise DomainError("Only unpaid items on a bill can be removed. HQ can void a paid sale.")
+    return void_sale(db, actor, sale, "Removed from the bill")
+
+
+def settle(db: Session, actor: User, sale: StoreSale, method: str) -> StoreSale:
+    """The bill was paid: the items on it count as a confirmed sale from now."""
+    sale.status, sale.payment_method, sale.paid_at = "confirmed", method, now_local()
+    audit.record(db, actor, "store.settle", "store_sale", sale.id, None, {"method": method, "total": sale.total}, sale.venue_id)
     return sale
 
 
@@ -213,7 +246,7 @@ def sale_dict(db: Session, s: StoreSale, names: dict | None = None) -> dict:
     who = names.get(s.sold_by) if names is not None else (db.get(User, s.sold_by).name if s.sold_by else None)
     return {"id": s.id, "receipt": receipt_no(s), "venue_id": s.venue_id, "total": s.total,
             "payment_method": s.payment_method, "status": s.status, "paid_at": s.paid_at,
-            "customer": {"name": c.name, "phone": c.phone}, "sold_by": who,
+            "customer": {"name": c.name, "phone": c.phone}, "sold_by": who, "booking_id": s.booking_id,
             "void_reason": s.void_reason, "voided_at": s.voided_at,
             "items": [{"product_id": i.product_id, "name": i.name, "unit_price": i.unit_price,
                        "quantity": i.quantity, "amount": i.amount} for i in s.items]}

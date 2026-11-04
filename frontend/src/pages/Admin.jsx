@@ -54,8 +54,15 @@ function CustomerDrawer({ id, onClose }) {
           <div className="row">
             {c.returning ? <Badge tone="brand" icon={Repeat}>Returning customer</Badge> : <Badge>{c.completed ? 'One visit' : 'No completed visits'}</Badge>}
             <Badge>{c.completed} completed</Badge>
-            <Badge tone="good">{money(c.net_spend)} spent</Badge>
+            <Badge tone="good">{money(c.spend?.total ?? c.net_spend)} spent</Badge>
           </div>
+          {c.spend && (
+            <div className="card card-pad" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+              {[['Court', c.spend.court], ['Rentals', c.spend.rentals], ['RG Store', c.spend.store], ['Community', c.spend.community], ['Memberships', c.spend.memberships]]
+                .filter(([, v]) => v).map(([k, v]) => <div key={k}><div className="subtle" style={{ fontSize: 12 }}>{k}</div><b>{money(v)}</b></div>)}
+              <div><div className="subtle" style={{ fontSize: 12 }}>Average bill</div><b>{money(c.spend.average_bill)}</b> <span className="subtle" style={{ fontSize: 12 }}>· {c.spend.bills} bills</span></div>
+            </div>
+          )}
           <div className="list">
             {c.history.map((h, i) => (
               <div key={i} className="list-item">

@@ -1102,3 +1102,83 @@ def test_custom_discount_report_shows_who_gave_what_and_why(client):
     assert r["count"] == 2 and r["total_given"] == 250
     assert sorted((x["reason"], x["off"]) for x in r["items"]) == [("Late start", 50), ("Rain delay", 200)]
     assert r["by_person"] == [{"name": "VM", "count": 2, "given": 250}]
+
+
+def _store_product(client, name="Water", price=30, stock=10):
+    db = SessionLocal()
+    db.add(User(name="Store Admin", email="sadm@x.com", password_hash=hash_password("pulse1234"), role="hq_admin"))
+    db.commit()
+    db.close()
+    ha = login(client, "sadm@x.com")
+    return ha, client.post("/api/store/1/products", headers=ha, json={"name": name, "price": price, "low_stock_level": 0,
+                                                                       "opening_stock": stock}).json()["id"]
+
+
+def test_one_bill_for_court_rentals_and_store_items_split_into_baskets(client):
+    from app.models import Payment, RentalCharge, StoreSale
+    ha, water = _store_product(client)
+    _, body, ids = _setup_rentals(client)
+    vm = login(client, "vm@x.com")
+    b = direct(client, vm, rentals=[{"item_id": ids["Racket"], "quantity": 2}]).json()           # court 800 + rackets 100
+    r = client.post(f"/api/bookings/{b['id']}/store", headers=vm, json={"items": [{"item_id": water, "quantity": 3}]})
+    assert r.status_code == 200
+    bill = r.json()
+    assert (bill["total"], bill["due"], bill["paid"]) == (990, 990, 0)
+    assert bill["by_basket"] == {"court": 800, "rental": 100, "store": 90}
+    assert client.get("/api/store/1/products", headers=vm).json()[0]["stock"] == 7     # handed over: stock already down
+    # one payment settles everything
+    timeutil.set_clock(at(19, 0))
+    paid = client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "upi"}).json()
+    assert (paid["due"], paid["paid"]) == (0, 990) and all(x["paid"] and x["method"] == "upi" for x in paid["lines"])
+    assert client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "upi"}).status_code == 409
+    # ...but each part sits in its own basket
+    db = SessionLocal()
+    assert [p.amount for p in db.query(Payment).filter_by(source_type="booking")] == [800]       # court revenue only
+    assert sum(x.amount for x in db.query(RentalCharge).filter(RentalCharge.paid_at.is_not(None))) == 100
+    s = db.query(StoreSale).one()
+    assert (s.status, s.total, s.booking_id, s.payment_method) == ("confirmed", 90, b["id"], "upi")
+    db.close()
+    sales = client.get("/api/store/1/sales", headers=ha).json()
+    assert sales["totals"]["revenue"] == 90                                                         # in the store's books
+
+
+def test_unpaid_store_items_can_come_off_the_bill(client):
+    ha, water = _store_product(client)
+    vm = login(client, "vm@x.com")
+    b = direct(client, vm).json()
+    bill = client.post(f"/api/bookings/{b['id']}/store", headers=vm, json={"items": [{"item_id": water, "quantity": 2}]}).json()
+    sid = next(x["id"] for x in bill["lines"] if x["basket"] == "store")
+    assert client.get("/api/store/1/sales", headers=ha).json()["totals"]["revenue"] == 0          # unpaid isn't revenue yet
+    bill = client.delete(f"/api/bookings/{b['id']}/store/{sid}", headers=vm).json()
+    assert [x["basket"] for x in bill["lines"]] == ["court"]
+    assert client.get("/api/store/1/products", headers=vm).json()[0]["stock"] == 10
+
+
+def test_vm_can_cancel_before_or_mid_session_with_a_reason(client):
+    vm = login(client, "vm@x.com")
+    before = direct(client, vm).json()                                   # 19:00-20:00
+    mid = direct(client, vm, start="20:00", phone="9811111301", name="Mid").json()
+    assert client.post(f"/api/bookings/{before['id']}/cancel", headers=vm, json={"reason": ""}).status_code == 422
+    r = client.post(f"/api/bookings/{before['id']}/cancel", headers=vm, json={"reason": "customer_request"}).json()
+    assert r["status"] == "cancelled"
+    timeutil.set_clock(at(20, 20))
+    client.post(f"/api/bookings/{mid['id']}/attended", headers=vm)
+    r = client.post(f"/api/bookings/{mid['id']}/cancel", headers=vm, json={"reason": "left_mid_session"})   # already playing
+    assert r.status_code == 200 and r.json()["cancel_reason"] == "left_mid_session"
+    late = direct(client, vm, start="21:00", phone="9811111302", name="Late").json()
+    timeutil.set_clock(at(22, 5))
+    client.post(f"/api/bookings/{late['id']}/pay", headers=login(client, "hq@x.com"), json={"method": "cash"})
+    assert client.post(f"/api/bookings/{late['id']}/cancel", headers=vm, json={"reason": "other", "note": "x"}).status_code == 409  # ended
+
+
+def test_customer_spend_and_average_bill(client):
+    ha, water = _store_product(client)
+    vm, hq = login(client, "vm@x.com"), login(client, "hq@x.com")
+    b = direct(client, vm).json()
+    client.post(f"/api/bookings/{b['id']}/store", headers=vm, json={"items": [{"item_id": water, "quantity": 2}]})
+    timeutil.set_clock(at(19, 0))
+    client.post(f"/api/bookings/{b['id']}/bill/pay", headers=vm, json={"method": "cash"})        # bill 1: 800 + 60
+    client.post("/api/store/1/sales", headers=vm, json={"items": [{"product_id": water, "quantity": 1}], "phone": "9811111111",
+                                                       "method": "cash"})                         # bill 2: 30 standalone
+    sp = client.get(f"/api/customers/{b['customer']['id']}", headers=hq).json()["spend"]
+    assert (sp["court"], sp["store"], sp["total"], sp["bills"], sp["average_bill"]) == (800, 90, 890, 2, 445)
