@@ -41,7 +41,7 @@ export default function MyCashPage() {
           {!data.entries.length ? <Empty title="Nothing yet">Deposits and expenses appear here.</Empty> : data.entries.map((e) => (
             <div key={e.id} style={{ padding: '10px 0', borderTop: '1px solid var(--line)' }}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <span><b>{KIND[e.kind]?.[0] || e.kind}</b> · {vname(e.venue)}</span>
+                <span><b>{KIND[e.kind]?.[0] || e.kind}</b> · {e.kind === 'expense' ? 'spent at ' : ''}{vname(e.venue)}</span>
                 <b style={{ color: KIND[e.kind]?.[1] }}>{e.kind === 'adjust' ? (e.amount > 0 ? '+' : '−') : KIND[e.kind]?.[2]}{money(Math.abs(e.amount))}</b>
               </div>
               <div className="subtle" style={{ fontSize: 12.5 }}>
@@ -75,7 +75,7 @@ function MoveDrawer({ kind, holding, onClose, onDone }) {
     <Drawer open onClose={onClose} title={deposit ? 'Deposit in bank' : 'Record an expense'} subtitle={`${money(held)} with you from this venue`}>
       <div className="form">
         {holding.length > 1 && (
-          <Field label="Cash from">
+          <Field label={deposit ? 'Deposited from which venue?' : 'Spent at which venue?'}>
             <select className="select" value={f.venue_id} onChange={(e) => setF({ ...f, venue_id: e.target.value })}>
               {holding.map((v) => <option key={v.venue_id} value={v.venue_id}>{vname(v.name)} · {money(v.balance)}</option>)}
             </select>
