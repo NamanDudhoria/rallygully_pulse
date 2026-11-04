@@ -10,8 +10,7 @@ from .. import audit, serialize
 from ..auth import current_user
 from ..permissions import require
 from ..db import get_db
-from ..models import (AuditEvent, Booking, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Membership, MembershipUse, Notification, CashEntry,
-                      Participant, PricingRule, RentalItem, SpecialDate, User, Venue, WeeklyHours)
+from ..models import (AuditEvent, Booking, CashEntry, CommunityGame, Customer, DayClose, Discount, Facility, IngestionRun, Membership, MembershipUse, Notification, Participant, Payment, PricingRule, Refund, RentalCharge, RentalItem, SpecialDate, StoreSale, User, Venue, WeeklyHours)
 from ..services import customers as customer_svc
 from ..services import cash as cash_svc
 from ..services import membership as membership_svc
@@ -601,10 +600,52 @@ def customer_detail(cid: int, user: User = Depends(require("customers.view")), d
                         "venue": v.name, "amount": p.amount, "status": g.status, "attendance": p.attendance,
                         "payment_status": p.payment_status, "level": p.level,
                         "counts": g.status != "cancelled" and p.attendance == "attended"})
+    for s in db.scalars(select(StoreSale).where(StoreSale.customer_id == cid, StoreSale.booking_id.is_(None),
+                                                StoreSale.status == "confirmed")):
+        v = db.get(Venue, s.venue_id)
+        history.append({"kind": "store", "id": s.id, "date": s.paid_at.date(), "time": s.paid_at.strftime("%H:%M"),
+                        "venue": v.name, "amount": s.total, "status": "confirmed", "attendance": None,
+                        "payment_status": "paid", "counts": False})
     history.sort(key=lambda h: h["date"], reverse=True)
     completed = sum(1 for h in history if h["counts"])
     return {**serialize.customer(c), "history": history, "completed": completed, "returning": completed >= 2,
-            "net_spend": sum(h["amount"] for h in history if h["counts"])}
+            "net_spend": sum(h["amount"] for h in history if h["counts"]), "spend": customer_spend(db, cid)}
+
+
+def customer_spend(db: Session, cid: int) -> dict:
+    """What a customer has actually paid, by basket, and their average bill. A bill is one booking (court, rentals and
+    store items bought during it), one standalone store purchase, one Community game or one membership."""
+    bids = list(db.scalars(select(Booking.id).where(Booking.customer_id == cid)))
+    pids = list(db.scalars(select(Participant.id).where(Participant.customer_id == cid)))
+    court_by = dict(db.execute(select(Payment.source_id, func.sum(Payment.amount)).where(
+        Payment.source_type == "booking", Payment.source_id.in_(bids), Payment.void.is_(False))
+        .group_by(Payment.source_id)).all()) if bids else {}
+    refunds = float(db.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
+        Refund.booking_id.in_(bids), Refund.status == "processed")) or 0) if bids else 0.0
+    rent_by = dict(db.execute(select(RentalCharge.booking_id, func.sum(RentalCharge.amount)).where(
+        RentalCharge.booking_id.in_(bids), RentalCharge.paid_at.is_not(None)).group_by(RentalCharge.booking_id)).all()) if bids else {}
+    store_rows = db.execute(select(StoreSale.booking_id, StoreSale.total).where(
+        StoreSale.customer_id == cid, StoreSale.status == "confirmed")).all()
+    community = float(db.scalar(select(func.coalesce(func.sum(Payment.amount), 0)).where(
+        Payment.source_type == "participant", Payment.source_id.in_(pids), Payment.void.is_(False))) or 0) if pids else 0.0
+    community_bills = db.scalar(select(func.count(func.distinct(Payment.source_id))).where(
+        Payment.source_type == "participant", Payment.source_id.in_(pids), Payment.void.is_(False))) if pids else 0
+    members = db.execute(select(func.coalesce(func.sum(Membership.amount_paid), 0), func.count(Membership.id)).where(
+        Membership.customer_id == cid, Membership.status != "cancelled")).one()
+    store_on_bills = {}
+    for bid, t in store_rows:
+        if bid:
+            store_on_bills[bid] = store_on_bills.get(bid, 0.0) + t
+    booking_bills = {b for b in set(court_by) | set(rent_by) | set(store_on_bills)
+                     if court_by.get(b, 0) + rent_by.get(b, 0) + store_on_bills.get(b, 0) > 0}
+    standalone = [t for bid, t in store_rows if not bid]
+    out = {"court": round(sum(court_by.values()) - refunds, 2), "rentals": round(sum(rent_by.values()), 2),
+           "store": round(sum(t for _, t in store_rows), 2), "community": round(community, 2),
+           "memberships": round(float(members[0]), 2)}
+    out["total"] = round(sum(out.values()), 2)
+    out["bills"] = len(booking_bills) + len(standalone) + (community_bills or 0) + int(members[1])
+    out["average_bill"] = round(out["total"] / out["bills"], 2) if out["bills"] else 0.0
+    return out
 
 
 # ── Audit & system ───────────────────────────────────────────────────────────

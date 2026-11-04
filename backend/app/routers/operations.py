@@ -14,7 +14,7 @@ from ..permissions import can, ensure_venue, require, roster_pairs, roster_scope
 from ..db import get_db
 from ..models import (AcademyOccurrence, AcademySeries, Booking, CommunityGame, CorporateEvent, OperationalBlock,
                       Participant, User)
-from ..services import activities, bookings, community, inventory, player_import
+from ..services import activities, bill as bill_svc, bookings, community, inventory, player_import, store as store_svc
 from ..timeutil import today
 from .common import get_or_404, minutes
 
@@ -176,6 +176,70 @@ def pay_rentals(booking_id: int, body: RentalPayIn, user: User = Depends(current
     bookings.pay_rentals(db, user, b, body.method)
     db.commit()
     return serialize.booking(db, b, detail=True)
+
+
+class BillPayIn(BaseModel):
+    method: str
+
+
+class BillMethodIn(BaseModel):
+    basket: str  # court | rental | store
+    method: str
+    id: int | None = None  # the rental line or the store sale; not needed for the court
+
+
+@router.get("/bookings/{booking_id}/bill")
+def get_bill(booking_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return bill_svc.bill(db, _booking(db, user, booking_id, write=False))
+
+
+@router.post("/bookings/{booking_id}/bill/pay")
+def pay_bill(booking_id: int, body: BillPayIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    out = bill_svc.pay(db, user, _booking(db, user, booking_id), body.method)
+    db.commit()
+    return out
+
+
+@router.post("/bookings/{booking_id}/bill/method")
+def change_bill_method(booking_id: int, body: BillMethodIn, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Edit how one part of the bill was paid. Only the mode of payment can be changed."""
+    b = _booking(db, user, booking_id)
+    if body.basket == "court":
+        bookings.change_court_method(db, user, b, body.method)
+    elif body.basket == "rental" and body.id:
+        bookings.change_rental_method(db, user, b, body.id, body.method)
+    elif body.basket == "store" and body.id:
+        from ..models import StoreSale
+        sale = get_or_404(db, StoreSale, body.id)
+        if sale.booking_id != b.id:
+            raise HTTPException(404, "Not on this booking's bill.")
+        store_svc.change_method(db, user, sale, body.method)
+    else:
+        raise HTTPException(422, "Say which part of the bill: court, a rental or a store sale.")
+    db.commit()
+    return bill_svc.bill(db, b)
+
+
+@router.post("/bookings/{booking_id}/store")
+def add_store_items(booking_id: int, body: RentalsIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """RG Store items bought during the booking, added to its bill (rentals and store items share the line shape)."""
+    b = _booking(db, user, booking_id)
+    store_svc.add_to_bill(db, user, b, [(r.item_id, r.quantity) for r in body.items])
+    db.commit()
+    return bill_svc.bill(db, b)
+
+
+@router.delete("/bookings/{booking_id}/store/{sale_id}")
+def remove_store_items(booking_id: int, sale_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    b = _booking(db, user, booking_id)
+    from ..models import StoreSale
+    sale = get_or_404(db, StoreSale, sale_id)
+    if sale.booking_id != b.id:
+        raise HTTPException(404, "Not on this booking's bill.")
+    store_svc.remove_from_bill(db, user, sale)
+    db.commit()
+    return bill_svc.bill(db, b)
 
 
 def _booking(db: Session, user: User, booking_id: int, write: bool = True) -> Booking:

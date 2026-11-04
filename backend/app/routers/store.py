@@ -164,6 +164,20 @@ def sales(venue_id: int, date_from: date | None = None, date_to: date | None = N
             "sales": [store.sale_dict(db, s, names) for s in rows]}
 
 
+class MethodIn(BaseModel):
+    method: str
+
+
+@router.post("/sales/{sale_id}/method")
+def change_method(sale_id: int, body: MethodIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Edit how a standalone store sale was paid (the only thing that can change on a paid sale)."""
+    sale = get_or_404(db, StoreSale, sale_id)
+    _venue_access(db, user, sale.venue_id, write=True)
+    s = store.change_method(db, user, sale, body.method)
+    db.commit()
+    return store.sale_dict(db, s)
+
+
 @router.post("/sales/{sale_id}/void")
 def void(sale_id: int, body: VoidIn, user: User = Depends(require("store.manage")), db: Session = Depends(get_db)):
     s = store.void_sale(db, user, get_or_404(db, StoreSale, sale_id), body.reason)

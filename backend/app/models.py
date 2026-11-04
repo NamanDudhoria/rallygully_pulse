@@ -194,7 +194,8 @@ class StoreSale(Base):
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
     total: Mapped[float] = mapped_column(Float)
     payment_method: Mapped[str] = mapped_column(String(10))
-    status: Mapped[str] = mapped_column(String(10), default="confirmed")  # confirmed | voided (razorpay: pending)
+    status: Mapped[str] = mapped_column(String(10), default="confirmed")  # confirmed | on_bill (unpaid, on a booking's bill) | voided
+    booking_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # set when bought as part of a booking
     paid_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
     sold_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

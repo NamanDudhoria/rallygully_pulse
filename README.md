@@ -152,6 +152,15 @@ for `PULSE_SOP_RETENTION_DAYS` days (default 30) for HQ to review, then deleted.
 closing the day is the clock-out, allowed once the shift ends. HQ sees clock-in times, lateness and missing photos
 on the roster and the venue page.
 
+### Payment modes
+
+A payment is recorded as **Cash**, **District QR**, **RG QR**, **Razorpay** or **Other** (these replace UPI; older
+records keep "UPI (older)" and "Card (older)"). The mode of a recorded payment can be corrected, and only the mode:
+the pencil next to a paid line on a booking's bill (court, a rental, or store items), or the mode on a standalone
+store sale. A Venue Manager can correct it on the day, until the day is closed; HQ any time. Platform-prepaid and
+membership payments can't be changed. Every change is in the audit trail, and the venue cash balance follows (a
+payment moved to or from Cash adds to or takes off the till).
+
 ### RG Store
 
 Each venue has its own food and drink store (RG Store in the menu). HQ (HQ Admin and HQ) adds products with a price,

@@ -150,10 +150,10 @@ def test_void_puts_stock_back_and_cash_counts_store_sales(c):
     admin, hq, vm = login(c, "admin@x.com"), login(c, "hq@x.com"), login(c, "vm@x.com")
     water = product(c, admin).json()["id"]
     cash_sale = sale(c, vm, [{"product_id": water, "quantity": 2}]).json()
-    sale(c, vm, [{"product_id": water, "quantity": 1}], method="upi", phone="9811111192")
+    sale(c, vm, [{"product_id": water, "quantity": 1}], method="rg_qr", phone="9811111192")
     assert c.get("/api/venues/1/cash", headers=admin).json()["balance"] == 60       # only the cash sale
     day = c.get("/api/store/1/sales", headers=vm).json()
-    assert day["totals"] == {"sales": 2, "revenue": 90, "by_method": {"cash": 60, "upi": 30}, "voided": 0}
+    assert day["totals"] == {"sales": 2, "revenue": 90, "by_method": {"cash": 60, "rg_qr": 30}, "voided": 0}
     assert day["top_items"][0] == {"name": "Water 500ml", "quantity": 3, "amount": 90}
     assert c.post(f"/api/store/sales/{cash_sale['id']}/void", headers=vm, json={"reason": "x"}).status_code == 403
     assert c.post(f"/api/store/sales/{cash_sale['id']}/void", headers=hq, json={"reason": ""}).status_code == 422

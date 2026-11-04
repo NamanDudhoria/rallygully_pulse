@@ -297,6 +297,14 @@ def update_participant(db: Session, actor: User, p: Participant, *, attendance: 
         p.payment_status, p.payment_method, p.amount = "paid", method, g.per_person
         db.add(Payment(source_type="participant", source_id=p.id, venue_id=g.venue_id, activity_date=g.date,
                        amount=g.per_person, method=method, collected_at=now_local(), actor_id=actor.id))
+    elif paid is True and p.payment_status == "paid" and method and method != p.payment_method:
+        from .bookings import _check_new_method, _may_edit_method  # only the mode of an existing payment can change
+        _check_new_method(p.payment_method, method)
+        _may_edit_method(db, actor, g.venue_id, g.date)
+        p.payment_method = method
+        for pay in db.scalars(select(Payment).where(Payment.source_type == "participant", Payment.source_id == p.id,
+                                                    Payment.void.is_(False))):
+            pay.method = method
     elif paid is False and p.payment_status == "paid":
         live = list(db.scalars(select(Payment).where(Payment.source_type == "participant", Payment.source_id == p.id,
                                                      Payment.void.is_(False))))
