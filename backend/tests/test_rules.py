@@ -493,6 +493,7 @@ def test_whatsapp_signup_post_imports_matching_section(client):
     assert [p["name"] for p in ps] == ["Jatan", "Jatan's guest", "Lavitt"]
     assert all(p["level"] == "Intermediate" and p["phone"] is None for p in ps)
     assert ps[1]["guest_of_name"] == "Jatan"
+    assert all(p["slot"] == "7-8 PM | Intermediate" for p in ps)
     # Both sections on request; the 7-8 names are already in, so only 8-9 is new
     r = client.post(url, headers=hq, json={"text": POST, "sections": ["7-8 PM | Intermediate", "8-9 PM | Beginner"]}).json()
     assert r["ready"] == 2

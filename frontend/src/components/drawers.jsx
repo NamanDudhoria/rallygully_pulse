@@ -741,7 +741,7 @@ export function GameDrawer({ id, onClose, onChanged }) {
                   <div className="grow">
                     <div className="title">{p.name || phoneFmt(p.phone)}</div>
                     <div className="meta">
-                      {p.phone ? phoneFmt(p.phone) : <span>no phone</span>} · {p.level}{p.guest_of_name && <> · guest of {p.guest_of_name}</>}
+                      {p.phone ? phoneFmt(p.phone) : <span>no phone</span>} · <strong>{p.level}</strong>{p.slot && <> · booked {p.slot.split('|')[0].trim()}</>}{p.guest_of_name && <> · guest of {p.guest_of_name}</>}
                     </div>
                     {manage && open && courts.length > 0 ? (
                       <select className="select" aria-label={`Court for ${p.name || 'player'}`} value={p.facility_id ?? ''}

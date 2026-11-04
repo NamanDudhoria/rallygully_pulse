@@ -130,7 +130,7 @@ def _check_open(g: CommunityGame) -> None:
 
 
 def add_participant(db: Session, actor: User, g: CommunityGame, phone: str | None, name: str | None, level: str,
-                    notify_player: bool = True, guest_of: int | None = None) -> Participant:
+                    notify_player: bool = True, guest_of: int | None = None, slot: str | None = None) -> Participant:
     """Add a player by phone (linked to the customer record) or, failing that, by name only."""
     _require_manage(actor, "Adding players")
     _check_open(g)
@@ -149,7 +149,8 @@ def add_participant(db: Session, actor: User, g: CommunityGame, phone: str | Non
     elif not name:
         raise DomainError("Enter a name, a phone number, or both.", 422)
     p = Participant(game_id=g.id, customer_id=customer.id if customer else None, name=None if customer else name,
-                    level=level[:14], level_label=level, guest_of=guest_of)
+                    level=level[:14], level_label=level, guest_of=guest_of,
+                    slot=(slot or "").strip()[:60] or None)
     db.add(p)
     db.flush()
     db.refresh(g)
@@ -261,12 +262,13 @@ def import_players(db: Session, actor: User, g: CommunityGame, parsed: list[dict
             key = _norm(row.get("name"))
             host_id = hosts.get(key) if row["host_only"] else None
             if not row["host_only"]:
-                host = add_participant(db, actor, g, row.get("phone"), row.get("name"), row["level"])
+                host = add_participant(db, actor, g, row.get("phone"), row.get("name"), row["level"],
+                                   slot=row.get("section"))
                 host_id = hosts[key] = host.id
                 added += 1
             for n in range(row["guests"]):
                 label = f"{row.get('name') or 'Player'}'s guest" + (f" {n + 1}" if row["guests"] > 1 else "")
-                add_participant(db, actor, g, None, label, row["level"], guest_of=host_id)
+                add_participant(db, actor, g, None, label, row["level"], guest_of=host_id, slot=row.get("section"))
                 added += 1
             row["status"] = "added"
         audit.record(db, actor, "community.import_players", "community_game", g.id, None,
@@ -350,7 +352,7 @@ def participant_dict(db: Session, p: Participant) -> dict:
                                                                 Payment.source_id == p.id, Payment.void.is_(False)))
     host = db.get(Participant, p.guest_of) if p.guest_of else None
     return {"id": p.id, "customer_id": c.id if c else None, "name": (c.name if c else None) or p.name,
-            "phone": c.phone if c else None, "level": p.level_label or p.level, "facility_id": p.facility_id, "guest_of": p.guest_of,
+            "phone": c.phone if c else None, "level": p.level_label or p.level, "facility_id": p.facility_id, "slot": p.slot, "guest_of": p.guest_of,
             "guest_of_name": _player_name(db, host) if host else None,
             "attendance": p.attendance, "payment_status": p.payment_status, "amount": p.amount,
             "payment_method": p.payment_method, "collected_by": collected_by}

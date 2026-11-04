@@ -545,6 +545,7 @@ class Participant(Base):
     guest_of: Mapped[int | None] = mapped_column(ForeignKey("participants.id"), nullable=True)  # "Jatan + 1"
     level: Mapped[str] = mapped_column(String(14))  # legacy short form (first 14 chars of the level)
     level_label: Mapped[str | None] = mapped_column(String(40), nullable=True)  # the level as written, e.g. "Beginner +"
+    slot: Mapped[str | None] = mapped_column(String(60), nullable=True)  # sign-up section, e.g. "7-8 PM | Intermediate"
     facility_id: Mapped[int | None] = mapped_column(nullable=True)  # court assigned by HQ / Community, one of the game's
     attendance: Mapped[str] = mapped_column(String(10), default="added")  # added | attended | no_show
     payment_status: Mapped[str] = mapped_column(String(10), default="unpaid")  # unpaid | paid
